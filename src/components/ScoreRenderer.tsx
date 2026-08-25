@@ -17,6 +17,11 @@ interface ScoreRendererProps {
 export function ScoreRenderer({ xmlText, currentEventIndex, onRenderStateChange }: ScoreRendererProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
+  const onRenderStateChangeRef = useRef(onRenderStateChange);
+
+  useEffect(() => {
+    onRenderStateChangeRef.current = onRenderStateChange;
+  }, [onRenderStateChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,13 +35,13 @@ export function ScoreRenderer({ xmlText, currentEventIndex, onRenderStateChange 
     osmdRef.current = null;
 
     if (!scoreXml) {
-      onRenderStateChange({ status: "empty" });
+      onRenderStateChangeRef.current({ status: "empty" });
       return;
     }
 
     async function renderScore(target: HTMLElement, sourceXml: string) {
       try {
-        onRenderStateChange({ status: "loading" });
+        onRenderStateChangeRef.current({ status: "loading" });
         const osmd = new OpenSheetMusicDisplay(target, {
           autoResize: true,
           backend: "svg",
@@ -50,10 +55,10 @@ export function ScoreRenderer({ xmlText, currentEventIndex, onRenderStateChange 
         const cursor = (osmd as OpenSheetMusicDisplay & { cursor?: CursorLike }).cursor;
         cursor?.show();
         osmdRef.current = osmd;
-        onRenderStateChange({ status: "ready" });
+        onRenderStateChangeRef.current({ status: "ready" });
       } catch (error) {
         if (!cancelled) {
-          onRenderStateChange({ status: "error", error: error instanceof Error ? error.message : "Score rendering failed." });
+          onRenderStateChangeRef.current({ status: "error", error: error instanceof Error ? error.message : "Score rendering failed." });
         }
       }
     }
@@ -63,7 +68,7 @@ export function ScoreRenderer({ xmlText, currentEventIndex, onRenderStateChange 
     return () => {
       cancelled = true;
     };
-  }, [xmlText, onRenderStateChange]);
+  }, [xmlText]);
 
   useEffect(() => {
     const osmd = osmdRef.current as (OpenSheetMusicDisplay & { cursor?: CursorLike }) | null;
