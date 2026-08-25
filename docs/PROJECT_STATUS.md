@@ -11,7 +11,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - MusicXML is normalized into ordered playable `ScoreEvent` objects.
 - The app requests Web MIDI access, lists MIDI inputs, and subscribes to the selected input. This has been smoke-tested with a real keyboard by the user.
 - MIDI note-on, note-off, velocity-zero note-off, and sustain pedal messages are decoded; real keypresses have been observed by the user.
-- Held notes are compared with the current expected event.
+- Held notes are compared with the current expected event; user-confirmed real-keyboard progress now works after the renderer lifecycle fix.
 - Chords advance only when every expected note is held; extra notes are shown but do not block progress.
 - A simulation button can advance events without hardware.
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, expected event, event index, parser warnings, and comparison results.
@@ -25,13 +25,13 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Fixed a renderer lifecycle bug where MIDI/debug rerenders could reload OpenSheetMusicDisplay and cause severe memory growth per keypress.
 
 ## Work In Progress
-- User reports the sample score displays and the keyboard is detected with keypresses shown. Current remaining manual check is whether score cursor/progress advances on correctly matched expected events after the renderer lifecycle fix.
+- User reports the sample score displays, the keyboard is detected, keypresses are shown, memory behavior is fixed, and score/progress advancement works.
 
 ## Known Issues Or Blockers
 - Written repeat expansion is deferred; the parser follows printed measure order and reports repeat warnings.
 - OSMD cursor advancement is event-index based and may not perfectly align with all complex MusicXML constructs.
 - Tied stop-only notes are skipped as re-strikes, but tie durations are not merged into extended event durations.
-- Real MIDI hardware has been partially validated by the user: device detection and keypress display work. Correct-event score advancement still needs focused real-keyboard validation.
+- Real MIDI hardware has been partially validated by the user: device detection, keypress display, and correct-event score/progress advancement work. Device connection/disconnection behavior still needs focused validation.
 - No `.mid` playback/comparison path is implemented; the `.mxl` score remains the source of truth.
 
 ## Important Assumptions
