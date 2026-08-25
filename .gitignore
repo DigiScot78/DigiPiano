@@ -7,6 +7,9 @@
 node_modules/
 vendor/
 
+# Local score samples
+Samples/
+
 # Build and cache output
 dist/
 build/
