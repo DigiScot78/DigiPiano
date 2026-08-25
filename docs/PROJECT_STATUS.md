@@ -8,11 +8,11 @@ The project is a browser-based piano learning proof of concept. The current mile
 - `.mxl`, `.musicxml`, and `.xml` files can be selected from the local computer.
 - `.mxl` files are decompressed in-browser with `fflate`.
 - OpenSheetMusicDisplay renders the selected score as conventional notation.
-- MusicXML is normalized into ordered playable `ScoreEvent` objects.
+- MusicXML is normalized into ordered playable `ScoreEvent` objects with per-note staff metadata.
 - The app requests Web MIDI access, lists MIDI inputs, and subscribes to the selected input. This has been smoke-tested with a real keyboard by the user.
 - MIDI note-on, note-off, velocity-zero note-off, and sustain pedal messages are decoded; real keypresses have been observed by the user.
 - Held notes are compared with the current expected event; user-confirmed real-keyboard progress now works after the renderer lifecycle fix.
-- Chords advance only when every expected note is held; extra notes are shown in the status panel and as red labels near the current score cursor, but do not block progress.
+- Chords advance only when every expected filtered note is held; extra notes are shown in the status panel and as red labels near the current score cursor, but do not block progress.
 - A simulation button can advance events without hardware.
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, expected event, event index, parser warnings, and comparison results.
 
@@ -24,13 +24,15 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Verified through a temporary local-only test that `Samples/Mad_world_Piano.mxl` decompresses and produces playable score events.
 - Fixed a renderer lifecycle bug where MIDI/debug rerenders could reload OpenSheetMusicDisplay and cause severe memory growth per keypress.
 - Added a cursor-anchored red wrong-note overlay for extra held MIDI notes.
+- Added `docs/ROADMAP.md` for multi-session planning.
+- Added visual drag selection, selected-range highlighting, once/loop practice modes, and staff-based hand filtering.
 
 ## Work In Progress
-- User reports the sample score displays, the keyboard is detected, keypresses are shown, memory behavior is fixed, and score/progress advancement works.
+- Interactive score foundation is in progress: visual range selection, staff hand filters, and selected-range once/loop practice are implemented and awaiting real-keyboard validation.
 
 ## Known Issues Or Blockers
 - Written repeat expansion is deferred; the parser follows printed measure order and reports repeat warnings.
-- OSMD cursor advancement and wrong-note overlay placement are event-index/cursor based and may not perfectly align with all complex MusicXML constructs.
+- OSMD cursor advancement, selection hit zones, and wrong-note overlay placement are event-index/cursor based and may not perfectly align with all complex MusicXML constructs.
 - Tied stop-only notes are skipped as re-strikes, but tie durations are not merged into extended event durations.
 - Real MIDI hardware has been partially validated by the user: device detection, keypress display, and correct-event score/progress advancement work. Device connection/disconnection behavior still needs focused validation.
 - No `.mid` playback/comparison path is implemented; the `.mxl` score remains the source of truth.

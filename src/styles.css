@@ -93,7 +93,7 @@ input[type="file"] {
 
 .control-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.2fr;
+  grid-template-columns: 1fr 1fr 1.35fr;
   gap: 1rem;
   margin-bottom: 1rem;
 }
@@ -144,6 +144,19 @@ dd {
   min-height: 13rem;
 }
 
+.practice-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.selection-summary {
+  margin: 0 0 0.55rem;
+  color: #1d5f74;
+  font-weight: 700;
+}
+
 .event-count {
   margin: 0 0 0.35rem;
   color: #64707a;
@@ -190,33 +203,44 @@ dd {
   color: #64707a;
 }
 
+.score-renderer-shell {
+  min-height: 36rem;
+  position: relative;
+}
+
 .score-renderer {
   min-height: 36rem;
   padding: 1rem;
 }
 
-.debug-panel {
-  max-height: 72vh;
-  overflow: auto;
+.score-selection-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
 }
 
-.debug-panel h3 {
-  margin: 1rem 0 0.35rem;
-  font-size: 0.9rem;
+.score-event-hit-zone {
+  position: absolute;
+  width: 24px;
+  min-height: 42px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  cursor: crosshair;
+  pointer-events: auto;
 }
 
-pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  background: #f0f3f5;
-  border-radius: 6px;
-  padding: 0.6rem;
-  font-size: 0.78rem;
+.score-event-hit-zone:hover,
+.score-event-hit-zone.current {
+  border-color: rgba(29, 95, 116, 0.55);
+  background: rgba(29, 95, 116, 0.08);
 }
 
-.score-renderer-shell {
-  min-height: 36rem;
-  position: relative;
+.score-event-hit-zone.selected {
+  border-color: rgba(29, 95, 116, 0.85);
+  background: rgba(29, 95, 116, 0.2);
 }
 
 .wrong-note-overlay {
@@ -259,4 +283,23 @@ pre {
   font-size: 0.78rem;
   font-weight: 700;
   box-shadow: 0 1px 4px rgba(80, 0, 0, 0.15);
+}
+
+.debug-panel {
+  max-height: 72vh;
+  overflow: auto;
+}
+
+.debug-panel h3 {
+  margin: 1rem 0 0.35rem;
+  font-size: 0.9rem;
+}
+
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f0f3f5;
+  border-radius: 6px;
+  padding: 0.6rem;
+  font-size: 0.78rem;
 }

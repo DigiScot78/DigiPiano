@@ -1,3 +1,10 @@
+export interface ScoreEventNote {
+  midiNote: number;
+  staffNumber: number;
+  voiceNumber: string;
+  sourceNoteId: string;
+}
+
 export interface ScoreEvent {
   id: string;
   partId: string;
@@ -8,6 +15,7 @@ export interface ScoreEvent {
   staffNumbers: number[];
   voiceNumbers: string[];
   sourceNoteIds: string[];
+  noteDetails: ScoreEventNote[];
   isRest?: boolean;
 }
 

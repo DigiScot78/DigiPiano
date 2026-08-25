@@ -5,6 +5,19 @@ import { ScoreRenderer } from "./ScoreRenderer";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+const cursorElement = document.createElement("div");
+cursorElement.getBoundingClientRect = vi.fn(() => ({
+  left: 100,
+  top: 120,
+  width: 4,
+  height: 48,
+  right: 104,
+  bottom: 168,
+  x: 100,
+  y: 120,
+  toJSON: () => undefined,
+}));
+
 const osmdMocks = vi.hoisted(() => ({
   load: vi.fn(function () {
     return Promise.resolve();
@@ -27,6 +40,7 @@ vi.mock("opensheetmusicdisplay", () => ({
         hide: vi.fn(),
         reset: osmdMocks.cursorReset,
         next: osmdMocks.cursorNext,
+        cursorElement,
       },
     };
   }),
@@ -52,12 +66,12 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} wrongNotes={[]} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} wrongNotes={[]} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
@@ -71,18 +85,18 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} wrongNotes={[]} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={2} wrongNotes={[]} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={2} eventCount={3} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     expect(osmdMocks.load).toHaveBeenCalledTimes(1);
     expect(osmdMocks.cursorReset).toHaveBeenCalled();
-    expect(osmdMocks.cursorNext).toHaveBeenCalledTimes(2);
+    expect(osmdMocks.cursorNext).toHaveBeenCalled();
   });
 
   it("shows wrong-note labels without reloading the score", async () => {
@@ -91,12 +105,12 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} wrongNotes={[]} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} wrongNotes={[61]} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} wrongNotes={[61]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 

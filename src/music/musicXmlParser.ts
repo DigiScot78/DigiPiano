@@ -1,5 +1,5 @@
 import { pitchToMidi } from "./note";
-import type { ParsedScore, ScoreEvent } from "./scoreTypes";
+import type { ParsedScore, ScoreEvent, ScoreEventNote } from "./scoreTypes";
 import { parseXml } from "./musicXmlLoader";
 
 interface PartCursorState {
@@ -14,7 +14,7 @@ interface PendingEvent {
   measureNumber: number;
   startQuarter: number;
   durationQuarters: number;
-  midiNotes: number[];
+  noteDetails: ScoreEventNote[];
   staffNumbers: Set<number>;
   voiceNumbers: Set<string>;
   sourceNoteIds: string[];
@@ -88,7 +88,7 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
   }
 
   const normalized = Array.from(events.values())
-    .filter((event) => event.midiNotes.length > 0 || event.isRest)
+    .filter((event) => event.noteDetails.length > 0 || event.isRest)
     .map(toScoreEvent)
     .sort((a, b) => a.startQuarter - b.startQuarter || a.measureNumber - b.measureNumber || a.id.localeCompare(b.id));
 
@@ -145,19 +145,25 @@ function handleNote(
     measureNumber: context.measureNumber,
     startQuarter,
     durationQuarters,
-    midiNotes: [],
+    noteDetails: [],
     staffNumbers: new Set<number>(),
     voiceNumbers: new Set<string>(),
     sourceNoteIds: [],
     isRest,
   });
 
+  const sourceNoteId = note.getAttribute("default-x") ?? `${context.measureNumber}:${event.sourceNoteIds.length}`;
   event.durationQuarters = Math.max(event.durationQuarters, durationQuarters);
   event.staffNumbers.add(staff);
   event.voiceNumbers.add(voice);
-  event.sourceNoteIds.push(note.getAttribute("default-x") ?? `${context.measureNumber}:${event.sourceNoteIds.length}`);
+  event.sourceNoteIds.push(sourceNoteId);
   if (midiNote !== null) {
-    event.midiNotes.push(midiNote);
+    event.noteDetails.push({
+      midiNote,
+      staffNumber: staff,
+      voiceNumber: voice,
+      sourceNoteId,
+    });
   }
 
   if (!isChordMember) {
@@ -210,10 +216,11 @@ function toScoreEvent(event: PendingEvent): ScoreEvent {
     measureNumber: event.measureNumber,
     startQuarter: event.startQuarter,
     durationQuarters: event.durationQuarters,
-    midiNotes: uniqueSorted(event.midiNotes),
+    midiNotes: uniqueSorted(event.noteDetails.map((note) => note.midiNote)),
     staffNumbers: uniqueSorted(Array.from(event.staffNumbers)),
     voiceNumbers: Array.from(event.voiceNumbers).sort(),
     sourceNoteIds: event.sourceNoteIds,
+    noteDetails: event.noteDetails,
     isRest: event.isRest,
   };
 }

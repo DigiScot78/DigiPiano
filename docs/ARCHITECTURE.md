@@ -12,6 +12,7 @@ The current application is a browser-only TypeScript/React proof of concept. It 
 6. `src/midi/messages.ts` decodes note-on, note-off, velocity-zero note-off, control change, and sustain pedal state.
 7. `src/midi/heldNotes.ts` tracks currently held physical keys.
 8. `src/learning/matcher.ts` compares held notes against the current score event and advances when all expected notes are present.
+9. The score renderer overlays event hit zones above OSMD cursor positions so visual drag selection resolves to stable `ScoreEvent` ranges.
 
 ## ScoreEvent Model
 `ScoreEvent` represents a playable event at a score position:
@@ -31,7 +32,7 @@ interface ScoreEvent {
 }
 ```
 
-The parser groups notes that begin at the same quarter position in the same part and measure, including chord members, multiple voices, and treble/bass staff notes. Rests are parsed for timeline movement but excluded from the playable event sequence.
+The parser groups notes that begin at the same quarter position in the same part and measure, including chord members, multiple voices, and treble/bass staff notes. Each event keeps per-note staff and voice metadata so hand filtering can operate without reparsing. Rests are parsed for timeline movement but excluded from the playable event sequence.
 
 ## MusicXML Handling
 Currently handled:
@@ -52,7 +53,7 @@ The app uses Web MIDI with `sysex: false`. It supports multiple listed inputs an
 Web MIDI support is browser-dependent. Chromium-based desktop browsers are the supported target. Secure context is required; local development on `localhost` or `127.0.0.1` is acceptable.
 
 ## Learning Mode
-The current mode is untimed. A chord is accepted once all expected notes are currently held; the notes do not need to arrive in the same millisecond. Extra held notes are reported as mistakes but do not block advancement. They are also rendered as red labels near the current OSMD cursor position. This is intentionally an overlay rather than direct OSMD notehead recoloring, because mutating renderer internals would be fragile. Progress advances on new note-on input or the simulation button, not merely because a previous note remains held.
+The current mode is untimed. A chord is accepted once all expected notes are currently held; the notes do not need to arrive in the same millisecond. Extra held notes are reported as mistakes but do not block advancement. They are also rendered as red labels near the current OSMD cursor position. This is intentionally an overlay rather than direct OSMD notehead recoloring, because mutating renderer internals would be fragile. Progress advances on new note-on input or the simulation button, not merely because a previous note remains held. Selected ranges can run once or loop back to the selected start, and hand mode filters expected notes by staff: right hand uses staff 1, left hand uses staff 2.
 
 ## Testing Without Hardware
 Use the `Simulate Current Event` button to advance through parsed score events without a MIDI keyboard. Unit tests cover MIDI decoding, held-note state, matching, event advancement, note naming, and a small MusicXML timeline fixture.
