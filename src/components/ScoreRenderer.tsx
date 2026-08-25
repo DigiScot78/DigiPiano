@@ -1,27 +1,55 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
+import { midiNoteToName } from "../music/note";
 
 type CursorLike = {
   show: () => void;
   hide: () => void;
   reset: () => void;
   next: () => void;
+  cursorElement?: HTMLElement;
 };
 
 interface ScoreRendererProps {
   xmlText?: string;
   currentEventIndex: number;
+  wrongNotes: number[];
   onRenderStateChange: (state: { status: "empty" | "loading" | "ready" | "error"; error?: string }) => void;
 }
 
-export function ScoreRenderer({ xmlText, currentEventIndex, onRenderStateChange }: ScoreRendererProps) {
+interface OverlayPosition {
+  left: number;
+  top: number;
+}
+
+export function ScoreRenderer({ xmlText, currentEventIndex, wrongNotes, onRenderStateChange }: ScoreRendererProps) {
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const onRenderStateChangeRef = useRef(onRenderStateChange);
+  const [wrongNotePosition, setWrongNotePosition] = useState<OverlayPosition>({ left: 24, top: 24 });
 
   useEffect(() => {
     onRenderStateChangeRef.current = onRenderStateChange;
   }, [onRenderStateChange]);
+
+  const updateWrongNotePosition = useCallback(() => {
+    const shell = shellRef.current;
+    const cursor = (osmdRef.current as (OpenSheetMusicDisplay & { cursor?: CursorLike }) | null)?.cursor;
+    const cursorElement = cursor?.cursorElement;
+
+    if (!shell || !cursorElement) {
+      setWrongNotePosition({ left: 24, top: 24 });
+      return;
+    }
+
+    const shellRect = shell.getBoundingClientRect();
+    const cursorRect = cursorElement.getBoundingClientRect();
+    setWrongNotePosition({
+      left: Math.max(12, cursorRect.left - shellRect.left + cursorRect.width + 8),
+      top: Math.max(12, cursorRect.top - shellRect.top),
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +61,7 @@ export function ScoreRenderer({ xmlText, currentEventIndex, onRenderStateChange 
 
     container.innerHTML = "";
     osmdRef.current = null;
+    setWrongNotePosition({ left: 24, top: 24 });
 
     if (!scoreXml) {
       onRenderStateChangeRef.current({ status: "empty" });
@@ -55,6 +84,7 @@ export function ScoreRenderer({ xmlText, currentEventIndex, onRenderStateChange 
         const cursor = (osmd as OpenSheetMusicDisplay & { cursor?: CursorLike }).cursor;
         cursor?.show();
         osmdRef.current = osmd;
+        updateWrongNotePosition();
         onRenderStateChangeRef.current({ status: "ready" });
       } catch (error) {
         if (!cancelled) {
@@ -68,7 +98,7 @@ export function ScoreRenderer({ xmlText, currentEventIndex, onRenderStateChange 
     return () => {
       cancelled = true;
     };
-  }, [xmlText]);
+  }, [xmlText, updateWrongNotePosition]);
 
   useEffect(() => {
     const osmd = osmdRef.current as (OpenSheetMusicDisplay & { cursor?: CursorLike }) | null;
@@ -82,7 +112,31 @@ export function ScoreRenderer({ xmlText, currentEventIndex, onRenderStateChange 
     for (let index = 0; index < currentEventIndex; index += 1) {
       cursor.next();
     }
-  }, [currentEventIndex]);
+    updateWrongNotePosition();
+  }, [currentEventIndex, updateWrongNotePosition]);
 
-  return <div ref={containerRef} className="score-renderer" aria-label="Rendered sheet music" />;
+  useEffect(() => {
+    if (wrongNotes.length === 0) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(updateWrongNotePosition);
+    return () => window.cancelAnimationFrame(frame);
+  }, [wrongNotes, updateWrongNotePosition]);
+
+  return (
+    <div ref={shellRef} className="score-renderer-shell">
+      <div ref={containerRef} className="score-renderer" aria-label="Rendered sheet music" />
+      {wrongNotes.length > 0 ? (
+        <div className="wrong-note-overlay" style={{ left: wrongNotePosition.left, top: wrongNotePosition.top }} aria-live="polite">
+          <div className="wrong-note-marker" aria-hidden="true">!</div>
+          <div className="wrong-note-labels">
+            {wrongNotes.map((note) => (
+              <span key={note}>{midiNoteToName(note)}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }

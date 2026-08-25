@@ -12,7 +12,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - The app requests Web MIDI access, lists MIDI inputs, and subscribes to the selected input. This has been smoke-tested with a real keyboard by the user.
 - MIDI note-on, note-off, velocity-zero note-off, and sustain pedal messages are decoded; real keypresses have been observed by the user.
 - Held notes are compared with the current expected event; user-confirmed real-keyboard progress now works after the renderer lifecycle fix.
-- Chords advance only when every expected note is held; extra notes are shown but do not block progress.
+- Chords advance only when every expected note is held; extra notes are shown in the status panel and as red labels near the current score cursor, but do not block progress.
 - A simulation button can advance events without hardware.
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, expected event, event index, parser warnings, and comparison results.
 
@@ -23,13 +23,14 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Added `Samples/` to `.gitignore`; local sample files remain available for manual testing but are not committed.
 - Verified through a temporary local-only test that `Samples/Mad_world_Piano.mxl` decompresses and produces playable score events.
 - Fixed a renderer lifecycle bug where MIDI/debug rerenders could reload OpenSheetMusicDisplay and cause severe memory growth per keypress.
+- Added a cursor-anchored red wrong-note overlay for extra held MIDI notes.
 
 ## Work In Progress
 - User reports the sample score displays, the keyboard is detected, keypresses are shown, memory behavior is fixed, and score/progress advancement works.
 
 ## Known Issues Or Blockers
 - Written repeat expansion is deferred; the parser follows printed measure order and reports repeat warnings.
-- OSMD cursor advancement is event-index based and may not perfectly align with all complex MusicXML constructs.
+- OSMD cursor advancement and wrong-note overlay placement are event-index/cursor based and may not perfectly align with all complex MusicXML constructs.
 - Tied stop-only notes are skipped as re-strikes, but tie durations are not merged into extended event durations.
 - Real MIDI hardware has been partially validated by the user: device detection, keypress display, and correct-event score/progress advancement work. Device connection/disconnection behavior still needs focused validation.
 - No `.mid` playback/comparison path is implemented; the `.mxl` score remains the source of truth.
@@ -44,7 +45,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Retest `Samples/Mad_world_Piano.mxl` after the renderer lifecycle fix and confirm memory stays stable during repeated keypresses.
 - Confirm whether the current expected event advances and whether OSMD cursor movement is clear enough during real-keyboard matching.
 - Connect the real electric piano and validate Web MIDI permission, device selection, note-on/note-off behavior, and sustain pedal behavior.
-- Improve cursor alignment or note highlighting if OSMD cursor behavior is too coarse for the sample score.
+- Improve cursor alignment or true notehead-level highlighting if the cursor-anchored wrong-note overlay is too coarse for the sample score.
 - Decide how to handle repeat expansion before moving beyond the first proof of concept.
 - Consider MIDI file use only if it adds concrete value for playback-order validation or reference playback.
 

@@ -52,12 +52,12 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} wrongNotes={[]} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} wrongNotes={[]} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
@@ -71,12 +71,12 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} wrongNotes={[]} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={2} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={2} wrongNotes={[]} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
@@ -84,5 +84,23 @@ describe("ScoreRenderer", () => {
     expect(osmdMocks.cursorReset).toHaveBeenCalled();
     expect(osmdMocks.cursorNext).toHaveBeenCalledTimes(2);
   });
-});
 
+  it("shows wrong-note labels without reloading the score", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} wrongNotes={[]} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} wrongNotes={[61]} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    expect(osmdMocks.load).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("C#4");
+  });
+});

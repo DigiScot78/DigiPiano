@@ -52,7 +52,7 @@ The app uses Web MIDI with `sysex: false`. It supports multiple listed inputs an
 Web MIDI support is browser-dependent. Chromium-based desktop browsers are the supported target. Secure context is required; local development on `localhost` or `127.0.0.1` is acceptable.
 
 ## Learning Mode
-The current mode is untimed. A chord is accepted once all expected notes are currently held; the notes do not need to arrive in the same millisecond. Extra held notes are reported as mistakes but do not block advancement. Progress advances on new note-on input or the simulation button, not merely because a previous note remains held.
+The current mode is untimed. A chord is accepted once all expected notes are currently held; the notes do not need to arrive in the same millisecond. Extra held notes are reported as mistakes but do not block advancement. They are also rendered as red labels near the current OSMD cursor position. This is intentionally an overlay rather than direct OSMD notehead recoloring, because mutating renderer internals would be fragile. Progress advances on new note-on input or the simulation button, not merely because a previous note remains held.
 
 ## Testing Without Hardware
 Use the `Simulate Current Event` button to advance through parsed score events without a MIDI keyboard. Unit tests cover MIDI decoding, held-note state, matching, event advancement, note naming, and a small MusicXML timeline fixture.
@@ -64,7 +64,6 @@ Validated by automation:
 - Linting.
 - Production build.
 
-Awaiting real-hardware validation:
-- Browser MIDI permission flow with an actual piano.
-- Device connection/disconnection events on the target instrument.
-- Real-time note-on/note-off behavior from the target instrument.
+Real-hardware validation:
+- User has confirmed browser MIDI keyboard detection, real keypress display, and correct-event score/progress advancement.
+- Device connection/disconnection behavior and sustain pedal behavior still need focused validation.

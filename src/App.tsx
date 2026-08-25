@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScoreRenderer } from "./components/ScoreRenderer";
-import { advanceWhenSatisfied, initialLearningState, type LearningState } from "./learning/matcher";
+import { advanceWhenSatisfied, compareHeldNotesToEvent, initialLearningState, type LearningState } from "./learning/matcher";
 import { midiNoteToName } from "./music/note";
 import { loadScoreFile } from "./music/musicXmlLoader";
 import { parseMusicXmlTimeline } from "./music/musicXmlParser";
@@ -22,6 +22,10 @@ function App() {
   const combinedHeldNotes = useMemo(
     () => Array.from(new Set([...midi.heldNotes, ...simulatedHeldNotes])).sort((a, b) => a - b),
     [midi.heldNotes, simulatedHeldNotes],
+  );
+  const liveComparison = useMemo(
+    () => compareHeldNotesToEvent(combinedHeldNotes, currentEvent),
+    [combinedHeldNotes, currentEvent],
   );
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -137,6 +141,7 @@ function App() {
           <ScoreRenderer
             xmlText={loadedScore?.xmlText}
             currentEventIndex={learningState.currentIndex}
+            wrongNotes={liveComparison.extraNotes}
             onRenderStateChange={(next) => {
               setScoreStatus(next.status);
               setRenderError(next.error);
