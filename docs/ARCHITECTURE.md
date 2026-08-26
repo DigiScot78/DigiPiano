@@ -23,6 +23,9 @@ interface ScoreEventNote {
   staffNumber: number;
   voiceNumber: string;
   sourceNoteId: string;
+  pitchStep?: string;
+  pitchAlter?: number;
+  pitchOctave?: number;
 }
 
 interface ScoreEvent {
@@ -36,17 +39,18 @@ interface ScoreEvent {
   voiceNumbers: string[];
   sourceNoteIds: string[];
   noteDetails: ScoreEventNote[];
+  keyFifths?: number;
   isRest?: boolean;
 }
 ```
 
-The parser groups notes that begin at the same quarter position in the same part and measure, including chord members, multiple voices, and treble/bass staff notes. Each event keeps per-note staff and voice metadata so hand filtering can operate without reparsing. Rests are parsed for timeline movement but excluded from the playable event sequence.
+The parser groups notes that begin at the same quarter position in the same part and measure, including chord members, multiple voices, and treble/bass staff notes. Each event keeps per-note staff, voice, and MusicXML pitch spelling metadata so hand filtering and enharmonic overlay placement can operate without reparsing. Rests are parsed for timeline movement but excluded from the playable event sequence.
 
 ## MusicXML Handling
 Currently handled:
 - `.mxl` decompression using `META-INF/container.xml` when present.
 - Uncompressed `.musicxml` and `.xml` input.
-- Measures, divisions, durations, voices, staves, rests, chords, backup, forward, pitch alter, and basic tie continuation skipping.
+- Measures, divisions, durations, voices, staves, rests, chords, backup, forward, key fifths, pitch spelling/alter, and basic tie continuation skipping.
 - Detection and warning for written repeats.
 
 Partially handled or deferred:
@@ -58,7 +62,7 @@ Partially handled or deferred:
 ## Renderer Overlay Model
 The renderer keeps OSMD as the notation engine and draws app-owned overlays above the rendered SVG. Selection hit targets are transparent. During drag, the selected range is shown as one or more solid rectangular segments grouped by rendered system row. After release, outside regions are dimmed while the selected segments remain clear. Cross-system selections preserve mid-system start and end points instead of selecting full systems, and selected row segments expand vertically to the midpoint between neighboring systems so adjacent selected systems visually meet. Committed selections expose left and right resize handles that snap to parsed score events.
 
-Wrong notes are shown as app-owned red ghost noteheads at the current event's horizontal score position. Vertical placement is approximate: it uses the current event staff context, chooses a treble or bass staff region, and maps MIDI pitch to diatonic staff steps so black keys share the same vertical staff position as their natural note. This avoids mutating OSMD/VexFlow internals, but it is not yet exact notehead-level engraving.
+Wrong notes are shown as app-owned red ghost noteheads at the current event's horizontal score position. Vertical placement is approximate: it uses the current event staff context, chooses a treble or bass staff region, and maps MIDI pitch to diatonic staff steps. For black-key MIDI notes, it prefers the exact MusicXML spelling when the note exists in the current event, otherwise it uses the current key signature to choose sharp or flat spelling. This avoids mutating OSMD/VexFlow internals, but it is not yet exact notehead-level engraving.
 
 ## MIDI Handling
 The app uses Web MIDI with `sysex: false`. It supports multiple listed inputs and subscribes only to the selected input. It handles standard note-on, note-off, velocity-zero note-off, and sustain pedal controller 64.

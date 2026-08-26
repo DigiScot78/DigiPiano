@@ -6,6 +6,14 @@ interface PartCursorState {
   currentQuarter: number;
   lastStartByVoice: Map<string, number>;
   measureStartQuarter: number;
+  keyFifths: number;
+}
+
+interface ParsedPitch {
+  midiNote: number;
+  step: string;
+  alter: number;
+  octave: number;
 }
 
 interface PendingEvent {
@@ -18,6 +26,7 @@ interface PendingEvent {
   staffNumbers: Set<number>;
   voiceNumbers: Set<string>;
   sourceNoteIds: string[];
+  keyFifths?: number;
   isRest?: boolean;
 }
 
@@ -32,6 +41,7 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
       currentQuarter: 0,
       lastStartByVoice: new Map(),
       measureStartQuarter: 0,
+      keyFifths: 0,
     };
     let divisions = 1;
     let measureIndex = 0;
@@ -47,6 +57,10 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
             const nextDivisions = numberText(child.querySelector("divisions"));
             if (nextDivisions && nextDivisions > 0) {
               divisions = nextDivisions;
+            }
+            const nextKeyFifths = numberText(child.querySelector("key > fifths"));
+            if (nextKeyFifths !== undefined) {
+              state.keyFifths = nextKeyFifths;
             }
             break;
           }
@@ -137,7 +151,7 @@ function handleNote(
     return;
   }
 
-  const midiNote = isRest ? null : pitchFromNote(note, context.warnings, context.measureNumber);
+  const pitch = isRest ? null : pitchFromNote(note, context.warnings, context.measureNumber);
   const eventKey = `${context.partId}:${context.measureNumber}:${round(startQuarter)}`;
   const event = getOrCreateEvent(context.events, eventKey, {
     id: eventKey,
@@ -149,6 +163,7 @@ function handleNote(
     staffNumbers: new Set<number>(),
     voiceNumbers: new Set<string>(),
     sourceNoteIds: [],
+    keyFifths: context.state.keyFifths,
     isRest,
   });
 
@@ -157,12 +172,15 @@ function handleNote(
   event.staffNumbers.add(staff);
   event.voiceNumbers.add(voice);
   event.sourceNoteIds.push(sourceNoteId);
-  if (midiNote !== null) {
+  if (pitch !== null) {
     event.noteDetails.push({
-      midiNote,
+      midiNote: pitch.midiNote,
       staffNumber: staff,
       voiceNumber: voice,
       sourceNoteId,
+      pitchStep: pitch.step,
+      pitchAlter: pitch.alter,
+      pitchOctave: pitch.octave,
     });
   }
 
@@ -171,7 +189,7 @@ function handleNote(
   }
 }
 
-function pitchFromNote(note: Element, warnings: string[], measureNumber: number): number | null {
+function pitchFromNote(note: Element, warnings: string[], measureNumber: number): ParsedPitch | null {
   const pitch = note.querySelector(":scope > pitch");
   if (!pitch) {
     warnings.push(`Measure ${measureNumber}: non-rest note without pitch was skipped.`);
@@ -186,7 +204,12 @@ function pitchFromNote(note: Element, warnings: string[], measureNumber: number)
     return null;
   }
 
-  return pitchToMidi(step, alter, octave);
+  return {
+    midiNote: pitchToMidi(step, alter, octave),
+    step: step.toUpperCase(),
+    alter,
+    octave,
+  };
 }
 
 function collectGlobalWarnings(doc: XMLDocument): string[] {
@@ -221,6 +244,7 @@ function toScoreEvent(event: PendingEvent): ScoreEvent {
     voiceNumbers: Array.from(event.voiceNumbers).sort(),
     sourceNoteIds: event.sourceNoteIds,
     noteDetails: event.noteDetails,
+    keyFifths: event.keyFifths,
     isRest: event.isRest,
   };
 }

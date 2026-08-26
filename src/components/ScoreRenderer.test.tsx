@@ -174,6 +174,26 @@ describe("ScoreRenderer", () => {
     expect(g - c).toBeCloseTo(staffStep * 4);
     expect(a - c).toBeCloseTo(staffStep * 5);
   });
+  it("uses flat-key spelling for black-key wrong-note ghosts", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={{ ...currentEvent, keyFifths: -4 }} eventCount={1} wrongNotes={[68, 69, 73, 74]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const markers = Array.from(container.querySelectorAll<HTMLElement>(".wrong-note-ghost"));
+    const tops = markers.map((marker) => parseFloat(marker.style.top));
+    const [aFlat, aNatural, dFlat, dNatural] = tops;
+
+    expect(container.textContent).toContain("Ab4");
+    expect(container.textContent).toContain("Db5");
+    expect(container.textContent).not.toContain("G#4");
+    expect(aFlat).toBeCloseTo(aNatural);
+    expect(dFlat).toBeCloseTo(dNatural);
+  });
   it("selects a normalized range by dragging over transparent event targets", async () => {
     const onSelectedRangeChange = vi.fn();
     container = document.createElement("div");

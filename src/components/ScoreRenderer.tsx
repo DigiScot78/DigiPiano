@@ -341,9 +341,9 @@ export function ScoreRenderer({
       </div>
       <div className="wrong-note-ghost-layer" aria-live="polite">
         {wrongNoteMarkers.map((marker) => (
-          <div key={marker.note} className="wrong-note-ghost" style={{ left: marker.left, top: marker.top }} aria-label={`Wrong note ${midiNoteToName(marker.note)}`}>
+          <div key={marker.note} className="wrong-note-ghost" style={{ left: marker.left, top: marker.top }} aria-label={`Wrong note ${marker.name}`}>
             <span className="wrong-note-head" aria-hidden="true" />
-            <span className="wrong-note-name">{midiNoteToName(marker.note)}</span>
+            <span className="wrong-note-name">{marker.name}</span>
           </div>
         ))}
       </div>
@@ -461,31 +461,100 @@ function rectStyle(rect: OverlayRect): React.CSSProperties {
   };
 }
 
-function markerForWrongNote(note: number, currentPosition: EventPosition | undefined, currentEvent: ScoreEvent | undefined): { note: number; left: number; top: number } {
+function markerForWrongNote(note: number, currentPosition: EventPosition | undefined, currentEvent: ScoreEvent | undefined): { note: number; name: string; left: number; top: number } {
   const position = currentPosition ?? { left: 24, top: 24, width: 24, height: 96, index: 0 };
   const staffNumber = staffForWrongNote(note, currentEvent);
+  const spelling = spellingForWrongNote(note, staffNumber, currentEvent);
   const staffTop = position.top + (staffNumber === 2 ? position.height * 0.56 : position.height * 0.12);
-  const referenceMidi = staffNumber === 2 ? 48 : 60;
+  const reference = { step: "C", alter: 0, octave: staffNumber === 2 ? 3 : 4 };
   const halfLineSpacing = Math.max(3, Math.min(5.5, position.height / 14.5));
-  const y = staffTop + 24 + halfLineSpacing - diatonicStepDistance(referenceMidi, note) * halfLineSpacing;
+  const y = staffTop + 24 + halfLineSpacing - diatonicStepDistance(reference, spelling) * halfLineSpacing;
 
   return {
     note,
+    name: nameForSpelling(spelling) ?? midiNoteToName(note),
     left: position.left + Math.max(10, position.width + 8),
     top: Math.max(4, y),
   };
 }
 
-function diatonicStepDistance(fromMidi: number, toMidi: number): number {
-  return diatonicPositionForMidi(toMidi) - diatonicPositionForMidi(fromMidi);
+type PitchSpelling = {
+  step: string;
+  alter: number;
+  octave: number;
+};
+
+function spellingForWrongNote(note: number, staffNumber: number, currentEvent: ScoreEvent | undefined): PitchSpelling {
+  const matchingScoreNote = currentEvent?.noteDetails.find(
+    (detail) => detail.midiNote === note && detail.staffNumber === staffNumber && detail.pitchStep && detail.pitchOctave !== undefined,
+  ) ?? currentEvent?.noteDetails.find((detail) => detail.midiNote === note && detail.pitchStep && detail.pitchOctave !== undefined);
+
+  if (matchingScoreNote?.pitchStep && matchingScoreNote.pitchOctave !== undefined) {
+    return {
+      step: matchingScoreNote.pitchStep,
+      alter: matchingScoreNote.pitchAlter ?? 0,
+      octave: matchingScoreNote.pitchOctave,
+    };
+  }
+
+  return spellingForMidiInKey(note, currentEvent?.keyFifths ?? 0);
 }
 
-function diatonicPositionForMidi(note: number): number {
+function spellingForMidiInKey(note: number, keyFifths: number): PitchSpelling {
   const octave = Math.floor(note / 12) - 1;
   const pitchClass = ((note % 12) + 12) % 12;
-  const letterIndexByPitchClass = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6];
-  return octave * 7 + letterIndexByPitchClass[pitchClass];
+  const spellings = keyFifths < 0 ? FLAT_PITCH_CLASS_SPELLINGS : SHARP_PITCH_CLASS_SPELLINGS;
+  const spelling = spellings[pitchClass];
+  return { ...spelling, octave };
 }
+
+function nameForSpelling(spelling: PitchSpelling): string | undefined {
+  const accidental = spelling.alter === 0 ? "" : spelling.alter > 0 ? "#".repeat(spelling.alter) : "b".repeat(Math.abs(spelling.alter));
+  return `${spelling.step}${accidental}${spelling.octave}`;
+}
+
+function diatonicStepDistance(from: PitchSpelling, to: PitchSpelling): number {
+  return diatonicPositionForSpelling(to) - diatonicPositionForSpelling(from);
+}
+
+function diatonicPositionForSpelling(spelling: PitchSpelling): number {
+  return spelling.octave * 7 + letterIndexForStep(spelling.step);
+}
+
+function letterIndexForStep(step: string): number {
+  const index = ["C", "D", "E", "F", "G", "A", "B"].indexOf(step.toUpperCase());
+  return index >= 0 ? index : 0;
+}
+
+const SHARP_PITCH_CLASS_SPELLINGS: PitchSpelling[] = [
+  { step: "C", alter: 0, octave: 0 },
+  { step: "C", alter: 1, octave: 0 },
+  { step: "D", alter: 0, octave: 0 },
+  { step: "D", alter: 1, octave: 0 },
+  { step: "E", alter: 0, octave: 0 },
+  { step: "F", alter: 0, octave: 0 },
+  { step: "F", alter: 1, octave: 0 },
+  { step: "G", alter: 0, octave: 0 },
+  { step: "G", alter: 1, octave: 0 },
+  { step: "A", alter: 0, octave: 0 },
+  { step: "A", alter: 1, octave: 0 },
+  { step: "B", alter: 0, octave: 0 },
+];
+
+const FLAT_PITCH_CLASS_SPELLINGS: PitchSpelling[] = [
+  { step: "C", alter: 0, octave: 0 },
+  { step: "D", alter: -1, octave: 0 },
+  { step: "D", alter: 0, octave: 0 },
+  { step: "E", alter: -1, octave: 0 },
+  { step: "E", alter: 0, octave: 0 },
+  { step: "F", alter: 0, octave: 0 },
+  { step: "G", alter: -1, octave: 0 },
+  { step: "G", alter: 0, octave: 0 },
+  { step: "A", alter: -1, octave: 0 },
+  { step: "A", alter: 0, octave: 0 },
+  { step: "B", alter: -1, octave: 0 },
+  { step: "B", alter: 0, octave: 0 },
+];
 
 function staffForWrongNote(note: number, currentEvent: ScoreEvent | undefined): number {
   const eventStaves = new Set(currentEvent?.staffNumbers ?? []);

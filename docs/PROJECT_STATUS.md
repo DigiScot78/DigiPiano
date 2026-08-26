@@ -8,7 +8,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - `.mxl`, `.musicxml`, and `.xml` files can be selected from the local computer.
 - `.mxl` files are decompressed in-browser with `fflate`.
 - OpenSheetMusicDisplay renders the selected score as conventional notation.
-- MusicXML is normalized into ordered playable `ScoreEvent` objects with per-note staff metadata.
+- MusicXML is normalized into ordered playable `ScoreEvent` objects with per-note staff, pitch spelling, and key-signature metadata.
 - The app requests Web MIDI access, lists MIDI inputs, and subscribes to the selected input. This has been smoke-tested with a real keyboard by the user.
 - MIDI note-on, note-off, velocity-zero note-off, and sustain pedal messages are decoded; real keypresses have been observed by the user.
 - Held notes are compared with the current expected event; user-confirmed real-keyboard progress works after the renderer lifecycle fix.
@@ -33,7 +33,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 ## Known Issues Or Blockers
 - Written repeat expansion is deferred; the parser follows printed measure order and reports repeat warnings.
 - OSMD cursor advancement, selection hit zones, selection overlays, and wrong-note ghost placement are event-index/cursor based and may not perfectly align with all complex MusicXML constructs.
-- Wrong-note ghost y-position is approximate and staff/pitch based, but now uses diatonic staff steps rather than chromatic semitone spacing; exact notehead-level placement is deferred until renderer integration is evaluated further.
+- Wrong-note ghost y-position is approximate and staff/pitch based, but now uses MusicXML/key-signature-aware diatonic staff steps rather than chromatic semitone spacing; exact notehead-level placement is deferred until renderer integration is evaluated further.
 - Tied stop-only notes are skipped as re-strikes, but tie durations are not merged into extended event durations.
 - Real MIDI hardware has been partially validated by the user: device detection, keypress display, and correct-event score/progress advancement work. Device connection/disconnection behavior, sustain pedal behavior, selection resizing, and ghost-note placement still need focused validation.
 - No `.mid` playback/comparison path is implemented; the `.mxl` score remains the source of truth.

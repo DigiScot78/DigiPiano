@@ -3,6 +3,9 @@ export interface ScoreEventNote {
   staffNumber: number;
   voiceNumber: string;
   sourceNoteId: string;
+  pitchStep?: string;
+  pitchAlter?: number;
+  pitchOctave?: number;
 }
 
 export interface ScoreEvent {
@@ -16,6 +19,7 @@ export interface ScoreEvent {
   voiceNumbers: string[];
   sourceNoteIds: string[];
   noteDetails: ScoreEventNote[];
+  keyFifths?: number;
   isRest?: boolean;
 }
 
