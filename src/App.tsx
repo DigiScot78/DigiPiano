@@ -213,6 +213,7 @@ function App() {
             currentEventIndex={learningState.currentIndex}
             currentEvent={currentEvent}
             eventCount={parsedScore.events.length}
+            events={parsedScore.events}
             selectedRange={selectedRange}
             wrongNotes={liveComparison.extraNotes}
             onSelectedRangeChange={handleSelectionChange}

@@ -21,6 +21,7 @@ interface PendingEvent {
   partId: string;
   measureNumber: number;
   startQuarter: number;
+  measureStartQuarter: number;
   durationQuarters: number;
   noteDetails: ScoreEventNote[];
   staffNumbers: Set<number>;
@@ -158,6 +159,7 @@ function handleNote(
     partId: context.partId,
     measureNumber: context.measureNumber,
     startQuarter,
+    measureStartQuarter: context.state.measureStartQuarter,
     durationQuarters,
     noteDetails: [],
     staffNumbers: new Set<number>(),
@@ -238,6 +240,7 @@ function toScoreEvent(event: PendingEvent): ScoreEvent {
     partId: event.partId,
     measureNumber: event.measureNumber,
     startQuarter: event.startQuarter,
+    measureStartQuarter: event.measureStartQuarter,
     durationQuarters: event.durationQuarters,
     midiNotes: uniqueSorted(event.noteDetails.map((note) => note.midiNote)),
     staffNumbers: uniqueSorted(Array.from(event.staffNumbers)),

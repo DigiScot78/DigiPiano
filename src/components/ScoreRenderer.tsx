@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
+import { Fraction, OpenSheetMusicDisplay, PointF2D } from "opensheetmusicdisplay";
 import { midiNoteToName } from "../music/note";
 import type { ScoreSelectionRange } from "../learning/matcher";
 import { normalizeSelectionRange } from "../learning/matcher";
@@ -18,6 +18,7 @@ interface ScoreRendererProps {
   currentEventIndex: number;
   currentEvent?: ScoreEvent;
   eventCount: number;
+  events?: ScoreEvent[];
   selectedRange?: ScoreSelectionRange;
   wrongNotes: number[];
   onSelectedRangeChange: (range: ScoreSelectionRange | undefined) => void;
@@ -49,12 +50,14 @@ type ResizeEdge = "start" | "end";
 type InteractionMode = "idle" | "selecting" | "resizing-start" | "resizing-end";
 
 const ROW_TOP_TOLERANCE = 28;
+const EMPTY_SCORE_EVENTS: ScoreEvent[] = [];
 
 export function ScoreRenderer({
   xmlText,
   currentEventIndex,
   currentEvent,
   eventCount,
+  events = EMPTY_SCORE_EVENTS,
   selectedRange,
   wrongNotes,
   onSelectedRangeChange,
@@ -71,6 +74,7 @@ export function ScoreRenderer({
   const [overlaySize, setOverlaySize] = useState<OverlaySize>({ width: 0, height: 0 });
   const [draftRange, setDraftRange] = useState<ScoreSelectionRange | undefined>();
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("idle");
+  const [usesGraphicEventPositions, setUsesGraphicEventPositions] = useState(false);
 
   useEffect(() => {
     onRenderStateChangeRef.current = onRenderStateChange;
@@ -79,6 +83,11 @@ export function ScoreRenderer({
   useEffect(() => {
     currentEventIndexRef.current = currentEventIndex;
   }, [currentEventIndex]);
+
+  const hideNativeCursor = useCallback(() => {
+    const cursor = (osmdRef.current as (OpenSheetMusicDisplay & { cursor?: CursorLike }) | null)?.cursor;
+    cursor?.hide();
+  }, []);
 
   const positionCursor = useCallback((index: number) => {
     const cursor = (osmdRef.current as (OpenSheetMusicDisplay & { cursor?: CursorLike }) | null)?.cursor;
@@ -101,10 +110,23 @@ export function ScoreRenderer({
     if (!shell || !cursor || !cursorElement || eventCount <= 0) {
       setEventPositions([]);
       setOverlaySize({ width: 0, height: 0 });
+      setUsesGraphicEventPositions(false);
       return;
     }
 
     const shellRect = shell.getBoundingClientRect();
+    const positionsFromGraphicSheet = eventPositionsFromGraphicSheet(osmdRef.current, shell, events);
+    if (positionsFromGraphicSheet.length === eventCount) {
+      setEventPositions(positionsFromGraphicSheet);
+      setOverlaySize({
+        width: Math.max(shell.scrollWidth, shell.clientWidth, shellRect.width),
+        height: Math.max(shell.scrollHeight, shell.clientHeight, shellRect.height),
+      });
+      setUsesGraphicEventPositions(true);
+      hideNativeCursor();
+      return;
+    }
+
     const positions: EventPosition[] = [];
     cursor.reset();
     cursor.show();
@@ -126,8 +148,9 @@ export function ScoreRenderer({
       width: Math.max(shell.scrollWidth, shell.clientWidth, shellRect.width),
       height: Math.max(shell.scrollHeight, shell.clientHeight, shellRect.height),
     });
+    setUsesGraphicEventPositions(false);
     positionCursor(currentEventIndexRef.current);
-  }, [eventCount, positionCursor]);
+  }, [eventCount, events, hideNativeCursor, positionCursor]);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,6 +164,7 @@ export function ScoreRenderer({
     osmdRef.current = null;
     setEventPositions([]);
     setOverlaySize({ width: 0, height: 0 });
+    setUsesGraphicEventPositions(false);
     setDraftRange(undefined);
     setInteractionMode("idle");
 
@@ -182,8 +206,13 @@ export function ScoreRenderer({
   }, [xmlText, refreshEventPositions]);
 
   useEffect(() => {
+    if (usesGraphicEventPositions) {
+      hideNativeCursor();
+      return;
+    }
+
     positionCursor(currentEventIndex);
-  }, [currentEventIndex, positionCursor]);
+  }, [currentEventIndex, hideNativeCursor, positionCursor, usesGraphicEventPositions]);
 
   useEffect(() => {
     if (eventCount === 0) {
@@ -295,6 +324,7 @@ export function ScoreRenderer({
             style={rectStyle(rect)}
           />
         ))}
+        {currentPosition ? <div className="score-current-event-marker" style={rectStyle(currentPosition)} /> : null}
       </div>
       <div className="score-selection-layer" aria-label="Score event selection layer">
         {eventPositions.map((position) => (
@@ -351,6 +381,140 @@ export function ScoreRenderer({
   );
 }
 
+type GraphicalSheetLike = {
+  findGraphicalMeasureByMeasureNumber?: (measureNumber: number, staffIndex: number) => GraphicalMeasureLike | undefined;
+  svgToDom?: (point: PointF2D) => PointF2D;
+};
+
+type GraphicalMeasureLike = {
+  staffEntries?: GraphicalStaffEntryLike[];
+  findGraphicalStaffEntryFromTimestamp?: (timestamp: Fraction) => GraphicalStaffEntryLike | undefined;
+  PositionAndShape?: BoundingBoxLike;
+};
+
+type GraphicalStaffEntryLike = {
+  relInMeasureTimestamp?: { RealValue?: number };
+  PositionAndShape?: BoundingBoxLike;
+  getAbsoluteStartAndEnd?: () => [number, number];
+};
+
+type BoundingBoxLike = {
+  AbsolutePosition?: { x?: number; y?: number };
+  Center?: { x?: number; y?: number };
+  Size?: { width?: number; height?: number };
+};
+
+const OSMD_UNIT_TO_CSS_PIXEL = 10;
+
+function eventPositionsFromGraphicSheet(osmd: OpenSheetMusicDisplay | null, shell: HTMLElement, events: ScoreEvent[]): EventPosition[] {
+  const graphicSheet = osmd?.GraphicSheet as GraphicalSheetLike | undefined;
+  if (!graphicSheet || events.length === 0) {
+    return [];
+  }
+
+  const positions = events.map((event, index) => positionForEvent(graphicSheet, shell, event, index));
+  return positions.every((position): position is EventPosition => position !== undefined) ? positions : [];
+}
+
+function positionForEvent(graphicSheet: GraphicalSheetLike, shell: HTMLElement, event: ScoreEvent, index: number): EventPosition | undefined {
+  const staffNumbers = event.staffNumbers.length > 0 ? event.staffNumbers : [event.noteDetails[0]?.staffNumber ?? 1];
+  const entries = staffNumbers
+    .map((staffNumber) => graphicalEntryForEvent(graphicSheet, event, staffNumber))
+    .filter((entry): entry is GraphicalStaffEntryLike => entry !== undefined);
+
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  const rects = entries
+    .map((entry) => rectForGraphicalEntry(graphicSheet, shell, entry))
+    .filter((rect): rect is OverlayRect => rect !== undefined);
+
+  if (rects.length === 0) {
+    return undefined;
+  }
+
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const right = Math.max(...rects.map((rect) => rect.left + rect.width));
+  const bottom = Math.max(...rects.map((rect) => rect.top + rect.height));
+
+  return {
+    index,
+    left,
+    top,
+    width: Math.max(24, right - left),
+    height: Math.max(42, bottom - top),
+  };
+}
+
+function graphicalEntryForEvent(graphicSheet: GraphicalSheetLike, event: ScoreEvent, staffNumber: number): GraphicalStaffEntryLike | undefined {
+  const measure = graphicSheet.findGraphicalMeasureByMeasureNumber?.(event.measureNumber, Math.max(0, staffNumber - 1));
+  if (!measure) {
+    return undefined;
+  }
+
+  const relativeQuarter = Math.max(0, event.startQuarter - (event.measureStartQuarter ?? 0));
+  const relativeTimestamp = fractionFromQuarters(relativeQuarter);
+  return measure.findGraphicalStaffEntryFromTimestamp?.(relativeTimestamp) ?? nearestStaffEntry(measure, relativeQuarter / 4);
+}
+
+function nearestStaffEntry(measure: GraphicalMeasureLike, relativeWholeNote: number): GraphicalStaffEntryLike | undefined {
+  const entries = measure.staffEntries ?? [];
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return entries.reduce((nearest, entry) => {
+    const nearestDistance = Math.abs((nearest.relInMeasureTimestamp?.RealValue ?? 0) - relativeWholeNote);
+    const entryDistance = Math.abs((entry.relInMeasureTimestamp?.RealValue ?? 0) - relativeWholeNote);
+    return entryDistance < nearestDistance ? entry : nearest;
+  }, entries[0]);
+}
+
+function rectForGraphicalEntry(graphicSheet: GraphicalSheetLike, shell: HTMLElement, entry: GraphicalStaffEntryLike): OverlayRect | undefined {
+  const position = entry.PositionAndShape?.AbsolutePosition ?? entry.PositionAndShape?.Center;
+  if (position?.x === undefined || position.y === undefined) {
+    return undefined;
+  }
+
+  const domPoint = pointToShellPosition(graphicSheet, shell, position.x, position.y);
+  const absoluteStartAndEnd = entry.getAbsoluteStartAndEnd?.();
+  const width = absoluteStartAndEnd ? Math.max(24, (absoluteStartAndEnd[1] - absoluteStartAndEnd[0]) * OSMD_UNIT_TO_CSS_PIXEL) : 28;
+  const height = Math.max(42, (entry.PositionAndShape?.Size?.height ?? 4.2) * OSMD_UNIT_TO_CSS_PIXEL);
+
+  return {
+    left: Math.max(0, domPoint.left - 8),
+    top: Math.max(0, domPoint.top - height * 0.25),
+    width,
+    height,
+  };
+}
+
+function pointToShellPosition(graphicSheet: GraphicalSheetLike, shell: HTMLElement, x: number, y: number): OverlayPosition {
+  const shellRect = shell.getBoundingClientRect();
+  const scaledX = x * OSMD_UNIT_TO_CSS_PIXEL;
+  const scaledY = y * OSMD_UNIT_TO_CSS_PIXEL;
+
+  try {
+    const domPoint = graphicSheet.svgToDom?.(new PointF2D(scaledX, scaledY));
+    if (domPoint?.x !== undefined && domPoint.y !== undefined) {
+      return {
+        left: domPoint.x - shellRect.left,
+        top: domPoint.y - shellRect.top,
+      };
+    }
+  } catch {
+    // Fall back to OSMD's documented unit scale when svgToDom is unavailable in tests or unusual backends.
+  }
+
+  return { left: scaledX, top: scaledY };
+}
+
+function fractionFromQuarters(quarters: number): Fraction {
+  const denominator = 4096;
+  return new Fraction(Math.round((quarters / 4) * denominator), denominator);
+}
 function rectsForRange(range: ScoreSelectionRange | undefined, positions: EventPosition[]): OverlayRect[] {
   if (!range) {
     return [];

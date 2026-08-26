@@ -32,7 +32,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 
 ## Known Issues Or Blockers
 - Written repeat expansion is deferred; the parser follows printed measure order and reports repeat warnings.
-- OSMD cursor advancement, selection hit zones, selection overlays, and wrong-note ghost placement are event-index/cursor based and may not perfectly align with all complex MusicXML constructs.
+- Score overlays now prefer OSMD graphical measure/timestamp mapping instead of cursor-step sampling. Cursor sampling remains a fallback when graphical lookup is unavailable, and complex MusicXML constructs may still expose alignment gaps.
 - Wrong-note ghost y-position is approximate and staff/pitch based, but now uses MusicXML/key-signature-aware diatonic staff steps rather than chromatic semitone spacing; exact notehead-level placement is deferred until renderer integration is evaluated further.
 - Tied stop-only notes are skipped as re-strikes, but tie durations are not merged into extended event durations.
 - Real MIDI hardware has been partially validated by the user: device detection, keypress display, and correct-event score/progress advancement work. Selected-hand event skipping, device connection/disconnection behavior, sustain pedal behavior, selection resizing, and ghost-note placement still need focused validation.
@@ -47,8 +47,8 @@ The project is a browser-based piano learning proof of concept. The current mile
 ## Recommended Next Steps
 - Load `Samples/Mad_world_Piano.mxl` and manually validate segmented cross-system selection, inverted dimming, and left/right resize handles.
 - Confirm once/loop practice uses resized ranges correctly.
-- Test wrong-note ghost placement with the real keyboard and note where pitch/staff alignment is too rough.
-- Decide whether OSMD cursor-derived overlays are acceptable for the next milestone or whether deeper OSMD graphical-note mapping is required.
+- Test current-position and wrong-note overlay alignment with one-hand practice on the real keyboard, especially across passages where the inactive hand has multiple skipped events.
+- Decide whether the OSMD graphical-event overlay strategy is accurate enough for the next milestone or whether deeper notehead-level renderer integration is required.
 - Decide how to handle repeat expansion before moving beyond the proof of concept.
 - Consider MIDI file use only if it adds concrete value for playback-order validation or reference playback.
 

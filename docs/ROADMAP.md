@@ -22,14 +22,14 @@ Acceptance criteria:
 - Core selection, resizing, filtering, and loop logic has automated tests.
 
 ## Milestone 2: Selection Precision And Renderer Evaluation
-Status: planned.
+Status: in progress.
 
 Goals:
 - Improve the fidelity of score hit-testing and highlight placement.
 - Decide whether OSMD overlays are sufficient for rich interaction.
 
 Acceptance criteria:
-- Event anchors align acceptably with the real sample score across systems/pages.
+- Event anchors align acceptably with the real sample score across systems/pages, including one-hand passages that skip inactive-hand events.
 - Selection segments, resize handles, and wrong-note ghosts are validated against `Samples/Mad_world_Piano.mxl`.
 - Gaps, repeats, and multi-staff events are documented with screenshots or notes.
 - A decision is recorded: continue OSMD overlay strategy, deepen OSMD integration, or evaluate an alternative renderer.
@@ -75,7 +75,7 @@ Deferred decisions:
 - Selection: visual drag mapped to `ScoreEvent` indices with segmented system-row rectangles that preserve mid-system boundaries and meet vertically between systems.
 - Selection after release: outside content is dimmed; selected area remains clear.
 - Selection resizing: left/right handles snap to `ScoreEvent` anchors.
-- Wrong-note feedback: app-owned red ghost noteheads at the current event x-position with approximate MusicXML/key-signature-aware diatonic staff/pitch y-placement.
+- Wrong-note feedback: app-owned red ghost noteheads at the current event graphical score position with approximate MusicXML/key-signature-aware diatonic staff/pitch y-placement.
 - Hand split: staff 1 is right hand; staff 2 is left hand; one-hand progression skips events with no notes for the selected hand.
 - Looping: practice loop waits for correct MIDI input and jumps back to selection start.
 - Persistence: out of scope until the interaction model proves itself.

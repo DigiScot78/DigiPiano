@@ -235,7 +235,8 @@ dd {
 }
 
 .score-selection-dim,
-.score-selection-rect {
+.score-selection-rect,
+.score-current-event-marker {
   position: absolute;
   pointer-events: none;
 }
@@ -256,6 +257,13 @@ dd {
 
 .score-selection-rect.committed {
   background: transparent;
+}
+
+.score-current-event-marker {
+  border-left: 4px solid #1d5f74;
+  border-radius: 4px;
+  background: rgba(29, 95, 116, 0.08);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
 .score-event-hit-zone {

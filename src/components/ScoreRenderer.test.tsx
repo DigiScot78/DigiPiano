@@ -23,6 +23,10 @@ cursorElement.getBoundingClientRect = vi.fn(() => {
   };
 });
 
+const osmdState = vi.hoisted(() => ({
+  graphicSheet: undefined as unknown,
+}));
+
 const osmdMocks = vi.hoisted(() => ({
   load: vi.fn(function () {
     return Promise.resolve();
@@ -40,10 +44,33 @@ const osmdMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("opensheetmusicdisplay", () => ({
+  Fraction: class Fraction {
+    numerator: number;
+    denominator: number;
+
+    constructor(numerator: number, denominator: number) {
+      this.numerator = numerator;
+      this.denominator = denominator;
+    }
+
+    get RealValue() {
+      return this.numerator / this.denominator;
+    }
+  },
+  PointF2D: class PointF2D {
+    x: number;
+    y: number;
+
+    constructor(x: number, y: number) {
+      this.x = x;
+      this.y = y;
+    }
+  },
   OpenSheetMusicDisplay: vi.fn().mockImplementation(function () {
     return {
       load: osmdMocks.load,
       render: osmdMocks.render,
+      GraphicSheet: osmdState.graphicSheet,
       cursor: {
         show: osmdMocks.cursorShow,
         hide: vi.fn(),
@@ -90,6 +117,7 @@ describe("ScoreRenderer", () => {
     container = undefined;
     cursorStep = 0;
     cursorRects = [];
+    osmdState.graphicSheet = undefined;
     vi.restoreAllMocks();
     vi.clearAllMocks();
   });
@@ -193,6 +221,39 @@ describe("ScoreRenderer", () => {
     expect(container.textContent).not.toContain("G#4");
     expect(aFlat).toBeCloseTo(aNatural);
     expect(dFlat).toBeCloseTo(dNatural);
+  });
+  it("anchors the current marker to graphical event positions after skipped hand events", async () => {
+    const events: ScoreEvent[] = [
+      { ...currentEvent, id: "left-1", measureNumber: 1, startQuarter: 0, measureStartQuarter: 0, midiNotes: [58], staffNumbers: [2], noteDetails: [{ midiNote: 58, staffNumber: 2, voiceNumber: "1", sourceNoteId: "left-1" }] },
+      { ...currentEvent, id: "right-1", measureNumber: 1, startQuarter: 1, measureStartQuarter: 0, midiNotes: [68], staffNumbers: [1], noteDetails: [{ midiNote: 68, staffNumber: 1, voiceNumber: "1", sourceNoteId: "right-1" }] },
+      { ...currentEvent, id: "left-2", measureNumber: 1, startQuarter: 2, measureStartQuarter: 0, midiNotes: [62, 65], staffNumbers: [2], noteDetails: [{ midiNote: 62, staffNumber: 2, voiceNumber: "1", sourceNoteId: "left-2a" }, { midiNote: 65, staffNumber: 2, voiceNumber: "1", sourceNoteId: "left-2b" }] },
+    ];
+    const staffEntries = [0, 0.25, 0.5].map((timestamp, index) => ({
+      relInMeasureTimestamp: { RealValue: timestamp },
+      PositionAndShape: {
+        AbsolutePosition: { x: 10 + index * 10, y: 12 },
+        Size: { width: 2.8, height: 4.2 },
+      },
+      getAbsoluteStartAndEnd: () => [10 + index * 10, 12 + index * 10],
+    }));
+    osmdState.graphicSheet = {
+      findGraphicalMeasureByMeasureNumber: vi.fn(() => ({ staffEntries })),
+    };
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={2} currentEvent={events[2]} eventCount={events.length} events={events} wrongNotes={[59]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const currentMarker = container.querySelector<HTMLElement>(".score-current-event-marker");
+    const wrongMarker = container.querySelector<HTMLElement>(".wrong-note-ghost");
+
+    expect(currentMarker).not.toBeNull();
+    expect(parseFloat(currentMarker?.style.left ?? "0")).toBeGreaterThan(250);
+    expect(parseFloat(wrongMarker?.style.left ?? "0")).toBeGreaterThan(250);
   });
   it("selects a normalized range by dragging over transparent event targets", async () => {
     const onSelectedRangeChange = vi.fn();

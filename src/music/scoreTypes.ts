@@ -13,6 +13,7 @@ export interface ScoreEvent {
   partId: string;
   measureNumber: number;
   startQuarter: number;
+  measureStartQuarter?: number;
   durationQuarters: number;
   midiNotes: number[];
   staffNumbers: number[];
