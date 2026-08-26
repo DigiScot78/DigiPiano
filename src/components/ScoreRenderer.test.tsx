@@ -153,6 +153,27 @@ describe("ScoreRenderer", () => {
     expect(container.querySelector(".wrong-note-ghost")).not.toBeNull();
   });
 
+  it("places wrong-note ghosts by diatonic staff position", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} wrongNotes={[60, 61, 62, 64, 65, 67, 69]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const markers = Array.from(container.querySelectorAll<HTMLElement>(".wrong-note-ghost"));
+    const tops = markers.map((marker) => parseFloat(marker.style.top));
+    const [c, cSharp, d, e, f, g, a] = tops;
+    const staffStep = d - c;
+
+    expect(cSharp).toBeCloseTo(c);
+    expect(e - c).toBeCloseTo(staffStep * 2);
+    expect(f - c).toBeCloseTo(staffStep * 3);
+    expect(g - c).toBeCloseTo(staffStep * 4);
+    expect(a - c).toBeCloseTo(staffStep * 5);
+  });
   it("selects a normalized range by dragging over transparent event targets", async () => {
     const onSelectedRangeChange = vi.fn();
     container = document.createElement("div");

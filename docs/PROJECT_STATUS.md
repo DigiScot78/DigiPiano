@@ -32,9 +32,8 @@ The project is a browser-based piano learning proof of concept. The current mile
 
 ## Known Issues Or Blockers
 - Written repeat expansion is deferred; the parser follows printed measure order and reports repeat warnings.
-- OSMD cursor advancement, selection hit zones, selection hulls, and wrong-note ghost placement are event-index/cursor based and may not perfectly align with all complex MusicXML constructs.
-- Wrong-note ghost y-position is approximate and staff/pitch based; exact notehead-level placement is deferred until renderer integration is evaluated further.
-- Cross-system selections use one enclosing rectangular hull, which can include whitespace between systems by design.
+- OSMD cursor advancement, selection hit zones, selection overlays, and wrong-note ghost placement are event-index/cursor based and may not perfectly align with all complex MusicXML constructs.
+- Wrong-note ghost y-position is approximate and staff/pitch based, but now uses diatonic staff steps rather than chromatic semitone spacing; exact notehead-level placement is deferred until renderer integration is evaluated further.
 - Tied stop-only notes are skipped as re-strikes, but tie durations are not merged into extended event durations.
 - Real MIDI hardware has been partially validated by the user: device detection, keypress display, and correct-event score/progress advancement work. Device connection/disconnection behavior, sustain pedal behavior, selection resizing, and ghost-note placement still need focused validation.
 - No `.mid` playback/comparison path is implemented; the `.mxl` score remains the source of truth.

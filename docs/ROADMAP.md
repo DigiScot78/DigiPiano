@@ -75,7 +75,7 @@ Deferred decisions:
 - Selection: visual drag mapped to `ScoreEvent` indices with segmented system-row rectangles that preserve mid-system boundaries and meet vertically between systems.
 - Selection after release: outside content is dimmed; selected area remains clear.
 - Selection resizing: left/right handles snap to `ScoreEvent` anchors.
-- Wrong-note feedback: app-owned red ghost noteheads at the current event x-position with approximate staff/pitch y-placement.
+- Wrong-note feedback: app-owned red ghost noteheads at the current event x-position with approximate diatonic staff/pitch y-placement.
 - Hand split: staff 1 is right hand; staff 2 is left hand.
 - Looping: practice loop waits for correct MIDI input and jumps back to selection start.
 - Persistence: out of scope until the interaction model proves itself.

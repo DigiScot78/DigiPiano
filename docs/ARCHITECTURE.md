@@ -58,7 +58,7 @@ Partially handled or deferred:
 ## Renderer Overlay Model
 The renderer keeps OSMD as the notation engine and draws app-owned overlays above the rendered SVG. Selection hit targets are transparent. During drag, the selected range is shown as one or more solid rectangular segments grouped by rendered system row. After release, outside regions are dimmed while the selected segments remain clear. Cross-system selections preserve mid-system start and end points instead of selecting full systems, and selected row segments expand vertically to the midpoint between neighboring systems so adjacent selected systems visually meet. Committed selections expose left and right resize handles that snap to parsed score events.
 
-Wrong notes are shown as app-owned red ghost noteheads at the current event's horizontal score position. Vertical placement is approximate: it uses the current event staff context and MIDI pitch to choose a treble or bass staff region. This avoids mutating OSMD/VexFlow internals, but it is not yet exact notehead-level engraving.
+Wrong notes are shown as app-owned red ghost noteheads at the current event's horizontal score position. Vertical placement is approximate: it uses the current event staff context, chooses a treble or bass staff region, and maps MIDI pitch to diatonic staff steps so black keys share the same vertical staff position as their natural note. This avoids mutating OSMD/VexFlow internals, but it is not yet exact notehead-level engraving.
 
 ## MIDI Handling
 The app uses Web MIDI with `sysex: false`. It supports multiple listed inputs and subscribes only to the selected input. It handles standard note-on, note-off, velocity-zero note-off, and sustain pedal controller 64.

@@ -466,13 +466,25 @@ function markerForWrongNote(note: number, currentPosition: EventPosition | undef
   const staffNumber = staffForWrongNote(note, currentEvent);
   const staffTop = position.top + (staffNumber === 2 ? position.height * 0.56 : position.height * 0.12);
   const referenceMidi = staffNumber === 2 ? 48 : 60;
-  const y = staffTop + 24 - (note - referenceMidi) * 3.3;
+  const halfLineSpacing = Math.max(3, Math.min(5.5, position.height / 14.5));
+  const y = staffTop + 24 + halfLineSpacing - diatonicStepDistance(referenceMidi, note) * halfLineSpacing;
 
   return {
     note,
     left: position.left + Math.max(10, position.width + 8),
     top: Math.max(4, y),
   };
+}
+
+function diatonicStepDistance(fromMidi: number, toMidi: number): number {
+  return diatonicPositionForMidi(toMidi) - diatonicPositionForMidi(fromMidi);
+}
+
+function diatonicPositionForMidi(note: number): number {
+  const octave = Math.floor(note / 12) - 1;
+  const pitchClass = ((note % 12) + 12) % 12;
+  const letterIndexByPitchClass = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6];
+  return octave * 7 + letterIndexByPitchClass[pitchClass];
 }
 
 function staffForWrongNote(note: number, currentEvent: ScoreEvent | undefined): number {
