@@ -1,22 +1,27 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ScoreRenderer } from "./ScoreRenderer";
+import type { ScoreEvent } from "../music/scoreTypes";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+let cursorStep = 0;
 const cursorElement = document.createElement("div");
-cursorElement.getBoundingClientRect = vi.fn(() => ({
-  left: 100,
-  top: 120,
-  width: 4,
-  height: 48,
-  right: 104,
-  bottom: 168,
-  x: 100,
-  y: 120,
-  toJSON: () => undefined,
-}));
+cursorElement.getBoundingClientRect = vi.fn(() => {
+  const left = 100 + cursorStep * 32;
+  return {
+    left,
+    top: 120,
+    width: 4,
+    height: 48,
+    right: left + 4,
+    bottom: 168,
+    x: left,
+    y: 120,
+    toJSON: () => undefined,
+  };
+});
 
 const osmdMocks = vi.hoisted(() => ({
   load: vi.fn(function () {
@@ -26,8 +31,12 @@ const osmdMocks = vi.hoisted(() => ({
     return Promise.resolve();
   }),
   cursorShow: vi.fn(),
-  cursorReset: vi.fn(),
-  cursorNext: vi.fn(),
+  cursorReset: vi.fn(() => {
+    cursorStep = 0;
+  }),
+  cursorNext: vi.fn(() => {
+    cursorStep += 1;
+  }),
 }));
 
 vi.mock("opensheetmusicdisplay", () => ({
@@ -46,9 +55,30 @@ vi.mock("opensheetmusicdisplay", () => ({
   }),
 }));
 
+const currentEvent: ScoreEvent = {
+  id: "event-1",
+  partId: "P1",
+  measureNumber: 1,
+  startQuarter: 0,
+  durationQuarters: 1,
+  midiNotes: [60],
+  staffNumbers: [1, 2],
+  voiceNumbers: ["1"],
+  sourceNoteIds: ["note-1"],
+  noteDetails: [{ midiNote: 60, staffNumber: 1, voiceNumber: "1", sourceNoteId: "note-1" }],
+};
+
 describe("ScoreRenderer", () => {
   let root: Root | undefined;
   let container: HTMLDivElement | undefined;
+
+  beforeEach(() => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+  });
 
   afterEach(() => {
     act(() => {
@@ -57,6 +87,8 @@ describe("ScoreRenderer", () => {
     root = undefined;
     container?.remove();
     container = undefined;
+    cursorStep = 0;
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -99,22 +131,70 @@ describe("ScoreRenderer", () => {
     expect(osmdMocks.cursorNext).toHaveBeenCalled();
   });
 
-  it("shows wrong-note labels without reloading the score", async () => {
+  it("shows wrong-note ghosts without reloading the score", async () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} wrongNotes={[61]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} wrongNotes={[61]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     expect(osmdMocks.load).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("C#4");
+    expect(container.querySelector(".wrong-note-ghost")).not.toBeNull();
+  });
+
+  it("selects a normalized range by dragging over transparent event targets", async () => {
+    const onSelectedRangeChange = vi.fn();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} wrongNotes={[]} onSelectedRangeChange={onSelectedRangeChange} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const targets = Array.from(container.querySelectorAll<HTMLButtonElement>(".score-event-hit-zone"));
+    expect(targets).toHaveLength(3);
+
+    await act(async () => {
+      targets[0].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      targets[2].dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+      targets[2].dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    });
+
+    expect(onSelectedRangeChange).toHaveBeenLastCalledWith({ startIndex: 0, endIndex: 2 });
+  });
+
+  it("resizes a committed selection from the right edge", async () => {
+    const onSelectedRangeChange = vi.fn();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} selectedRange={{ startIndex: 0, endIndex: 1 }} wrongNotes={[]} onSelectedRangeChange={onSelectedRangeChange} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const rightHandle = container.querySelector<HTMLButtonElement>(".score-selection-handle.end");
+    const targets = Array.from(container.querySelectorAll<HTMLButtonElement>(".score-event-hit-zone"));
+    expect(rightHandle).not.toBeNull();
+
+    await act(async () => {
+      rightHandle?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      targets[2].dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+      targets[2].dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    });
+
+    expect(onSelectedRangeChange).toHaveBeenLastCalledWith({ startIndex: 0, endIndex: 2 });
   });
 });

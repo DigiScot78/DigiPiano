@@ -11,30 +11,32 @@ The project is a browser-based piano learning proof of concept. The current mile
 - MusicXML is normalized into ordered playable `ScoreEvent` objects with per-note staff metadata.
 - The app requests Web MIDI access, lists MIDI inputs, and subscribes to the selected input. This has been smoke-tested with a real keyboard by the user.
 - MIDI note-on, note-off, velocity-zero note-off, and sustain pedal messages are decoded; real keypresses have been observed by the user.
-- Held notes are compared with the current expected event; user-confirmed real-keyboard progress now works after the renderer lifecycle fix.
-- Chords advance only when every expected filtered note is held; extra notes are shown in the status panel and as red labels near the current score cursor, but do not block progress.
+- Held notes are compared with the current expected event; user-confirmed real-keyboard progress works after the renderer lifecycle fix.
+- Chords advance only when every expected filtered note is held; extra notes are shown in the status panel and as red ghost noteheads near the current score event, but do not block progress.
+- Visual score selection supports drag-to-select, inverted dimming after selection, and left/right resize handles that snap to score events.
+- Selected ranges can play once or loop, and practice can be filtered to both hands, right hand staff 1, or left hand staff 2.
 - A simulation button can advance events without hardware.
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, expected event, event index, parser warnings, and comparison results.
 
 ## Recently Completed
 - Implemented the first browser-only PoC architecture.
-- Added deterministic unit tests for core MIDI, note, parser, matcher, and progress logic.
+- Added deterministic unit tests for core MIDI, note, parser, matcher, progress logic, and renderer overlay behavior.
 - Added architecture and decision documentation.
 - Added `Samples/` to `.gitignore`; local sample files remain available for manual testing but are not committed.
 - Verified through a temporary local-only test that `Samples/Mad_world_Piano.mxl` decompresses and produces playable score events.
 - Fixed a renderer lifecycle bug where MIDI/debug rerenders could reload OpenSheetMusicDisplay and cause severe memory growth per keypress.
-- Added a cursor-anchored red wrong-note overlay for extra held MIDI notes.
-- Added `docs/ROADMAP.md` for multi-session planning.
-- Added visual drag selection, selected-range highlighting, once/loop practice modes, and staff-based hand filtering.
+- Added interactive score selection, once/loop range practice, staff-based hand filtering, inverted selection dimming, resize handles, and red ghost-note feedback for wrong held notes.
 
 ## Work In Progress
-- Interactive score foundation is in progress: visual range selection, staff hand filters, and selected-range once/loop practice are implemented and awaiting real-keyboard validation.
+- Interactive score foundation is implemented and awaiting focused manual validation against `Samples/Mad_world_Piano.mxl` with the real MIDI keyboard.
 
 ## Known Issues Or Blockers
 - Written repeat expansion is deferred; the parser follows printed measure order and reports repeat warnings.
-- OSMD cursor advancement, selection hit zones, and wrong-note overlay placement are event-index/cursor based and may not perfectly align with all complex MusicXML constructs.
+- OSMD cursor advancement, selection hit zones, selection hulls, and wrong-note ghost placement are event-index/cursor based and may not perfectly align with all complex MusicXML constructs.
+- Wrong-note ghost y-position is approximate and staff/pitch based; exact notehead-level placement is deferred until renderer integration is evaluated further.
+- Cross-system selections use one enclosing rectangular hull, which can include whitespace between systems by design.
 - Tied stop-only notes are skipped as re-strikes, but tie durations are not merged into extended event durations.
-- Real MIDI hardware has been partially validated by the user: device detection, keypress display, and correct-event score/progress advancement work. Device connection/disconnection behavior still needs focused validation.
+- Real MIDI hardware has been partially validated by the user: device detection, keypress display, and correct-event score/progress advancement work. Device connection/disconnection behavior, sustain pedal behavior, selection resizing, and ghost-note placement still need focused validation.
 - No `.mid` playback/comparison path is implemented; the `.mxl` score remains the source of truth.
 
 ## Important Assumptions
@@ -44,11 +46,11 @@ The project is a browser-based piano learning proof of concept. The current mile
 - `Samples/` may contain copyrighted or third-party music and should remain local-only unless explicitly approved for commit.
 
 ## Recommended Next Steps
-- Retest `Samples/Mad_world_Piano.mxl` after the renderer lifecycle fix and confirm memory stays stable during repeated keypresses.
-- Confirm whether the current expected event advances and whether OSMD cursor movement is clear enough during real-keyboard matching.
-- Connect the real electric piano and validate Web MIDI permission, device selection, note-on/note-off behavior, and sustain pedal behavior.
-- Improve cursor alignment or true notehead-level highlighting if the cursor-anchored wrong-note overlay is too coarse for the sample score.
-- Decide how to handle repeat expansion before moving beyond the first proof of concept.
+- Load `Samples/Mad_world_Piano.mxl` and manually validate single-hull selection, inverted dimming, and left/right resize handles.
+- Confirm once/loop practice uses resized ranges correctly.
+- Test wrong-note ghost placement with the real keyboard and note where pitch/staff alignment is too rough.
+- Decide whether OSMD cursor-derived overlays are acceptable for the next milestone or whether deeper OSMD graphical-note mapping is required.
+- Decide how to handle repeat expansion before moving beyond the proof of concept.
 - Consider MIDI file use only if it adds concrete value for playback-order validation or reference playback.
 
 ## Relevant Files
@@ -62,3 +64,4 @@ The project is a browser-based piano learning proof of concept. The current mile
 - `src/learning/matcher.ts`
 - `docs/ARCHITECTURE.md`
 - `docs/DECISIONS.md`
+- `docs/ROADMAP.md`

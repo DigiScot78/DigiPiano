@@ -186,6 +186,7 @@ function App() {
           <ScoreRenderer
             xmlText={loadedScore?.xmlText}
             currentEventIndex={learningState.currentIndex}
+            currentEvent={currentEvent}
             eventCount={parsedScore.events.length}
             selectedRange={selectedRange}
             wrongNotes={liveComparison.extraNotes}

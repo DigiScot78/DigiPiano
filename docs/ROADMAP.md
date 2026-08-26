@@ -4,7 +4,7 @@
 This roadmap tracks the path from the working proof of concept to a richer interactive piano learning surface. Keep it current as milestones complete or design assumptions change.
 
 ## Milestone 1: Interactive Score Foundation
-Status: in progress.
+Status: implemented; awaiting real-score validation.
 
 Goals:
 - Treat the rendered score as an interactive surface.
@@ -13,12 +13,13 @@ Goals:
 
 Acceptance criteria:
 - Dragging across the rendered score selects an event-backed range.
-- Selected ranges are visibly highlighted while dragging and after selection.
+- Selected ranges show a single hull while dragging and inverted outside dimming after release.
+- Selected ranges can be resized with left and right edge handles.
 - Practice can run over the full score or selected range.
 - Run mode supports play once and loop selection.
 - Hand mode supports both hands, right hand staff 1, and left hand staff 2.
-- Wrong-note feedback continues to work against the filtered expected notes.
-- Core selection, filtering, and loop logic has automated tests.
+- Wrong-note feedback continues to work against the filtered expected notes and appears as red ghost noteheads near the current score event.
+- Core selection, resizing, filtering, and loop logic has automated tests.
 
 ## Milestone 2: Selection Precision And Renderer Evaluation
 Status: planned.
@@ -29,6 +30,7 @@ Goals:
 
 Acceptance criteria:
 - Event anchors align acceptably with the real sample score across systems/pages.
+- Selection hull, resize handles, and wrong-note ghosts are validated against `Samples/Mad_world_Piano.mxl`.
 - Gaps, repeats, and multi-staff events are documented with screenshots or notes.
 - A decision is recorded: continue OSMD overlay strategy, deepen OSMD integration, or evaluate an alternative renderer.
 
@@ -52,6 +54,7 @@ Goals:
 
 Acceptance criteria:
 - Wrong-note overlay is stable during repeated MIDI input.
+- Wrong-note ghost y-placement is useful enough for unfamiliar players to locate the pressed key relative to the current score position.
 - Missing expected notes are distinguishable from extra held notes.
 - If direct notehead-level highlighting is attempted, it is isolated behind renderer adapter APIs.
 
@@ -69,7 +72,10 @@ Deferred decisions:
 
 ## Current Defaults
 - Renderer: OpenSheetMusicDisplay with app-owned overlays.
-- Selection: visual drag mapped to `ScoreEvent` indices.
+- Selection: visual drag mapped to `ScoreEvent` indices with one enclosing hull.
+- Selection after release: outside content is dimmed; selected area remains clear.
+- Selection resizing: left/right handles snap to `ScoreEvent` anchors.
+- Wrong-note feedback: app-owned red ghost noteheads at the current event x-position with approximate staff/pitch y-placement.
 - Hand split: staff 1 is right hand; staff 2 is left hand.
 - Looping: practice loop waits for correct MIDI input and jumps back to selection start.
 - Persistence: out of scope until the interaction model proves itself.
