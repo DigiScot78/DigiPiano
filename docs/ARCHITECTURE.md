@@ -70,7 +70,7 @@ The app uses Web MIDI with `sysex: false`. It supports multiple listed inputs an
 Web MIDI support is browser-dependent. Chromium-based desktop browsers are the supported target. Secure context is required; local development on `localhost` or `127.0.0.1` is acceptable.
 
 ## Learning Mode
-The current mode is untimed. A chord is accepted once all expected notes are currently held; the notes do not need to arrive in the same millisecond. Extra held notes are reported as mistakes but do not block advancement. Progress advances on new note-on input or the simulation button, not merely because a previous note remains held. Selected ranges can run once or loop back to the selected start, and hand mode filters expected notes by staff: right hand uses staff 1, left hand uses staff 2.
+The current mode is untimed. A chord is accepted once all expected notes are currently held; the notes do not need to arrive in the same millisecond. Extra held notes are reported as mistakes but do not block advancement. Progress advances on new note-on input or the simulation button, not merely because a previous note remains held. Selected ranges can run once or loop back to the selected start. Hand mode filters expected notes by staff: right hand uses staff 1, left hand uses staff 2. In one-hand modes, practice navigation skips score events that have no playable notes for the selected hand so the raw event index and score cursor stay on the next relevant hand event.
 
 ## Testing Without Hardware
 Use the `Simulate Current Event` button to advance through parsed score events without a MIDI keyboard. Unit tests cover MIDI decoding, held-note state, matching, event advancement, note naming, MusicXML timeline fixtures, and renderer overlay behavior.

@@ -3,8 +3,11 @@ import {
   advanceWhenSatisfied,
   compareHeldNotesToEvent,
   filterEventForHand,
+  firstPlayableIndex,
   initialLearningState,
+  isEventPlayableForHand,
   normalizeSelectionRange,
+  resolvePracticeIndex,
 } from "./matcher";
 import type { ScoreEvent } from "../music/scoreTypes";
 
@@ -33,6 +36,36 @@ const chord: ScoreEvent = {
   ],
 };
 
+
+const leftBb: ScoreEvent = {
+  ...single,
+  id: "left-bb",
+  midiNotes: [58],
+  staffNumbers: [2],
+  sourceNoteIds: ["left-bb"],
+  noteDetails: [{ midiNote: 58, staffNumber: 2, voiceNumber: "2", sourceNoteId: "left-bb" }],
+};
+
+const rightGSharp: ScoreEvent = {
+  ...single,
+  id: "right-g-sharp",
+  midiNotes: [68],
+  staffNumbers: [1],
+  sourceNoteIds: ["right-g-sharp"],
+  noteDetails: [{ midiNote: 68, staffNumber: 1, voiceNumber: "1", sourceNoteId: "right-g-sharp" }],
+};
+
+const leftDF: ScoreEvent = {
+  ...single,
+  id: "left-d-f",
+  midiNotes: [62, 65],
+  staffNumbers: [2],
+  sourceNoteIds: ["left-d", "left-f"],
+  noteDetails: [
+    { midiNote: 62, staffNumber: 2, voiceNumber: "2", sourceNoteId: "left-d" },
+    { midiNote: 65, staffNumber: 2, voiceNumber: "2", sourceNoteId: "left-f" },
+  ],
+};
 const twoHandEvent: ScoreEvent = {
   ...single,
   id: "two-hands",
@@ -112,5 +145,40 @@ describe("score event matching", () => {
 
     expect(state.currentIndex).toBe(0);
     expect(state.isComplete).toBe(false);
+  });
+  it("skips right-hand-only events during left-hand progression", () => {
+    const events = [leftBb, rightGSharp, leftDF];
+    const state = advanceWhenSatisfied(initialLearningState(0), events, [58], { handMode: "left" });
+
+    expect(state.currentIndex).toBe(2);
+    expect(state.completedEventIds).toEqual(["left-bb"]);
+    expect(compareHeldNotesToEvent([62, 65], events[state.currentIndex], "left")).toMatchObject({ satisfied: true });
+  });
+
+  it("resolves left-hand practice away from a right-hand-only event", () => {
+    const events = [leftBb, rightGSharp, leftDF];
+
+    expect(isEventPlayableForHand(rightGSharp, "left")).toBe(false);
+    expect(resolvePracticeIndex(1, events, "left")).toBe(2);
+    expect(firstPlayableIndex(events, "left", { startIndex: 1, endIndex: 2 })).toBe(2);
+  });
+
+  it("keeps both-hands progression on the full event sequence", () => {
+    const events = [leftBb, rightGSharp, leftDF];
+    const state = advanceWhenSatisfied(initialLearningState(0), events, [58], { handMode: "both" });
+
+    expect(state.currentIndex).toBe(1);
+  });
+
+  it("does not advance when a selected range has no playable notes for the hand", () => {
+    const events = [leftBb, rightGSharp, leftDF];
+    const state = advanceWhenSatisfied(initialLearningState(1), events, [68], {
+      handMode: "left",
+      range: { startIndex: 1, endIndex: 1 },
+    });
+
+    expect(state.currentIndex).toBe(1);
+    expect(state.isComplete).toBe(false);
+    expect(state.lastComparison).toMatchObject({ satisfied: false, missingNotes: [], extraNotes: [68] });
   });
 });

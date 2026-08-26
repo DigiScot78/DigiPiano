@@ -4,7 +4,11 @@ import {
   advanceWhenSatisfied,
   compareHeldNotesToEvent,
   filterEventForHand,
+  firstPlayableIndex,
   initialLearningState,
+  isEventPlayableForHand,
+  nextPlayableIndex,
+  resolvePracticeIndex,
   type HandMode,
   type LearningState,
   type PracticeRunMode,
@@ -32,6 +36,13 @@ function App() {
 
   const currentEvent = parsedScore.events[learningState.currentIndex];
   const expectedEvent = useMemo(() => filterEventForHand(currentEvent, handMode), [currentEvent, handMode]);
+  const currentEventPlayable = isEventPlayableForHand(currentEvent, handMode);
+  const nextPlayableEventIndex = useMemo(() => nextPlayableIndex(
+    parsedScore.events,
+    learningState.currentIndex + 1,
+    selectedRange?.endIndex ?? parsedScore.events.length - 1,
+    handMode,
+  ), [handMode, learningState.currentIndex, parsedScore.events, selectedRange]);
   const combinedHeldNotes = useMemo(
     () => Array.from(new Set([...midi.heldNotes, ...simulatedHeldNotes])).sort((a, b) => a - b),
     [midi.heldNotes, simulatedHeldNotes],
@@ -42,6 +53,14 @@ function App() {
   );
 
   const practiceOptions = useMemo(() => ({ handMode, runMode, range: selectedRange }), [handMode, runMode, selectedRange]);
+
+  useEffect(() => {
+    setLearningState((current) => {
+      const nextIndex = resolvePracticeIndex(current.currentIndex, parsedScore.events, handMode, selectedRange);
+      return nextIndex === current.currentIndex ? current : initialLearningState(nextIndex);
+    });
+    setSimulatedHeldNotes([]);
+  }, [handMode, parsedScore.events, selectedRange]);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -61,6 +80,7 @@ function App() {
       const parsed = parseMusicXmlTimeline(score.xmlText);
       setLoadedScore(score);
       setParsedScore(parsed);
+      setLearningState(initialLearningState(firstPlayableIndex(parsed.events, handMode) ?? 0));
     } catch (error) {
       setLoadedScore(null);
       setParsedScore({ events: [], warnings: [] });
@@ -82,9 +102,9 @@ function App() {
 
   const handleSelectionChange = useCallback((range: ScoreSelectionRange | undefined) => {
     setSelectedRange(range);
-    setLearningState(initialLearningState(range?.startIndex ?? 0));
+    setLearningState(initialLearningState(firstPlayableIndex(parsedScore.events, handMode, range) ?? range?.startIndex ?? 0));
     setSimulatedHeldNotes([]);
-  }, []);
+  }, [handMode, parsedScore.events]);
 
   const simulateCurrentEvent = () => {
     if (!expectedEvent || expectedEvent.midiNotes.length === 0) {
@@ -99,7 +119,12 @@ function App() {
   };
 
   const resetProgress = () => {
-    setLearningState(initialLearningState(selectedRange?.startIndex ?? 0));
+    setLearningState(initialLearningState(firstPlayableIndex(parsedScore.events, handMode, selectedRange) ?? selectedRange?.startIndex ?? 0));
+    setSimulatedHeldNotes([]);
+  };
+
+  const handleHandModeChange = (nextHandMode: HandMode) => {
+    setHandMode(nextHandMode);
     setSimulatedHeldNotes([]);
   };
 
@@ -153,7 +178,7 @@ function App() {
           <div className="practice-controls">
             <label>
               Hand
-              <select value={handMode} onChange={(event) => setHandMode(event.target.value as HandMode)}>
+              <select value={handMode} onChange={(event) => handleHandModeChange(event.target.value as HandMode)}>
                 <option value="both">Both hands</option>
                 <option value="right">Right hand</option>
                 <option value="left">Left hand</option>
@@ -207,6 +232,8 @@ function App() {
           handMode={handMode}
           runMode={runMode}
           isComplete={learningState.isComplete}
+          currentEventPlayable={currentEventPlayable}
+          nextPlayableEventIndex={nextPlayableEventIndex}
           selectedMidiDevice={midi.inputs.find((input) => input.id === midi.selectedInputId)?.name}
           lastMessage={midi.lastMessage}
           heldNotes={combinedHeldNotes}
@@ -285,6 +312,8 @@ function DebugPanel(props: {
   handMode: HandMode;
   runMode: PracticeRunMode;
   isComplete: boolean;
+  currentEventPlayable: boolean;
+  nextPlayableEventIndex?: number;
   selectedMidiDevice?: string;
   lastMessage?: unknown;
   heldNotes: number[];
@@ -306,6 +335,8 @@ function DebugPanel(props: {
         <div><dt>Run mode</dt><dd>{props.runMode}</dd></div>
         <div><dt>Range</dt><dd>{props.selectedRange ? `${props.selectedRange.startIndex}-${props.selectedRange.endIndex}` : "Full score"}</dd></div>
         <div><dt>Complete</dt><dd>{props.isComplete ? "Yes" : "No"}</dd></div>
+        <div><dt>Playable</dt><dd>{props.currentEventPlayable ? "Yes" : "No"}</dd></div>
+        <div><dt>Next playable</dt><dd>{props.nextPlayableEventIndex ?? "None"}</dd></div>
         <div><dt>Parsed events</dt><dd>{props.parsedScore.events.length}</dd></div>
       </dl>
       <h3>Current Event</h3>

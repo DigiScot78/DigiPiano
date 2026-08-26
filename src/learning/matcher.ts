@@ -53,7 +53,7 @@ export function advanceWhenSatisfied(
   const handMode = options.handMode ?? "both";
   const runMode = options.runMode ?? "once";
   const range = normalizeSelectionRange(options.range?.startIndex, options.range?.endIndex, events.length);
-  const activeIndex = clampIndexToRange(state.currentIndex, range, events.length);
+  const activeIndex = resolvePracticeIndex(state.currentIndex, events, handMode, range);
   const currentEvent = events[activeIndex];
   const comparison = compareHeldNotesToEvent(heldNotes, currentEvent, handMode);
 
@@ -67,9 +67,10 @@ export function advanceWhenSatisfied(
 
   const completedEventIds = [...state.completedEventIds, currentEvent.id];
   const rangeEnd = range?.endIndex ?? events.length - 1;
-  const rangeStart = range?.startIndex ?? 0;
+  const rangeStart = firstPlayableIndex(events, handMode, range) ?? range?.startIndex ?? 0;
+  const nextIndex = nextPlayableIndex(events, activeIndex + 1, rangeEnd, handMode);
 
-  if (activeIndex >= rangeEnd) {
+  if (nextIndex === undefined) {
     if (runMode === "loop") {
       return {
         currentIndex: rangeStart,
@@ -88,13 +89,12 @@ export function advanceWhenSatisfied(
   }
 
   return {
-    currentIndex: Math.min(activeIndex + 1, events.length - 1),
+    currentIndex: nextIndex,
     completedEventIds,
     lastComparison: comparison,
     isComplete: false,
   };
 }
-
 export function filterEventForHand(event: ScoreEvent | undefined, handMode: HandMode): ScoreEvent | undefined {
   if (!event || handMode === "both") {
     return event;
@@ -113,6 +113,66 @@ export function filterEventForHand(event: ScoreEvent | undefined, handMode: Hand
 
 export function notesForHand(event: ScoreEvent | undefined, handMode: HandMode): number[] {
   return filterEventForHand(event, handMode)?.midiNotes ?? [];
+}
+
+export function isEventPlayableForHand(event: ScoreEvent | undefined, handMode: HandMode): boolean {
+  return notesForHand(event, handMode).length > 0;
+}
+
+export function firstPlayableIndex(
+  events: ScoreEvent[],
+  handMode: HandMode,
+  range?: ScoreSelectionRange,
+): number | undefined {
+  if (events.length === 0) {
+    return undefined;
+  }
+
+  const normalizedRange = normalizeSelectionRange(range?.startIndex, range?.endIndex, events.length);
+  const start = normalizedRange?.startIndex ?? 0;
+  const end = normalizedRange?.endIndex ?? events.length - 1;
+  return nextPlayableIndex(events, start, end, handMode);
+}
+
+export function nextPlayableIndex(
+  events: ScoreEvent[],
+  startIndex: number,
+  endIndex: number,
+  handMode: HandMode,
+): number | undefined {
+  if (events.length === 0 || startIndex > endIndex) {
+    return undefined;
+  }
+
+  const start = clamp(startIndex, 0, events.length - 1);
+  const end = clamp(endIndex, 0, events.length - 1);
+
+  for (let index = start; index <= end; index += 1) {
+    if (isEventPlayableForHand(events[index], handMode)) {
+      return index;
+    }
+  }
+
+  return undefined;
+}
+
+export function resolvePracticeIndex(
+  index: number,
+  events: ScoreEvent[],
+  handMode: HandMode,
+  range?: ScoreSelectionRange,
+): number {
+  const clampedIndex = clampIndexToRange(index, range, events.length);
+  if (events.length === 0 || isEventPlayableForHand(events[clampedIndex], handMode)) {
+    return clampedIndex;
+  }
+
+  const normalizedRange = normalizeSelectionRange(range?.startIndex, range?.endIndex, events.length);
+  const rangeStart = normalizedRange?.startIndex ?? 0;
+  const rangeEnd = normalizedRange?.endIndex ?? events.length - 1;
+  return nextPlayableIndex(events, clampedIndex + 1, rangeEnd, handMode)
+    ?? previousPlayableIndex(events, clampedIndex - 1, rangeStart, handMode)
+    ?? clampedIndex;
 }
 
 export function normalizeSelectionRange(
@@ -145,6 +205,28 @@ function clampIndexToRange(index: number, range: ScoreSelectionRange | undefined
     return clamp(index, 0, eventCount - 1);
   }
   return clamp(index, range.startIndex, range.endIndex);
+}
+
+function previousPlayableIndex(
+  events: ScoreEvent[],
+  startIndex: number,
+  endIndex: number,
+  handMode: HandMode,
+): number | undefined {
+  if (events.length === 0 || startIndex < endIndex) {
+    return undefined;
+  }
+
+  const start = clamp(startIndex, 0, events.length - 1);
+  const end = clamp(endIndex, 0, events.length - 1);
+
+  for (let index = start; index >= end; index -= 1) {
+    if (isEventPlayableForHand(events[index], handMode)) {
+      return index;
+    }
+  }
+
+  return undefined;
 }
 
 function staffForHand(handMode: Exclude<HandMode, "both">): number {

@@ -17,7 +17,7 @@ Acceptance criteria:
 - Selected ranges can be resized with left and right edge handles.
 - Practice can run over the full score or selected range.
 - Run mode supports play once and loop selection.
-- Hand mode supports both hands, right hand staff 1, and left hand staff 2.
+- Hand mode supports both hands, right hand staff 1, and left hand staff 2, skipping events without notes for the selected hand.
 - Wrong-note feedback continues to work against the filtered expected notes and appears as red ghost noteheads near the current score event.
 - Core selection, resizing, filtering, and loop logic has automated tests.
 
@@ -44,7 +44,7 @@ Acceptance criteria:
 - Range controls show start/end measure/event information.
 - User can reset to range start, loop continuously, or play selected range once.
 - Current hand mode and run mode are visible in the main practice panel.
-- Debug panel exposes selected range, filtered expected event, and completion state.
+- Debug panel exposes selected range, filtered expected event, selected-hand playability, next playable event, and completion state.
 
 ## Milestone 4: Feedback Quality
 Status: planned.
@@ -76,6 +76,6 @@ Deferred decisions:
 - Selection after release: outside content is dimmed; selected area remains clear.
 - Selection resizing: left/right handles snap to `ScoreEvent` anchors.
 - Wrong-note feedback: app-owned red ghost noteheads at the current event x-position with approximate MusicXML/key-signature-aware diatonic staff/pitch y-placement.
-- Hand split: staff 1 is right hand; staff 2 is left hand.
+- Hand split: staff 1 is right hand; staff 2 is left hand; one-hand progression skips events with no notes for the selected hand.
 - Looping: practice loop waits for correct MIDI input and jumps back to selection start.
 - Persistence: out of scope until the interaction model proves itself.
