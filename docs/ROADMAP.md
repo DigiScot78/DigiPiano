@@ -13,7 +13,7 @@ Goals:
 
 Acceptance criteria:
 - Dragging across the rendered score selects an event-backed range.
-- Selected ranges show segmented system-row highlights while dragging and inverted outside dimming after release.
+- Selected ranges show segmented system-row highlights while dragging and inverted outside dimming after release; selected system segments meet vertically between adjacent systems.
 - Selected ranges can be resized with left and right edge handles.
 - Practice can run over the full score or selected range.
 - Run mode supports play once and loop selection.
@@ -72,7 +72,7 @@ Deferred decisions:
 
 ## Current Defaults
 - Renderer: OpenSheetMusicDisplay with app-owned overlays.
-- Selection: visual drag mapped to `ScoreEvent` indices with segmented system-row rectangles.
+- Selection: visual drag mapped to `ScoreEvent` indices with segmented system-row rectangles that preserve mid-system boundaries and meet vertically between systems.
 - Selection after release: outside content is dimmed; selected area remains clear.
 - Selection resizing: left/right handles snap to `ScoreEvent` anchors.
 - Wrong-note feedback: app-owned red ghost noteheads at the current event x-position with approximate staff/pitch y-placement.

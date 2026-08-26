@@ -374,17 +374,24 @@ function rectsForRange(range: ScoreSelectionRange | undefined, positions: EventP
 
       const left = rowIndex === firstSelectedRow ? Math.min(...selectedInRow.map((position) => position.left)) - 16 : row.left - 16;
       const right = rowIndex === lastSelectedRow ? Math.max(...selectedInRow.map((position) => position.left + position.width)) + 34 : row.right + 34;
+      const previousRow = rows[rowIndex - 1];
+      const nextRow = rows[rowIndex + 1];
+      const top = previousRow ? midpoint(previousRow.bottom, row.top) : row.top - 24;
+      const bottom = nextRow ? midpoint(row.bottom, nextRow.top) : row.bottom + 24;
 
       return {
         left: Math.max(0, left),
-        top: Math.max(0, row.top - 10),
+        top: Math.max(0, top),
         width: Math.max(28, right - left),
-        height: Math.max(42, row.bottom - row.top + 20),
+        height: Math.max(42, bottom - top),
       };
     })
     .filter((rect): rect is OverlayRect => rect !== undefined);
 }
 
+function midpoint(a: number, b: number): number {
+  return a + (b - a) / 2;
+}
 function dimRectsForSelection(selectionRects: OverlayRect[], size: OverlaySize): OverlayRect[] {
   if (selectionRects.length === 0 || size.width <= 0 || size.height <= 0) {
     return [];

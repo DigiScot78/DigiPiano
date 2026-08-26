@@ -13,7 +13,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - MIDI note-on, note-off, velocity-zero note-off, and sustain pedal messages are decoded; real keypresses have been observed by the user.
 - Held notes are compared with the current expected event; user-confirmed real-keyboard progress works after the renderer lifecycle fix.
 - Chords advance only when every expected filtered note is held; extra notes are shown in the status panel and as red ghost noteheads near the current score event, but do not block progress.
-- Visual score selection supports drag-to-select, segmented cross-system highlights, inverted dimming after selection, and left/right resize handles that snap to score events.
+- Visual score selection supports drag-to-select, segmented cross-system highlights that meet between systems, inverted dimming after selection, and left/right resize handles that snap to score events.
 - Selected ranges can play once or loop, and practice can be filtered to both hands, right hand staff 1, or left hand staff 2.
 - A simulation button can advance events without hardware.
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, expected event, event index, parser warnings, and comparison results.

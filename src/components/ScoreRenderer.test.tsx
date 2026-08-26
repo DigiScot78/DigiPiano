@@ -194,8 +194,12 @@ describe("ScoreRenderer", () => {
       await Promise.resolve();
     });
 
-    const selectedRects = Array.from(container.querySelectorAll(".score-selection-rect.committed"));
+    const selectedRects = Array.from(container.querySelectorAll<HTMLElement>(".score-selection-rect.committed"));
     expect(selectedRects).toHaveLength(2);
+
+    const firstBottom = parseFloat(selectedRects[0].style.top) + parseFloat(selectedRects[0].style.height);
+    const secondTop = parseFloat(selectedRects[1].style.top);
+    expect(firstBottom).toBeCloseTo(secondTop);
   });
 
   it("resizes a committed selection from the right edge", async () => {
