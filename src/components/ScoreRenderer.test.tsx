@@ -7,18 +7,18 @@ import type { ScoreEvent } from "../music/scoreTypes";
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let cursorStep = 0;
+let cursorRects: Array<{ left: number; top: number; width: number; height: number }> = [];
+const defaultCursorRect = { left: 100, top: 120, width: 4, height: 48 };
 const cursorElement = document.createElement("div");
 cursorElement.getBoundingClientRect = vi.fn(() => {
-  const left = 100 + cursorStep * 32;
+  const configured = cursorRects[cursorStep];
+  const rect = configured ?? { ...defaultCursorRect, left: defaultCursorRect.left + cursorStep * 32 };
   return {
-    left,
-    top: 120,
-    width: 4,
-    height: 48,
-    right: left + 4,
-    bottom: 168,
-    x: left,
-    y: 120,
+    ...rect,
+    right: rect.left + rect.width,
+    bottom: rect.top + rect.height,
+    x: rect.left,
+    y: rect.top,
     toJSON: () => undefined,
   };
 });
@@ -73,6 +73,7 @@ describe("ScoreRenderer", () => {
   let container: HTMLDivElement | undefined;
 
   beforeEach(() => {
+    cursorRects = [];
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback: FrameRequestCallback) => {
       callback(0);
       return 1;
@@ -88,6 +89,7 @@ describe("ScoreRenderer", () => {
     container?.remove();
     container = undefined;
     cursorStep = 0;
+    cursorRects = [];
     vi.restoreAllMocks();
     vi.clearAllMocks();
   });
@@ -172,6 +174,28 @@ describe("ScoreRenderer", () => {
     });
 
     expect(onSelectedRangeChange).toHaveBeenLastCalledWith({ startIndex: 0, endIndex: 2 });
+  });
+
+  it("renders separate selection segments across systems", async () => {
+    cursorRects = [
+      { left: 100, top: 120, width: 4, height: 48 },
+      { left: 132, top: 120, width: 4, height: 48 },
+      { left: 164, top: 120, width: 4, height: 48 },
+      { left: 92, top: 220, width: 4, height: 48 },
+      { left: 124, top: 220, width: 4, height: 48 },
+      { left: 156, top: 220, width: 4, height: 48 },
+    ];
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={6} selectedRange={{ startIndex: 1, endIndex: 4 }} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const selectedRects = Array.from(container.querySelectorAll(".score-selection-rect.committed"));
+    expect(selectedRects).toHaveLength(2);
   });
 
   it("resizes a committed selection from the right edge", async () => {

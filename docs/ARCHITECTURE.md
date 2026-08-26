@@ -56,7 +56,7 @@ Partially handled or deferred:
 - OSMD cursor advancement is event-index based and may not perfectly align with every parsed event in complex scores.
 
 ## Renderer Overlay Model
-The renderer keeps OSMD as the notation engine and draws app-owned overlays above the rendered SVG. Selection hit targets are transparent. During drag, the selected range is shown as one solid rectangular hull. After release, the same hull becomes an inverted mask: content outside the selected range is dimmed while the selected area remains clear. Committed selections expose left and right resize handles that snap to parsed score events.
+The renderer keeps OSMD as the notation engine and draws app-owned overlays above the rendered SVG. Selection hit targets are transparent. During drag, the selected range is shown as one or more solid rectangular segments grouped by rendered system row. After release, outside regions are dimmed while the selected segments remain clear. Cross-system selections preserve mid-system start and end points instead of selecting full systems. Committed selections expose left and right resize handles that snap to parsed score events.
 
 Wrong notes are shown as app-owned red ghost noteheads at the current event's horizontal score position. Vertical placement is approximate: it uses the current event staff context and MIDI pitch to choose a treble or bass staff region. This avoids mutating OSMD/VexFlow internals, but it is not yet exact notehead-level engraving.
 

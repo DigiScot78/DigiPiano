@@ -234,11 +234,19 @@ dd {
   z-index: 20;
 }
 
+.score-selection-dim,
 .score-selection-rect {
   position: absolute;
+  pointer-events: none;
+}
+
+.score-selection-dim {
+  background: rgba(29, 35, 40, 0.3);
+}
+
+.score-selection-rect {
   border: 2px solid rgba(29, 95, 116, 0.9);
   border-radius: 6px;
-  pointer-events: none;
 }
 
 .score-selection-rect.dragging,
@@ -248,7 +256,6 @@ dd {
 
 .score-selection-rect.committed {
   background: transparent;
-  box-shadow: 0 0 0 9999px rgba(29, 35, 40, 0.3);
 }
 
 .score-event-hit-zone {

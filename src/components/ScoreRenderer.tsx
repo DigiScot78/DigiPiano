@@ -29,6 +29,11 @@ interface OverlayPosition {
   top: number;
 }
 
+interface OverlaySize {
+  width: number;
+  height: number;
+}
+
 interface EventPosition extends OverlayPosition {
   index: number;
   width: number;
@@ -42,6 +47,8 @@ interface OverlayRect extends OverlayPosition {
 
 type ResizeEdge = "start" | "end";
 type InteractionMode = "idle" | "selecting" | "resizing-start" | "resizing-end";
+
+const ROW_TOP_TOLERANCE = 28;
 
 export function ScoreRenderer({
   xmlText,
@@ -61,6 +68,7 @@ export function ScoreRenderer({
   const currentEventIndexRef = useRef(currentEventIndex);
   const onRenderStateChangeRef = useRef(onRenderStateChange);
   const [eventPositions, setEventPositions] = useState<EventPosition[]>([]);
+  const [overlaySize, setOverlaySize] = useState<OverlaySize>({ width: 0, height: 0 });
   const [draftRange, setDraftRange] = useState<ScoreSelectionRange | undefined>();
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("idle");
 
@@ -92,6 +100,7 @@ export function ScoreRenderer({
 
     if (!shell || !cursor || !cursorElement || eventCount <= 0) {
       setEventPositions([]);
+      setOverlaySize({ width: 0, height: 0 });
       return;
     }
 
@@ -113,6 +122,10 @@ export function ScoreRenderer({
     }
 
     setEventPositions(positions);
+    setOverlaySize({
+      width: Math.max(shell.scrollWidth, shell.clientWidth, shellRect.width),
+      height: Math.max(shell.scrollHeight, shell.clientHeight, shellRect.height),
+    });
     positionCursor(currentEventIndexRef.current);
   }, [eventCount, positionCursor]);
 
@@ -127,6 +140,7 @@ export function ScoreRenderer({
     container.innerHTML = "";
     osmdRef.current = null;
     setEventPositions([]);
+    setOverlaySize({ width: 0, height: 0 });
     setDraftRange(undefined);
     setInteractionMode("idle");
 
@@ -194,7 +208,11 @@ export function ScoreRenderer({
   }, []);
 
   const visibleRange = draftRange ?? selectedRange;
-  const selectionRect = useMemo(() => rectForRange(visibleRange, eventPositions), [eventPositions, visibleRange]);
+  const selectionRects = useMemo(() => rectsForRange(visibleRange, eventPositions), [eventPositions, visibleRange]);
+  const committedDimRects = useMemo(
+    () => (selectedRange && interactionMode === "idle" ? dimRectsForSelection(selectionRects, overlaySize) : []),
+    [interactionMode, overlaySize, selectedRange, selectionRects],
+  );
   const isDragging = draftRange !== undefined && interactionMode === "selecting";
   const currentPosition = eventPositions.find((position) => position.index === currentEventIndex);
   const wrongNoteMarkers = useMemo(
@@ -260,16 +278,23 @@ export function ScoreRenderer({
     setDraftRange(selectedRange);
   };
 
+  const startHandleRect = selectionRects[0];
+  const endHandleRect = selectionRects[selectionRects.length - 1];
+
   return (
     <div ref={shellRef} className="score-renderer-shell">
       <div ref={containerRef} className="score-renderer" aria-label="Rendered sheet music" />
       <div className="score-selection-visual-layer" aria-hidden="true">
-        {selectionRect ? (
+        {committedDimRects.map((rect, index) => (
+          <div key={`dim-${index}`} className="score-selection-dim" style={rectStyle(rect)} />
+        ))}
+        {selectionRects.map((rect, index) => (
           <div
+            key={`selection-${index}`}
             className={`score-selection-rect${isDragging ? " dragging" : ""}${selectedRange && !isDragging ? " committed" : ""}`}
-            style={rectStyle(selectionRect)}
+            style={rectStyle(rect)}
           />
-        ) : null}
+        ))}
       </div>
       <div className="score-selection-layer" aria-label="Score event selection layer">
         {eventPositions.map((position) => (
@@ -287,12 +312,12 @@ export function ScoreRenderer({
             onMouseUp={() => finishSelection(position.index)}
           />
         ))}
-        {selectionRect && selectedRange && !isDragging ? (
+        {startHandleRect && endHandleRect && selectedRange && !isDragging ? (
           <>
             <button
               type="button"
               className="score-selection-handle start"
-              style={{ left: selectionRect.left, top: selectionRect.top, height: selectionRect.height }}
+              style={{ left: startHandleRect.left, top: startHandleRect.top, height: startHandleRect.height }}
               aria-label="Resize selected range start"
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -303,7 +328,7 @@ export function ScoreRenderer({
             <button
               type="button"
               className="score-selection-handle end"
-              style={{ left: selectionRect.left + selectionRect.width, top: selectionRect.top, height: selectionRect.height }}
+              style={{ left: endHandleRect.left + endHandleRect.width, top: endHandleRect.top, height: endHandleRect.height }}
               aria-label="Resize selected range end"
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -326,27 +351,98 @@ export function ScoreRenderer({
   );
 }
 
-function rectForRange(range: ScoreSelectionRange | undefined, positions: EventPosition[]): OverlayRect | undefined {
+function rectsForRange(range: ScoreSelectionRange | undefined, positions: EventPosition[]): OverlayRect[] {
   if (!range) {
-    return undefined;
+    return [];
   }
 
   const selected = positions.filter((position) => position.index >= range.startIndex && position.index <= range.endIndex);
   if (selected.length === 0) {
-    return undefined;
+    return [];
   }
 
-  const left = Math.min(...selected.map((position) => position.left)) - 16;
-  const top = Math.min(...selected.map((position) => position.top)) - 10;
-  const right = Math.max(...selected.map((position) => position.left + position.width)) + 34;
-  const bottom = Math.max(...selected.map((position) => position.top + position.height)) + 10;
+  const rows = rowsForPositions(positions);
+  const firstSelectedRow = rowIndexForPosition(rows, selected[0]);
+  const lastSelectedRow = rowIndexForPosition(rows, selected[selected.length - 1]);
 
-  return {
-    left: Math.max(0, left),
-    top: Math.max(0, top),
-    width: Math.max(28, right - left),
-    height: Math.max(42, bottom - top),
-  };
+  return rows
+    .map((row, rowIndex) => {
+      const selectedInRow = selected.filter((position) => row.positions.includes(position));
+      if (selectedInRow.length === 0) {
+        return undefined;
+      }
+
+      const left = rowIndex === firstSelectedRow ? Math.min(...selectedInRow.map((position) => position.left)) - 16 : row.left - 16;
+      const right = rowIndex === lastSelectedRow ? Math.max(...selectedInRow.map((position) => position.left + position.width)) + 34 : row.right + 34;
+
+      return {
+        left: Math.max(0, left),
+        top: Math.max(0, row.top - 10),
+        width: Math.max(28, right - left),
+        height: Math.max(42, row.bottom - row.top + 20),
+      };
+    })
+    .filter((rect): rect is OverlayRect => rect !== undefined);
+}
+
+function dimRectsForSelection(selectionRects: OverlayRect[], size: OverlaySize): OverlayRect[] {
+  if (selectionRects.length === 0 || size.width <= 0 || size.height <= 0) {
+    return [];
+  }
+
+  const sorted = [...selectionRects].sort((a, b) => a.top - b.top || a.left - b.left);
+  const dimRects: OverlayRect[] = [];
+  let previousBottom = 0;
+
+  for (const rect of sorted) {
+    if (rect.top > previousBottom) {
+      dimRects.push({ left: 0, top: previousBottom, width: size.width, height: rect.top - previousBottom });
+    }
+    if (rect.left > 0) {
+      dimRects.push({ left: 0, top: rect.top, width: rect.left, height: rect.height });
+    }
+    const rightStart = rect.left + rect.width;
+    if (rightStart < size.width) {
+      dimRects.push({ left: rightStart, top: rect.top, width: size.width - rightStart, height: rect.height });
+    }
+    previousBottom = Math.max(previousBottom, rect.top + rect.height);
+  }
+
+  if (previousBottom < size.height) {
+    dimRects.push({ left: 0, top: previousBottom, width: size.width, height: size.height - previousBottom });
+  }
+
+  return dimRects;
+}
+
+function rowsForPositions(positions: EventPosition[]): Array<{ top: number; bottom: number; left: number; right: number; positions: EventPosition[] }> {
+  const rows: Array<{ top: number; bottom: number; left: number; right: number; positions: EventPosition[] }> = [];
+
+  for (const position of [...positions].sort((a, b) => a.top - b.top || a.left - b.left)) {
+    const row = rows.find((candidate) => Math.abs(candidate.top - position.top) <= ROW_TOP_TOLERANCE);
+    if (!row) {
+      rows.push({
+        top: position.top,
+        bottom: position.top + position.height,
+        left: position.left,
+        right: position.left + position.width,
+        positions: [position],
+      });
+      continue;
+    }
+
+    row.top = Math.min(row.top, position.top);
+    row.bottom = Math.max(row.bottom, position.top + position.height);
+    row.left = Math.min(row.left, position.left);
+    row.right = Math.max(row.right, position.left + position.width);
+    row.positions.push(position);
+  }
+
+  return rows;
+}
+
+function rowIndexForPosition(rows: Array<{ positions: EventPosition[] }>, position: EventPosition): number {
+  return Math.max(0, rows.findIndex((row) => row.positions.includes(position)));
 }
 
 function rectStyle(rect: OverlayRect): React.CSSProperties {

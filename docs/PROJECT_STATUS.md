@@ -13,7 +13,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - MIDI note-on, note-off, velocity-zero note-off, and sustain pedal messages are decoded; real keypresses have been observed by the user.
 - Held notes are compared with the current expected event; user-confirmed real-keyboard progress works after the renderer lifecycle fix.
 - Chords advance only when every expected filtered note is held; extra notes are shown in the status panel and as red ghost noteheads near the current score event, but do not block progress.
-- Visual score selection supports drag-to-select, inverted dimming after selection, and left/right resize handles that snap to score events.
+- Visual score selection supports drag-to-select, segmented cross-system highlights, inverted dimming after selection, and left/right resize handles that snap to score events.
 - Selected ranges can play once or loop, and practice can be filtered to both hands, right hand staff 1, or left hand staff 2.
 - A simulation button can advance events without hardware.
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, expected event, event index, parser warnings, and comparison results.
@@ -25,7 +25,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Added `Samples/` to `.gitignore`; local sample files remain available for manual testing but are not committed.
 - Verified through a temporary local-only test that `Samples/Mad_world_Piano.mxl` decompresses and produces playable score events.
 - Fixed a renderer lifecycle bug where MIDI/debug rerenders could reload OpenSheetMusicDisplay and cause severe memory growth per keypress.
-- Added interactive score selection, once/loop range practice, staff-based hand filtering, inverted selection dimming, resize handles, and red ghost-note feedback for wrong held notes.
+- Added interactive score selection, once/loop range practice, staff-based hand filtering, segmented cross-system selection, inverted selection dimming, resize handles, and red ghost-note feedback for wrong held notes.
 
 ## Work In Progress
 - Interactive score foundation is implemented and awaiting focused manual validation against `Samples/Mad_world_Piano.mxl` with the real MIDI keyboard.
@@ -46,7 +46,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - `Samples/` may contain copyrighted or third-party music and should remain local-only unless explicitly approved for commit.
 
 ## Recommended Next Steps
-- Load `Samples/Mad_world_Piano.mxl` and manually validate single-hull selection, inverted dimming, and left/right resize handles.
+- Load `Samples/Mad_world_Piano.mxl` and manually validate segmented cross-system selection, inverted dimming, and left/right resize handles.
 - Confirm once/loop practice uses resized ranges correctly.
 - Test wrong-note ghost placement with the real keyboard and note where pitch/staff alignment is too rough.
 - Decide whether OSMD cursor-derived overlays are acceptable for the next milestone or whether deeper OSMD graphical-note mapping is required.

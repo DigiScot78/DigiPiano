@@ -13,7 +13,7 @@ Goals:
 
 Acceptance criteria:
 - Dragging across the rendered score selects an event-backed range.
-- Selected ranges show a single hull while dragging and inverted outside dimming after release.
+- Selected ranges show segmented system-row highlights while dragging and inverted outside dimming after release.
 - Selected ranges can be resized with left and right edge handles.
 - Practice can run over the full score or selected range.
 - Run mode supports play once and loop selection.
@@ -30,7 +30,7 @@ Goals:
 
 Acceptance criteria:
 - Event anchors align acceptably with the real sample score across systems/pages.
-- Selection hull, resize handles, and wrong-note ghosts are validated against `Samples/Mad_world_Piano.mxl`.
+- Selection segments, resize handles, and wrong-note ghosts are validated against `Samples/Mad_world_Piano.mxl`.
 - Gaps, repeats, and multi-staff events are documented with screenshots or notes.
 - A decision is recorded: continue OSMD overlay strategy, deepen OSMD integration, or evaluate an alternative renderer.
 
@@ -72,7 +72,7 @@ Deferred decisions:
 
 ## Current Defaults
 - Renderer: OpenSheetMusicDisplay with app-owned overlays.
-- Selection: visual drag mapped to `ScoreEvent` indices with one enclosing hull.
+- Selection: visual drag mapped to `ScoreEvent` indices with segmented system-row rectangles.
 - Selection after release: outside content is dimmed; selected area remains clear.
 - Selection resizing: left/right handles snap to `ScoreEvent` anchors.
 - Wrong-note feedback: app-owned red ghost noteheads at the current event x-position with approximate staff/pitch y-placement.
