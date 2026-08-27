@@ -1,7 +1,7 @@
 import { filterEventForHand, type HandMode, type ScoreSelectionRange } from "../learning/matcher";
 import type { ScoreEvent, TempoChange } from "../music/scoreTypes";
 
-export type PlaybackPhase = "idle" | "countdown" | "playing" | "waiting-restart";
+export type PlaybackPhase = "idle" | "countdown" | "playing" | "waiting-note" | "waiting-restart";
 export type AttemptResult = "correct" | "wrong";
 
 export interface PlaybackEvent {
@@ -11,6 +11,12 @@ export interface PlaybackEvent {
   endMs: number;
 }
 export interface PlaybackPlan { startQuarter: number; endQuarter: number; durationMs: number; events: PlaybackEvent[] }
+export interface PlaybackGate {
+  onsetMs: number;
+  eventIndices: number[];
+  expectedNotes: number[];
+  satisfiedNotes: number[];
+}
 export interface PerformanceResult {
   id: number;
   slotId: string;
@@ -89,6 +95,21 @@ export function activeExpectedNotes(plan: PlaybackPlan, elapsedMs: number): numb
   return Array.from(new Set(active.flatMap((item) => item.event.midiNotes))).sort((a, b) => a - b);
 }
 
+export function playbackGates(plan: PlaybackPlan): PlaybackGate[] {
+  const grouped = new Map<number, PlaybackEvent[]>();
+  for (const event of plan.events) {
+    const existing = grouped.get(event.onsetMs) ?? [];
+    existing.push(event);
+    grouped.set(event.onsetMs, existing);
+  }
+  return Array.from(grouped, ([onsetMs, events]) => ({
+    onsetMs,
+    eventIndices: events.map((item) => item.eventIndex),
+    expectedNotes: Array.from(new Set(events.flatMap((item) => item.event.midiNotes))).sort((a, b) => a - b),
+    satisfiedNotes: [],
+  })).sort((a, b) => a.onsetMs - b.onsetMs);
+}
+
 export function scorePerformanceAttempt(playedNote: number, elapsedMs: number, playedAtMs: number, id: number, plan: PlaybackPlan, tempoChanges: TempoChange[], fallbackBpm: number, toleranceMs: number, existingResults: PerformanceResult[] = []): PerformanceResult | undefined {
   const nearest = [...plan.events].sort((a, b) => Math.abs(a.onsetMs - elapsedMs) - Math.abs(b.onsetMs - elapsedMs))[0];
   if (!nearest) return undefined;
@@ -114,6 +135,29 @@ export function scorePerformanceAttempt(playedNote: number, elapsedMs: number, p
     staffNumber: detail?.staffNumber,
     result: isCorrect ? "correct" : "wrong",
   };
+}
+
+export function scoreGatedPerformanceAttempt(playedNote: number, gate: PlaybackGate, playedAtMs: number, firstId: number, plan: PlaybackPlan, tempoChanges: TempoChange[], fallbackBpm: number, existingResults: PerformanceResult[] = []): PerformanceResult[] {
+  const matchingEvents = plan.events.filter((item) => Math.abs(item.onsetMs - gate.onsetMs) < 0.001 && item.event.midiNotes.includes(playedNote));
+  if (matchingEvents.length === 0) {
+    const mistake = scorePerformanceAttempt(playedNote, gate.onsetMs, playedAtMs, firstId, plan, tempoChanges, fallbackBpm, 0, existingResults);
+    return mistake ? [mistake] : [];
+  }
+  const scoreQuarter = scoreQuarterAtElapsed(plan, gate.onsetMs, tempoChanges, fallbackBpm);
+  return matchingEvents
+    .filter((item) => !existingResults.some((result) => result.result === "correct" && result.slotId === slotId(item.eventIndex, playedNote)))
+    .map((item, index) => ({
+      id: firstId + index,
+      slotId: slotId(item.eventIndex, playedNote),
+      expectedNote: playedNote,
+      playedNote,
+      playedAtMs,
+      scoreQuarter,
+      eventIndex: item.eventIndex,
+      timingErrorMs: 0,
+      staffNumber: item.event.noteDetails.find((detail) => detail.midiNote === playedNote)?.staffNumber,
+      result: "correct" as const,
+    }));
 }
 
 function slotId(eventIndex: number, note: number): string { return `${eventIndex}:${note}`; }

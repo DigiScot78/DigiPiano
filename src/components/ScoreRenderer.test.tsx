@@ -654,18 +654,20 @@ describe("ScoreRenderer", () => {
   it("renders score practice controls and keeps at least one hand enabled", async () => {
     const onHandModeChange = vi.fn();
     const onRunModeChange = vi.fn();
+    const onPauseOnNotesChange = vi.fn();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} handMode="right" runMode="once" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onHandModeChange={onHandModeChange} onRunModeChange={onRunModeChange} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} handMode="right" runMode="once" pauseOnNotes={false} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onHandModeChange={onHandModeChange} onRunModeChange={onRunModeChange} onPauseOnNotesChange={onPauseOnNotesChange} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     const rightHand = container.querySelector<HTMLButtonElement>('[aria-label="Toggle right hand"]');
     const leftHand = container.querySelector<HTMLButtonElement>('[aria-label="Toggle left hand"]');
     const loop = container.querySelector<HTMLButtonElement>('[aria-label="Loop selected range"]');
+    const pauseOnNotes = container.querySelector<HTMLButtonElement>('[aria-label="Pause at each note"]');
     expect(rightHand?.getAttribute("aria-pressed")).toBe("true");
     expect(rightHand?.getAttribute("aria-disabled")).toBe("true");
     expect(leftHand?.getAttribute("aria-pressed")).toBe("false");
@@ -674,11 +676,24 @@ describe("ScoreRenderer", () => {
       rightHand?.click();
       leftHand?.click();
       loop?.click();
+      pauseOnNotes?.click();
     });
 
     expect(onHandModeChange).toHaveBeenCalledTimes(1);
     expect(onHandModeChange).toHaveBeenCalledWith("both");
     expect(onRunModeChange).toHaveBeenCalledWith("loop");
+    expect(onPauseOnNotesChange).toHaveBeenCalledWith(true);
+  });
+
+  it("shows the remaining notes while playback is waiting", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} playbackPhase="waiting-note" waitingForNotes={[60, 64]} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+    expect(container.querySelector(".playback-overlay.note-wait")?.textContent).toContain("Waiting forC4 + E4");
   });
 
   it("configures OSMD with the selected score page colours", async () => {

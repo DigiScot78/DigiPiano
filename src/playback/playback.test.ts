@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScoreEvent } from "../music/scoreTypes";
-import { activeExpectedNotes, activePlaybackEvent, createPlaybackPlan, millisecondsBetweenQuarters, missedPerformanceNotes, scorePerformanceAttempt, scoreQuarterAtElapsed, shouldShowPerformanceResults } from "./playback";
+import { activeExpectedNotes, activePlaybackEvent, createPlaybackPlan, millisecondsBetweenQuarters, missedPerformanceNotes, playbackGates, scoreGatedPerformanceAttempt, scorePerformanceAttempt, scoreQuarterAtElapsed, shouldShowPerformanceResults } from "./playback";
 
 const events: ScoreEvent[] = [
   event("a", 0, 1, [60], 1),
@@ -21,6 +21,10 @@ describe("playback timing", () => {
     expect(activeExpectedNotes(plan, 700)).toEqual([]);
     expect(activeExpectedNotes(plan, 1050)).toEqual([62, 65]);
     expect(scoreQuarterAtElapsed(plan, 1000, [], 120)).toBeCloseTo(2);
+  });
+  it("groups simultaneous events into one unique-pitch gate", () => {
+    const plan = createPlaybackPlan([event("a", 0, 1, [60, 64], 1), event("b", 0, 1, [48, 60], 2)], [], 120, "both")!;
+    expect(playbackGates(plan)).toEqual([{ onsetMs: 0, eventIndices: [0, 1], expectedNotes: [48, 60, 64], satisfiedNotes: [] }]);
   });
 });
 
@@ -56,6 +60,13 @@ describe("performance scoring", () => {
     const second = scorePerformanceAttempt(62, 1100, 5000, 2, plan, [], 120, 250, [first])!;
     expect(missedPerformanceNotes(plan, [first, second]).map((item) => [item.eventIndex, item.note])).toEqual([[1, 65], [2, 48]]);
   });
+  it("credits every simultaneous written slot for one gated pitch", () => {
+    const unisonPlan = createPlaybackPlan([event("u1", 0, 1, [60], 1), event("u2", 0, 1, [60], 2)], [], 120, "both")!;
+    const gate = playbackGates(unisonPlan)[0];
+    const results = scoreGatedPerformanceAttempt(60, gate, 5000, 1, unisonPlan, [], 120);
+    expect(results.map((result) => [result.eventIndex, result.staffNumber, result.result])).toEqual([[0, 1, "correct"], [1, 2, "correct"]]);
+    expect(missedPerformanceNotes(unisonPlan, results)).toEqual([]);
+  });
 });
 
 describe("performance result visibility", () => {
@@ -64,6 +75,7 @@ describe("performance result visibility", () => {
     expect(shouldShowPerformanceResults("playing", true)).toBe(true);
     expect(shouldShowPerformanceResults("idle", false)).toBe(true);
     expect(shouldShowPerformanceResults("waiting-restart", false)).toBe(true);
+    expect(shouldShowPerformanceResults("waiting-note", false)).toBe(true);
   });
 });
 

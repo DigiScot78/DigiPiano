@@ -23,9 +23,11 @@ The project is a browser-based piano learning proof of concept. The current mile
 - The score now occupies the primary page area, with compact file/practice/debug panels in a narrow right sidebar. MIDI configuration opens from a top-right cog in a centred modal, remembers the chosen input, and reconnects automatically when browser permission is already granted.
 - Settings now include a persisted System/Light/Dark application theme and independent Paper/Night score styles. Paper uses a warm textured page; Night asks OSMD to render pale notation on a dark page, with all fading and interaction overlays using matching score tokens.
 - A persisted, collapsible full-width piano panel is fixed to the bottom of the viewport so it remains visible while long scores scroll. It supports 88/76/61/49-key and validated custom ranges, three heights, Auto/Fit/Scroll width modes, optional scientific note labels, and accessible expected/correct/wrong/carried-note states. Expected notes outside the visible range can be revealed in one action.
-- Piano highlight colours are configurable in Settings. Normalized key geometry and panel-level visual tokens provide the horizontal foundation for a future falling-note view without coupling layout to pixels.
+- Piano highlight colours are configurable in Settings. Normalized key geometry and panel-level visual tokens are shared by the keyboard and falling-note view without coupling layout to pixels.
 - A soundless timed Play mode follows embedded MusicXML tempo changes (with a configurable fallback BPM), supports full-score or selection playback, and drives the score cursor plus duration-aware piano expectations through rests and tempo changes.
 - Play mode has a configurable countdown, Play/Stop controls, and loop-end restart waiting. The final countdown number remains until the exact playback onset, when a compact Go cue and first-event pulse identify the intended first-note moment. Any computer key or MIDI note restarts a loop through a fresh countdown; the restart input is not scored, and the waiting prompt leaves score/results fully visible without fading.
+- The floating score toolbar has a live Pause-at-each-note option. Timed playback freezes at each upcoming hand-filtered onset until fresh MIDI note-ons complete the required note or chord, then resumes with its remaining tempo and spacing intact. Waiting keeps the score cursor and piano expectations visible, accepts chord notes in any order, and records wrong pitches without allowing pre-held notes to skip repeated events.
+- The expanded piano toolbar can enable a persisted initial Synthesia view and exposes synchronized Play/Stop, Loop, Pause-at-each-note, and Clear controls. Its pointer-through lane panel rises from the keyboard, has a persisted drag-adjustable height plus transparent/opaque and falling-note-label toggles, follows the keyboard's normalized and horizontally scrolled key geometry, and renders bright staff-coloured duration blocks above the toolbar at a fixed speed. Countdown time positions the first blocks precisely; keys fill with the matching hand colour at the strike point, and note-gated playback freezes that state until the required input.
 - MIDI note-on attempts are timestamped at the browser input boundary. Each written event/pitch accepts one deduplicated green in-tolerance result centered over the expected note. Wrong-pitch and mistimed attempts remain individual red markers at the played pitch and interpolated score-time position. Results can be shown live via a persisted option but default to appearing after Stop/completion; expected pitches without a valid green result receive a compact red X at natural completion.
 - A simulation button can advance events without hardware.
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, ignored carried notes, expected event, event index, selected-hand playability, next playable index, parser warnings, import diagnostics, comparison results, and practice-attempt diagnostics.
@@ -43,9 +45,12 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Added green correct-note feedback, red wrong-note feedback, independent note-name toggles, and carry-over suppression for notes still held after a correct advancement.
 - Added the read-only bottom piano panel and reusable piano settings/geometry/state module.
 - Added the first timed playback and performance-marking foundation without sound generation.
+- Added MIDI-gated timed playback as the transport foundation used by the Synthesia-style mode.
+- Added the initial transparent Synthesia falling-note view using the shared piano and timed-transport geometry.
 
 ## Work In Progress
 - Current baseline is usable for `Samples/Mad_world_Piano.mxl` per user feedback. Wrong/correct note reporting is improved but still needs more real-keyboard refinement.
+- The first Pause-at-each-note and Synthesia implementation is complete and considered a strong initial form. Further visual/timing refinements are expected after broader hands-on testing rather than before this checkpoint is committed.
 - `Samples/Final_Fantast_IV_The_Prelude_-_Piano_Solo.mxl` appears to encode its opening pitched notes on staff 1 only, so left-hand practice has little/no opening material for that file. Other tested scores appear to split hands normally.
 
 ## Known Issues Or Blockers
@@ -55,8 +60,9 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Tied stop-only notes are skipped as re-strikes, but tie durations are not merged into extended event durations.
 - Real MIDI hardware has been partially validated by the user: device detection, keypress display, Mad World score rendering, score selection, and basic progression are working well. Feedback behavior still needs follow-up polish.
 - No `.mid` playback/comparison path is implemented; the `.mxl` score remains the source of truth.
-- Piano pointer interaction, sound generation, recording, and falling-note lanes are intentionally deferred.
+- Piano pointer interaction, sound generation, performance export, and note-off/held-duration assessment remain deferred. The first falling-note lanes are visual and use written onset/duration only.
 - Timed performance marking currently scores note-on pitch/onset only; velocity, held duration, note-off timing, sustain quality, export, and audio remain deferred.
+- The automated suite currently reports 94/96 passing tests. Two `ScoreRenderer` geometry assertions remain failing: completed-feedback x-ordering and drag-preview width. These failures pre-date the Synthesia refinements and should be investigated separately rather than hidden by loosening assertions.
 
 ## Important Assumptions
 - Desktop Chromium is the initial supported browser target.
@@ -65,6 +71,9 @@ The project is a browser-based piano learning proof of concept. The current mile
 - `Samples/` may contain copyrighted or third-party music and should remain local-only unless explicitly approved for commit.
 
 ## Recommended Next Steps
+- Start with real-browser and MIDI-keyboard testing of Pause-at-each-note and Synthesia across several scores, ranges, tempos, hand filters, piano widths, transparent/opaque modes, and resized roll heights.
+- Refine Synthesia only from observed use: block speed/readability, label density, staff colours, auto-follow behavior, strike/key feedback, and toolbar ergonomics are the likely adjustment points.
+- Investigate and either fix or conclusively re-baseline the two failing `ScoreRenderer` geometry tests before treating the full suite as green.
 - Continue with wrong/correct note feedback polish: validate green markers, red markers, label toggles, and held-note carry-over suppression on a real keyboard.
 - Validate the 450ms completed-correct linger/fade timing with a real keyboard and adjust only if it feels too fast or distracting.
 - Confirm once/loop practice uses resized ranges correctly across several scores.
@@ -76,6 +85,9 @@ The project is a browser-based piano learning proof of concept. The current mile
 ## Relevant Files
 - `src/App.tsx`
 - `src/components/ScoreRenderer.tsx`
+- `src/components/PianoPanel.tsx`
+- `src/piano/synthesia.ts`
+- `src/playback/usePlaybackSession.ts`
 - `src/music/musicXmlLoader.ts`
 - `src/music/musicXmlParser.ts`
 - `src/midi/messages.ts`

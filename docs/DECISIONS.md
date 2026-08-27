@@ -22,7 +22,7 @@ The first implementation follows printed measure order and reports repeat markin
 Hand mode uses explicit MusicXML staff numbers: staff 1 is treated as right hand and staff 2 as left hand. The app does not infer hand ownership from pitch because that would guess incorrectly for cross-staff notation, overlapping hands, and unusual arrangements. Import diagnostics are used to identify source files whose exported staff assignments do not match the expected visual/musical layout.
 
 ## 8. Keep Piano Geometry Normalized And Read-Only
-The first keyboard panel derives every key from MIDI bounds and expresses its horizontal position and width as normalized values over the white-key span. This makes the geometry independent of viewport pixels and reusable by a future falling-note view. The keyboard is visual feedback only for this milestone; pointer input, synthesis, recording, and falling notes remain separate future capabilities.
+The first keyboard panel derives every key from MIDI bounds and expresses its horizontal position and width as normalized values over the white-key span. This makes the geometry independent of viewport pixels and reusable by the later falling-note view. The keyboard itself remains visual feedback only; pointer input, sound synthesis, and recording are separate future capabilities.
 
 ## 9. Use A Monotonic Tempo-Aware Playback Clock
 Soundless playback converts MusicXML quarter positions through an explicit tempo map and derives state from `performance.now()` rather than chained timeouts. MIDI note arrival is timestamped at the input handler so React rendering latency does not affect onset scoring. This provides a deterministic base for later audio and piano-roll work without coupling musical time to UI frames.
@@ -35,3 +35,9 @@ Timed marking deduplicates valid green hits to one completion per expected event
 
 ## 12. Make Go The Exact Playback Boundary
 The countdown retains its final number until playback time zero. Go appears only at that boundary and shares the same monotonic timestamp used for MIDI scoring, accompanied by a brief first-event pulse. Loop-waiting prompts do not fade the score so completed results remain reviewable.
+
+## 13. Freeze And Rebase The Clock For Note-Gated Playback
+Pause-at-each-note remains part of the timed transport instead of invoking untimed learning progression. At each gated onset, musical time freezes until fresh MIDI note-ons complete the hand-filtered pitch set; the playback epoch is then rebased so later rhythm and tempo remain intact. Pre-held keys do not satisfy gates, which makes repeated notes deliberate and gives the falling-note view a stable shared transport state.
+
+## 14. Share Piano Geometry And Musical Time With Synthesia
+The initial falling-note view uses the existing normalized piano-key x coordinates and the active hand-filtered playback plan rather than maintaining a separate roll timeline. Vertical motion uses a fixed pixel speed and the transport's precise countdown/playing/gated playhead, so resizing changes lookahead while strike timing remains exact. The overlay is pointer-transparent over the score, with persistence limited to visibility and height; sound and held-duration validation remain later concerns.

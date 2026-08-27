@@ -13,7 +13,7 @@ describe("PianoPanel", () => {
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
   async function render(settings: PianoSettings = DEFAULT_PIANO_SETTINGS, expectedNotes = [60], heldNotes: number[] = [], carried: number[] = [], onChange = vi.fn()) {
-    await act(async () => root.render(<PianoPanel expectedNotes={expectedNotes} heldNotes={heldNotes} ignoredCarriedNotes={carried} settings={settings} onSettingsChange={onChange} />));
+    await act(async () => root.render(<PianoPanel expectedNotes={expectedNotes} heldNotes={heldNotes} ignoredCarriedNotes={carried} settings={settings} playbackPhase="idle" rollElapsedMs={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} onSettingsChange={onChange} onPlay={vi.fn()} onStop={vi.fn()} onRunModeChange={vi.fn()} onPauseOnNotesChange={vi.fn()} onClearPerformance={vi.fn()} />));
     return onChange;
   }
 
@@ -36,6 +36,9 @@ describe("PianoPanel", () => {
     const onChange = await render({ ...DEFAULT_PIANO_SETTINGS, expanded: false });
     expect(container.querySelectorAll(".piano-key")).toHaveLength(0);
     const button = container.querySelector<HTMLButtonElement>(".piano-toggle");
+    expect(container.querySelector(".piano-panel")?.className).toContain("collapsed");
+    expect(button?.getAttribute("aria-label")).toBe("Show piano");
+    expect(button?.querySelector("svg")).not.toBeNull();
     await act(async () => button?.click());
     expect(onChange).toHaveBeenCalledWith({ expanded: true });
   });
@@ -51,5 +54,43 @@ describe("PianoPanel", () => {
     await render({ ...DEFAULT_PIANO_SETTINGS, widthMode: "fit" });
     expect(container.querySelector<HTMLElement>(".piano-keyboard")?.style.minWidth).toBe("");
     expect(container.querySelector(".piano-viewport")?.className).toContain("width-fit");
+  });
+
+  it("keeps Synthesia and its controls hidden with a collapsed piano", async () => {
+    await render({ ...DEFAULT_PIANO_SETTINGS, expanded: false, synthesiaEnabled: true });
+    expect(container.querySelector(".synthesia-panel")).toBeNull();
+    expect(container.querySelector('[aria-label="Toggle Synthesia"]')).toBeNull();
+  });
+
+  it("renders transparent lanes and toggles Synthesia from the piano toolbar", async () => {
+    const onChange = await render({ ...DEFAULT_PIANO_SETTINGS, synthesiaEnabled: true });
+    expect(container.querySelectorAll(".synthesia-lane")).toHaveLength(88);
+    expect(container.querySelector(".synthesia-resize-handle")).not.toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Toggle Synthesia"]')?.click());
+    expect(onChange).toHaveBeenCalledWith({ synthesiaEnabled: false });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[aria-label="Toggle opaque Synthesia"]')?.click();
+      container.querySelector<HTMLButtonElement>('[aria-label="Show falling note labels"]')?.click();
+    });
+    expect(onChange).toHaveBeenCalledWith({ synthesiaOpaque: true });
+    expect(onChange).toHaveBeenCalledWith({ synthesiaShowNoteLabels: true });
+  });
+
+  it("routes the duplicated transport controls to shared callbacks", async () => {
+    const onPlay = vi.fn();
+    const onRunModeChange = vi.fn();
+    const onPauseOnNotesChange = vi.fn();
+    const onClearPerformance = vi.fn();
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="idle" rollElapsedMs={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={true} onSettingsChange={vi.fn()} onPlay={onPlay} onStop={vi.fn()} onRunModeChange={onRunModeChange} onPauseOnNotesChange={onPauseOnNotesChange} onClearPerformance={onClearPerformance} />));
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[aria-label="Play score from piano"]')?.click();
+      container.querySelector<HTMLButtonElement>('[aria-label="Loop from piano"]')?.click();
+      container.querySelector<HTMLButtonElement>('[aria-label="Pause at each note from piano"]')?.click();
+      container.querySelector<HTMLButtonElement>('[aria-label="Clear performance from piano"]')?.click();
+    });
+    expect(onPlay).toHaveBeenCalledOnce();
+    expect(onRunModeChange).toHaveBeenCalledWith("loop");
+    expect(onPauseOnNotesChange).toHaveBeenCalledWith(true);
+    expect(onClearPerformance).toHaveBeenCalledOnce();
   });
 });

@@ -39,7 +39,7 @@ Acceptance criteria:
 - A decision is recorded: continue OSMD overlay strategy, deepen OSMD integration, or evaluate an alternative renderer.
 
 ## Milestone 3: Practice Session Tools
-Status: in progress; soundless timed playback and onset marking implemented.
+Status: initial implementation complete; needs broader browser/MIDI validation and polish.
 
 Goals:
 - Make selected range practice feel deliberate and repeatable without persistence.
@@ -52,6 +52,9 @@ Acceptance criteria:
 - Soundless Play follows MusicXML tempo over the full score or selection, with a configurable countdown and fallback tempo.
 - Loop playback waits for keyboard or MIDI confirmation before beginning the next countdown.
 - Timestamped MIDI note-ons produce one deduplicated green completion per written note plus individual red mistake attempts at their played score-time positions; results default to appearing after playback and remain until cleared or a new run starts.
+- Pause-at-each-note can be changed live and freezes timed playback at each hand-filtered onset until fresh MIDI input completes the note or chord without compressing later rhythm.
+- The fixed piano toolbar mirrors Play/Stop, Loop, Pause, and Clear controls from the score toolbar.
+- A persisted, resizable Synthesia overlay shares piano geometry and playback time, supports transparent/opaque and note-label modes, and aligns staff-coloured duration blocks plus strike-time key fills with the keyboard.
 
 ## Milestone 4: Feedback Quality
 Status: in progress.
@@ -92,4 +95,6 @@ Deferred decisions:
 - Hand split: staff 1 is right hand; staff 2 is left hand; one-hand progression skips events with no notes for the selected hand.
 - Score diagnostics: debug output reports staff counts, system breaks, first parsed events, and practice attempts to troubleshoot file/parser/renderer mismatches.
 - Looping: practice loop waits for correct MIDI input and jumps back to selection start.
-- Persistence: out of scope until the interaction model proves itself.
+- Timed transport: MusicXML tempo-aware monotonic playback with countdown, performance marking, note gates, and loop-restart waiting.
+- Synthesia: fixed 100px/second visual speed; cyan staff-1/right-hand blocks, violet staff-2/left-hand blocks; duration is visual only and does not yet assess release timing.
+- Preferences: appearance, piano layout, Synthesia presentation, and Play settings persist locally; reusable training-list persistence remains deferred.

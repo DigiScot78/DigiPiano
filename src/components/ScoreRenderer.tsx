@@ -32,12 +32,15 @@ interface ScoreRendererProps {
   canPlay?: boolean;
   handMode?: HandMode;
   runMode?: PracticeRunMode;
+  pauseOnNotes?: boolean;
+  waitingForNotes?: number[];
   scoreTheme?: ScoreTheme;
   showCorrectNoteNames: boolean;
   showWrongNoteNames: boolean;
   onSelectedRangeChange: (range: ScoreSelectionRange | undefined) => void;
   onHandModeChange?: (mode: HandMode) => void;
   onRunModeChange?: (mode: PracticeRunMode) => void;
+  onPauseOnNotesChange?: (enabled: boolean) => void;
   onPlay?: () => void;
   onStop?: () => void;
   onClearPerformance?: () => void;
@@ -113,12 +116,15 @@ export function ScoreRenderer({
   canPlay = false,
   handMode = "both",
   runMode = "once",
+  pauseOnNotes = false,
+  waitingForNotes = [],
   scoreTheme = "paper",
   showCorrectNoteNames,
   showWrongNoteNames,
   onSelectedRangeChange,
   onHandModeChange,
   onRunModeChange,
+  onPauseOnNotesChange,
   onPlay,
   onStop,
   onClearPerformance,
@@ -569,6 +575,16 @@ export function ScoreRenderer({
             >
               <LoopIcon />
             </button>
+            <button
+              type="button"
+              className={pauseOnNotes ? "active" : ""}
+              aria-label="Pause at each note"
+              aria-pressed={pauseOnNotes}
+              title={pauseOnNotes ? "Pause at each note on" : "Pause at each note off"}
+              onClick={() => onPauseOnNotesChange?.(!pauseOnNotes)}
+            >
+              <PauseOnNoteIcon />
+            </button>
             <button type="button" aria-label="Clear performance markers" title="Clear performance" disabled={performanceResults.length === 0 && missedPerformanceNotes.length === 0} onClick={onClearPerformance}><ClearIcon /></button>
           </div>
         </div>
@@ -595,6 +611,7 @@ export function ScoreRenderer({
       </div>
       {playbackPhase === "countdown" ? <div className="playback-overlay countdown" role="status" aria-live="assertive"><div className="playback-message"><strong>{countdownValue ?? ""}</strong></div></div> : null}
       {showStartCue ? <div className="playback-overlay start-cue" role="status" aria-live="assertive"><div className="playback-message"><strong>Go</strong></div></div> : null}
+      {playbackPhase === "waiting-note" && !showStartCue ? <div className="playback-overlay note-wait" role="status" aria-live="polite"><div className="playback-message"><span>Waiting for</span><strong>{waitingForNotes.map(midiNoteToName).join(" + ")}</strong></div></div> : null}
       {playbackPhase === "waiting-restart" ? <div className="playback-overlay restart" role="status" aria-live="polite"><div className="playback-message"><span>Loop complete</span><strong>Press any key to start again</strong></div></div> : null}
     </div>
   );
@@ -604,6 +621,14 @@ function LoopIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d="M17.7 7.3A8 8 0 0 0 4.6 9H2l3.5-4L9 9H6.7a6 6 0 0 1 9.6-.3L17.7 7.3Zm-10.4 9.4A8 8 0 0 0 20 15h2l-3.5 4-3.5-4h2.3a6 6 0 0 1-9.6.3l-1.4 1.4Z" />
+    </svg>
+  );
+}
+
+function PauseOnNoteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M5 4h4v16H5V4Zm7 0h4v7.2l3.5 2.1-1 1.7-4.5-2.7V4h-2Z" />
     </svg>
   );
 }

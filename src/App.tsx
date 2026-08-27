@@ -67,6 +67,7 @@ function App() {
   const [selectedRange, setSelectedRange] = useState<ScoreSelectionRange | undefined>();
   const [handMode, setHandMode] = useState<HandMode>("both");
   const [runMode, setRunMode] = useState<PracticeRunMode>("once");
+  const [pauseOnNotes, setPauseOnNotes] = useState(false);
   const [lastPracticeAttempt, setLastPracticeAttempt] = useState<PracticeAttemptDiagnostic | undefined>();
   const [showCorrectNoteNames, setShowCorrectNoteNames] = useState(true);
   const [showWrongNoteNames, setShowWrongNoteNames] = useState(true);
@@ -78,7 +79,7 @@ function App() {
   const previousHeldNotesRef = useRef<number[]>([]);
   const processedMidiCounterRef = useRef(0);
 
-  const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, handMode, range: selectedRange, runMode, settings: play.settings });
+  const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, handMode, range: selectedRange, runMode, pauseOnNotes, settings: play.settings });
   const { phase: playbackPhase, handleMidiNoteOn, start: startPlayback } = playback;
 
   const clearCompletedFeedback = useCallback(() => {
@@ -350,12 +351,15 @@ function App() {
             canPlay={Boolean(playback.plan)}
             handMode={handMode}
             runMode={runMode}
+            pauseOnNotes={pauseOnNotes}
+            waitingForNotes={playback.gate?.expectedNotes.filter((note) => !playback.gate?.satisfiedNotes.includes(note))}
             scoreTheme={appearance.scoreTheme}
             showCorrectNoteNames={showCorrectNoteNames}
             showWrongNoteNames={showWrongNoteNames}
             onSelectedRangeChange={handleSelectionChange}
             onHandModeChange={handleHandModeChange}
             onRunModeChange={setRunMode}
+            onPauseOnNotesChange={setPauseOnNotes}
             onPlay={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); clearCompletedFeedback(); playback.start(); }}
             onStop={playback.stop}
             onClearPerformance={playback.clearResults}
@@ -416,11 +420,23 @@ function App() {
         </div>
       </section>
       <PianoPanel
-        expectedNotes={playback.phase === "playing" ? playback.expectedNotes : playback.phase === "idle" ? expectedEvent?.midiNotes ?? [] : []}
+        expectedNotes={playback.phase === "playing" || playback.phase === "waiting-note" ? playback.expectedNotes : playback.phase === "idle" ? expectedEvent?.midiNotes ?? [] : []}
         heldNotes={combinedHeldNotes}
         ignoredCarriedNotes={playback.phase === "idle" ? carriedCompletedNotes : []}
         settings={piano.settings}
+        playbackPlan={playback.plan}
+        playbackPhase={playback.phase}
+        rollElapsedMs={playback.rollElapsedMs}
+        canPlay={Boolean(playback.plan)}
+        runMode={runMode}
+        pauseOnNotes={pauseOnNotes}
+        canClearPerformance={playback.results.length > 0 || playback.missedNotes.length > 0}
         onSettingsChange={piano.setSettings}
+        onPlay={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); clearCompletedFeedback(); playback.start(); }}
+        onStop={playback.stop}
+        onRunModeChange={setRunMode}
+        onPauseOnNotesChange={setPauseOnNotes}
+        onClearPerformance={playback.clearResults}
       />
       {midiSettingsOpen ? (
         <SettingsDialog

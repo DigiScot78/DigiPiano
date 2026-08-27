@@ -5,6 +5,10 @@ export type PianoKeyState = "neutral" | "expected" | "correct" | "wrong" | "carr
 
 export interface PianoSettings {
   expanded: boolean;
+  synthesiaEnabled: boolean;
+  synthesiaHeight: number;
+  synthesiaOpaque: boolean;
+  synthesiaShowNoteLabels: boolean;
   showLabels: boolean;
   rangePreset: PianoRangePreset;
   customLow: number;
@@ -29,9 +33,16 @@ export interface PianoRange { low: number; high: number }
 export const PIANO_MIN_NOTE = 21;
 export const PIANO_MAX_NOTE = 108;
 export const PIANO_SETTINGS_KEY = "piano.keyboard-settings";
+export const SYNTHESIA_MIN_HEIGHT = 160;
+export const SYNTHESIA_DEFAULT_HEIGHT = 320;
+export const SYNTHESIA_MAX_STORED_HEIGHT = 2000;
 export const DEFAULT_PIANO_COLORS = { expected: "#28b8d7", correct: "#239b56", wrong: "#d64545" } as const;
 export const DEFAULT_PIANO_SETTINGS: PianoSettings = {
   expanded: true,
+  synthesiaEnabled: false,
+  synthesiaHeight: SYNTHESIA_DEFAULT_HEIGHT,
+  synthesiaOpaque: false,
+  synthesiaShowNoteLabels: false,
   showLabels: false,
   rangePreset: "88",
   customLow: PIANO_MIN_NOTE,
@@ -103,6 +114,10 @@ export function readPianoSettings(storage: Pick<Storage, "getItem"> | undefined)
   const range = validateCustomRange(Number(candidate.customLow), Number(candidate.customHigh));
   return {
     expanded: typeof candidate.expanded === "boolean" ? candidate.expanded : true,
+    synthesiaEnabled: typeof candidate.synthesiaEnabled === "boolean" ? candidate.synthesiaEnabled : false,
+    synthesiaHeight: integerInRange(candidate.synthesiaHeight, SYNTHESIA_MIN_HEIGHT, SYNTHESIA_MAX_STORED_HEIGHT, SYNTHESIA_DEFAULT_HEIGHT),
+    synthesiaOpaque: typeof candidate.synthesiaOpaque === "boolean" ? candidate.synthesiaOpaque : false,
+    synthesiaShowNoteLabels: typeof candidate.synthesiaShowNoteLabels === "boolean" ? candidate.synthesiaShowNoteLabels : false,
     showLabels: typeof candidate.showLabels === "boolean" ? candidate.showLabels : false,
     rangePreset: isOneOf(candidate.rangePreset, ["88", "76", "61", "49", "custom"]) ? candidate.rangePreset : "88",
     customLow: range.low,
@@ -129,3 +144,6 @@ function clampInteger(value: number, min: number, max: number, fallback: number)
 }
 function isOneOf<T extends string>(value: unknown, values: readonly T[]): value is T { return typeof value === "string" && values.includes(value as T); }
 function validColor(value: unknown, fallback: string): string { return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback; }
+function integerInRange(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : fallback;
+}

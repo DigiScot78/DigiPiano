@@ -28,5 +28,9 @@ describe("piano state and persistence", () => {
     const settings = readPianoSettings({ getItem: (key) => key === PIANO_SETTINGS_KEY ? JSON.stringify({ rangePreset: "nope", expectedColor: "red" }) : null });
     expect(settings.rangePreset).toBe("88");
     expect(settings.expectedColor).toBe(DEFAULT_PIANO_SETTINGS.expectedColor);
+    expect(settings.synthesiaEnabled).toBe(false);
+    expect(settings.synthesiaHeight).toBe(DEFAULT_PIANO_SETTINGS.synthesiaHeight);
+    expect(settings.synthesiaOpaque).toBe(false);
+    expect(settings.synthesiaShowNoteLabels).toBe(false);
   });
 });
