@@ -20,3 +20,6 @@ The first implementation follows printed measure order and reports repeat markin
 
 ## 7. Trust MusicXML Staff Assignments For Hand Mode
 Hand mode uses explicit MusicXML staff numbers: staff 1 is treated as right hand and staff 2 as left hand. The app does not infer hand ownership from pitch because that would guess incorrectly for cross-staff notation, overlapping hands, and unusual arrangements. Import diagnostics are used to identify source files whose exported staff assignments do not match the expected visual/musical layout.
+
+## 8. Keep Piano Geometry Normalized And Read-Only
+The first keyboard panel derives every key from MIDI bounds and expresses its horizontal position and width as normalized values over the white-key span. This makes the geometry independent of viewport pixels and reusable by a future falling-note view. The keyboard is visual feedback only for this milestone; pointer input, synthesis, recording, and falling notes remain separate future capabilities.

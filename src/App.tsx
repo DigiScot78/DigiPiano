@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScoreRenderer, type CompletedNoteFeedback } from "./components/ScoreRenderer";
+import { PianoPanel } from "./components/PianoPanel";
 import {
   advanceWhenSatisfied,
   compareHeldNotesToEvent,
@@ -22,6 +23,8 @@ import type { LoadedScore, ParsedScore, ScoreEvent } from "./music/scoreTypes";
 import { useMidiInput } from "./hooks/useMidiInput";
 import type { AppTheme, ScoreTheme } from "./theme/appearance";
 import { useAppearanceSettings } from "./theme/useAppearanceSettings";
+import { usePianoSettings } from "./piano/usePianoSettings";
+import type { PianoSettings } from "./piano/piano";
 import "./styles.css";
 
 interface PracticeAttemptDiagnostic {
@@ -47,6 +50,7 @@ const COMPLETED_FEEDBACK_DURATION_MS = 450;
 function App() {
   const midi = useMidiInput();
   const appearance = useAppearanceSettings();
+  const piano = usePianoSettings();
   const [loadedScore, setLoadedScore] = useState<LoadedScore | null>(null);
   const [parsedScore, setParsedScore] = useState<ParsedScore>({ events: [], warnings: [] });
   const [learningState, setLearningState] = useState<LearningState>(initialLearningState());
@@ -369,13 +373,23 @@ function App() {
           />
         </div>
       </section>
+      <PianoPanel
+        expectedNotes={expectedEvent?.midiNotes ?? []}
+        heldNotes={combinedHeldNotes}
+        ignoredCarriedNotes={carriedCompletedNotes}
+        settings={piano.settings}
+        onSettingsChange={piano.setSettings}
+      />
       {midiSettingsOpen ? (
         <SettingsDialog
           midi={midi}
           appTheme={appearance.appTheme}
           scoreTheme={appearance.scoreTheme}
+          pianoSettings={piano.settings}
           onAppThemeChange={appearance.setAppTheme}
           onScoreThemeChange={appearance.setScoreTheme}
+          onPianoSettingsChange={piano.setSettings}
+          onResetPianoColors={piano.resetColors}
           onClose={() => setMidiSettingsOpen(false)}
         />
       ) : null}
@@ -395,15 +409,21 @@ function SettingsDialog({
   midi,
   appTheme,
   scoreTheme,
+  pianoSettings,
   onAppThemeChange,
   onScoreThemeChange,
+  onPianoSettingsChange,
+  onResetPianoColors,
   onClose,
 }: {
   midi: ReturnType<typeof useMidiInput>;
   appTheme: AppTheme;
   scoreTheme: ScoreTheme;
+  pianoSettings: PianoSettings;
   onAppThemeChange: (theme: AppTheme) => void;
   onScoreThemeChange: (theme: ScoreTheme) => void;
+  onPianoSettingsChange: (update: Partial<PianoSettings>) => void;
+  onResetPianoColors: () => void;
   onClose: () => void;
 }) {
   return (
@@ -437,6 +457,15 @@ function SettingsDialog({
               <span><strong>Night</strong><small>Dark page, pale notation</small></span>
             </button>
           </div>
+        </section>
+        <section className="settings-section" aria-labelledby="piano-settings-title">
+          <h3 id="piano-settings-title">Piano</h3>
+          <div className="piano-color-settings">
+            <label>Expected <input type="color" value={pianoSettings.expectedColor} onChange={(event) => onPianoSettingsChange({ expectedColor: event.target.value })} /></label>
+            <label>Correct <input type="color" value={pianoSettings.correctColor} onChange={(event) => onPianoSettingsChange({ correctColor: event.target.value })} /></label>
+            <label>Wrong <input type="color" value={pianoSettings.wrongColor} onChange={(event) => onPianoSettingsChange({ wrongColor: event.target.value })} /></label>
+          </div>
+          <button type="button" className="secondary-button" onClick={onResetPianoColors}>Reset colours</button>
         </section>
         <section className="settings-section midi-settings-section" aria-labelledby="midi-settings-title">
           <h3 id="midi-settings-title">MIDI input</h3>

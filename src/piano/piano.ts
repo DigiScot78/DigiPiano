@@ -1,0 +1,131 @@
+export type PianoRangePreset = "88" | "76" | "61" | "49" | "custom";
+export type PianoHeight = "small" | "medium" | "large";
+export type PianoWidthMode = "auto" | "fit" | "scroll";
+export type PianoKeyState = "neutral" | "expected" | "correct" | "wrong" | "carried";
+
+export interface PianoSettings {
+  expanded: boolean;
+  showLabels: boolean;
+  rangePreset: PianoRangePreset;
+  customLow: number;
+  customHigh: number;
+  height: PianoHeight;
+  widthMode: PianoWidthMode;
+  expectedColor: string;
+  correctColor: string;
+  wrongColor: string;
+}
+
+export interface PianoKeyLayout {
+  midiNote: number;
+  isBlack: boolean;
+  x: number;
+  width: number;
+  whiteIndex: number;
+}
+
+export interface PianoRange { low: number; high: number }
+
+export const PIANO_MIN_NOTE = 21;
+export const PIANO_MAX_NOTE = 108;
+export const PIANO_SETTINGS_KEY = "piano.keyboard-settings";
+export const DEFAULT_PIANO_COLORS = { expected: "#28b8d7", correct: "#239b56", wrong: "#d64545" } as const;
+export const DEFAULT_PIANO_SETTINGS: PianoSettings = {
+  expanded: true,
+  showLabels: false,
+  rangePreset: "88",
+  customLow: PIANO_MIN_NOTE,
+  customHigh: PIANO_MAX_NOTE,
+  height: "medium",
+  widthMode: "auto",
+  expectedColor: DEFAULT_PIANO_COLORS.expected,
+  correctColor: DEFAULT_PIANO_COLORS.correct,
+  wrongColor: DEFAULT_PIANO_COLORS.wrong,
+};
+
+export const PIANO_RANGES: Record<Exclude<PianoRangePreset, "custom">, PianoRange> = {
+  "88": { low: 21, high: 108 },
+  "76": { low: 28, high: 103 },
+  "61": { low: 36, high: 96 },
+  "49": { low: 36, high: 84 },
+};
+
+const BLACK_PITCHES = new Set([1, 3, 6, 8, 10]);
+
+export function isBlackKey(note: number): boolean { return BLACK_PITCHES.has(note % 12); }
+
+export function validateCustomRange(low: number, high: number): PianoRange {
+  const safeLow = clampInteger(low, PIANO_MIN_NOTE, PIANO_MAX_NOTE - 12, DEFAULT_PIANO_SETTINGS.customLow);
+  const safeHigh = clampInteger(high, PIANO_MIN_NOTE + 12, PIANO_MAX_NOTE, DEFAULT_PIANO_SETTINGS.customHigh);
+  if (safeHigh - safeLow < 12) {
+    return { low: Math.min(safeLow, PIANO_MAX_NOTE - 12), high: Math.min(Math.max(safeLow + 12, safeHigh), PIANO_MAX_NOTE) };
+  }
+  return { low: safeLow, high: safeHigh };
+}
+
+export function rangeForSettings(settings: PianoSettings): PianoRange {
+  return settings.rangePreset === "custom" ? validateCustomRange(settings.customLow, settings.customHigh) : PIANO_RANGES[settings.rangePreset];
+}
+
+export function generatePianoLayout(low: number, high: number): PianoKeyLayout[] {
+  const range = validateBounds(low, high);
+  const whiteNotes = Array.from({ length: range.high - range.low + 1 }, (_, index) => range.low + index).filter((note) => !isBlackKey(note));
+  const whiteCount = whiteNotes.length;
+  const whiteIndexByNote = new Map(whiteNotes.map((note, index) => [note, index]));
+  let previousWhite = -1;
+  return Array.from({ length: range.high - range.low + 1 }, (_, index) => range.low + index).map((note) => {
+    if (!isBlackKey(note)) {
+      previousWhite = whiteIndexByNote.get(note) ?? previousWhite;
+      return { midiNote: note, isBlack: false, x: previousWhite / whiteCount, width: 1 / whiteCount, whiteIndex: previousWhite };
+    }
+    const blackWidth = 0.62 / whiteCount;
+    const naturalX = (previousWhite + 1 - 0.31) / whiteCount;
+    return { midiNote: note, isBlack: true, x: Math.min(Math.max(naturalX, 0), 1 - blackWidth), width: blackWidth, whiteIndex: previousWhite };
+  });
+}
+
+export function resolvePianoKeyState(note: number, expectedNotes: Iterable<number>, heldNotes: Iterable<number>, carriedNotes: Iterable<number>): PianoKeyState {
+  const expected = new Set(expectedNotes);
+  const held = new Set(heldNotes);
+  const carried = new Set(carriedNotes);
+  if (held.has(note) && carried.has(note)) return "carried";
+  if (held.has(note) && expected.has(note)) return "correct";
+  if (held.has(note)) return "wrong";
+  if (expected.has(note)) return "expected";
+  return "neutral";
+}
+
+export function readPianoSettings(storage: Pick<Storage, "getItem"> | undefined): PianoSettings {
+  let value: unknown;
+  try { value = JSON.parse(storage?.getItem(PIANO_SETTINGS_KEY) ?? "null"); } catch { return DEFAULT_PIANO_SETTINGS; }
+  if (!value || typeof value !== "object") return DEFAULT_PIANO_SETTINGS;
+  const candidate = value as Partial<PianoSettings>;
+  const range = validateCustomRange(Number(candidate.customLow), Number(candidate.customHigh));
+  return {
+    expanded: typeof candidate.expanded === "boolean" ? candidate.expanded : true,
+    showLabels: typeof candidate.showLabels === "boolean" ? candidate.showLabels : false,
+    rangePreset: isOneOf(candidate.rangePreset, ["88", "76", "61", "49", "custom"]) ? candidate.rangePreset : "88",
+    customLow: range.low,
+    customHigh: range.high,
+    height: isOneOf(candidate.height, ["small", "medium", "large"]) ? candidate.height : "medium",
+    widthMode: isOneOf(candidate.widthMode, ["auto", "fit", "scroll"]) ? candidate.widthMode : "auto",
+    expectedColor: validColor(candidate.expectedColor, DEFAULT_PIANO_COLORS.expected),
+    correctColor: validColor(candidate.correctColor, DEFAULT_PIANO_COLORS.correct),
+    wrongColor: validColor(candidate.wrongColor, DEFAULT_PIANO_COLORS.wrong),
+  };
+}
+
+export function storePianoSettings(storage: Pick<Storage, "setItem"> | undefined, settings: PianoSettings): void {
+  try { storage?.setItem(PIANO_SETTINGS_KEY, JSON.stringify(settings)); } catch { /* Preferences are optional. */ }
+}
+
+function validateBounds(low: number, high: number): PianoRange {
+  const safeLow = clampInteger(low, 0, 127, 0);
+  const safeHigh = clampInteger(high, safeLow, 127, safeLow);
+  return { low: safeLow, high: safeHigh };
+}
+function clampInteger(value: number, min: number, max: number, fallback: number): number {
+  return Number.isInteger(value) ? Math.min(Math.max(value, min), max) : fallback;
+}
+function isOneOf<T extends string>(value: unknown, values: readonly T[]): value is T { return typeof value === "string" && values.includes(value as T); }
+function validColor(value: unknown, fallback: string): string { return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback; }
