@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Fraction, OpenSheetMusicDisplay, PointF2D } from "opensheetmusicdisplay";
 import { midiNoteToName } from "../music/note";
-import type { HandMode, NoteFeedbackMarker, ScoreSelectionRange } from "../learning/matcher";
+import type { HandMode, NoteFeedbackMarker, PracticeRunMode, ScoreSelectionRange } from "../learning/matcher";
 import { normalizeSelectionRange } from "../learning/matcher";
 import type { ScoreEvent } from "../music/scoreTypes";
+import { SCORE_THEME_PRESETS, type ScoreTheme } from "../theme/appearance";
 
 type CursorLike = {
   show: () => void;
@@ -23,9 +24,13 @@ interface ScoreRendererProps {
   feedbackMarkers: NoteFeedbackMarker[];
   completedFeedback?: CompletedNoteFeedback;
   handMode?: HandMode;
+  runMode?: PracticeRunMode;
+  scoreTheme?: ScoreTheme;
   showCorrectNoteNames: boolean;
   showWrongNoteNames: boolean;
   onSelectedRangeChange: (range: ScoreSelectionRange | undefined) => void;
+  onHandModeChange?: (mode: HandMode) => void;
+  onRunModeChange?: (mode: PracticeRunMode) => void;
   onRenderStateChange: (state: { status: "empty" | "loading" | "ready" | "error"; error?: string }) => void;
 }
 
@@ -91,9 +96,13 @@ export function ScoreRenderer({
   feedbackMarkers,
   completedFeedback,
   handMode = "both",
+  runMode = "once",
+  scoreTheme = "paper",
   showCorrectNoteNames,
   showWrongNoteNames,
   onSelectedRangeChange,
+  onHandModeChange,
+  onRunModeChange,
   onRenderStateChange,
 }: ScoreRendererProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -214,12 +223,17 @@ export function ScoreRenderer({
     async function renderScore(target: HTMLElement, sourceXml: string) {
       try {
         onRenderStateChangeRef.current({ status: "loading" });
+        const scorePreset = SCORE_THEME_PRESETS[scoreTheme];
         const osmd = new OpenSheetMusicDisplay(target, {
           autoResize: true,
           backend: "svg",
           drawTitle: true,
           newSystemFromXML: true,
           newSystemFromNewPageInXML: true,
+          defaultColorMusic: scorePreset.ink,
+          defaultColorLabel: scorePreset.ink,
+          defaultColorTitle: scorePreset.ink,
+          pageBackgroundColor: "#00000000",
         });
         await osmd.load(sourceXml);
         if (cancelled) {
@@ -243,7 +257,7 @@ export function ScoreRenderer({
     return () => {
       cancelled = true;
     };
-  }, [xmlText, refreshEventPositions]);
+  }, [xmlText, refreshEventPositions, scoreTheme]);
 
   useEffect(() => {
     if (usesGraphicEventPositions) {
@@ -415,6 +429,21 @@ export function ScoreRenderer({
 
   const startHandleRect = rangeSelectionRects[0];
   const endHandleRect = rangeSelectionRects[rangeSelectionRects.length - 1];
+  const controlPosition = eventPositions.find((position) => position.index === (visibleRange?.startIndex ?? eventPositions[0]?.index));
+  const controlRowIndex = controlPosition ? nearestRowIndexForPoint(controlPosition, systemRows) : 0;
+  const controlRow = systemRows[controlRowIndex];
+  const controlBoundaryLeft = visibleRange && rangeSelectionRects[0]
+    ? rangeSelectionRects[0].left
+    : controlRow ? Math.max(0, controlRow.left - 16) : 0;
+  const toolbarTop = visibleRange && rangeSelectionRects[0]
+    ? Math.max(6, rangeSelectionRects[0].top - 44)
+    : controlRow ? Math.max(6, visualBoundsForRow(systemRows, controlRowIndex).top - 44) : 6;
+  const toggleHand = (hand: "right" | "left") => {
+    const nextMode = handModeAfterToggle(handMode, hand);
+    if (nextMode !== handMode) {
+      onHandModeChange?.(nextMode);
+    }
+  };
 
   return (
     <div ref={shellRef} className="score-renderer-shell">
@@ -468,6 +497,42 @@ export function ScoreRenderer({
           </>
         ) : null}
       </div>
+      {controlPosition ? (
+        <div className="score-controls-layer">
+          <button
+            type="button"
+            className={`score-hand-toggle${handMode !== "left" ? " active" : ""}`}
+            style={{ left: Math.max(36, controlBoundaryLeft - 8), top: staffControlTop(controlPosition, 1) }}
+            aria-label="Toggle right hand"
+            aria-pressed={handMode !== "left"}
+            aria-disabled={handMode === "right"}
+            title={handMode === "right" ? "Right hand must remain on" : "Toggle right hand"}
+            onClick={() => toggleHand("right")}
+          >RH</button>
+          <button
+            type="button"
+            className={`score-hand-toggle${handMode !== "right" ? " active" : ""}`}
+            style={{ left: Math.max(36, controlBoundaryLeft - 8), top: staffControlTop(controlPosition, 2) }}
+            aria-label="Toggle left hand"
+            aria-pressed={handMode !== "right"}
+            aria-disabled={handMode === "left"}
+            title={handMode === "left" ? "Left hand must remain on" : "Toggle left hand"}
+            onClick={() => toggleHand("left")}
+          >LH</button>
+          <div className="score-practice-toolbar" style={{ left: Math.max(8, controlBoundaryLeft), top: toolbarTop }} role="toolbar" aria-label="Practice toolbar">
+            <button
+              type="button"
+              className={runMode === "loop" ? "active" : ""}
+              aria-label="Loop selected range"
+              aria-pressed={runMode === "loop"}
+              title={runMode === "loop" ? "Loop on" : "Loop off"}
+              onClick={() => onRunModeChange?.(runMode === "loop" ? "once" : "loop")}
+            >
+              <LoopIcon />
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="note-feedback-layer" aria-live="polite">
         {noteFeedbackMarkers.map((marker) => (
           <div key={`${marker.kind}-${marker.note}`} className={`note-feedback ${marker.kind}`} style={{ left: marker.left, top: marker.top }} aria-label={`${marker.kind === "correct" ? "Correct" : "Wrong"} note ${marker.name}`}>
@@ -484,6 +549,31 @@ export function ScoreRenderer({
       </div>
     </div>
   );
+}
+
+function LoopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M17.7 7.3A8 8 0 0 0 4.6 9H2l3.5-4L9 9H6.7a6 6 0 0 1 9.6-.3L17.7 7.3Zm-10.4 9.4A8 8 0 0 0 20 15h2l-3.5 4-3.5-4h2.3a6 6 0 0 1-9.6.3l-1.4 1.4Z" />
+    </svg>
+  );
+}
+
+function handModeAfterToggle(mode: HandMode, hand: "right" | "left"): HandMode {
+  if (hand === "right") {
+    return mode === "both" ? "left" : mode === "left" ? "both" : "right";
+  }
+  return mode === "both" ? "right" : mode === "right" ? "both" : "left";
+}
+
+function staffControlTop(position: EventPosition, staffNumber: number): number {
+  const staffLines = position.staffLineTops?.[staffNumber];
+  if (staffLines && staffLines.length >= 5) {
+    return midpoint(staffLines[0], staffLines[staffLines.length - 1]);
+  }
+
+  const staffAnchor = position.staffAnchors?.find((anchor) => anchor.staffNumber === staffNumber);
+  return (staffAnchor?.top ?? position.top) + GRAPHICAL_EVENT_ANCHOR_HEIGHT / 2 + (staffNumber === 2 && !staffAnchor ? TREBLE_TO_BASS_ANCHOR_OFFSET : 0);
 }
 
 type GraphicalSheetLike = {

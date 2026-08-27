@@ -28,6 +28,7 @@ const osmdState = vi.hoisted(() => ({
 }));
 
 const osmdMocks = vi.hoisted(() => ({
+  constructorOptions: [] as Array<Record<string, unknown>>,
   load: vi.fn(function () {
     return Promise.resolve();
   }),
@@ -66,7 +67,8 @@ vi.mock("opensheetmusicdisplay", () => ({
       this.y = y;
     }
   },
-  OpenSheetMusicDisplay: vi.fn().mockImplementation(function () {
+  OpenSheetMusicDisplay: vi.fn().mockImplementation(function (_target: unknown, options: Record<string, unknown>) {
+    osmdMocks.constructorOptions.push(options);
     return {
       load: osmdMocks.load,
       render: osmdMocks.render,
@@ -101,6 +103,7 @@ describe("ScoreRenderer", () => {
 
   beforeEach(() => {
     cursorRects = [];
+    osmdMocks.constructorOptions.length = 0;
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback: FrameRequestCallback) => {
       callback(0);
       return 1;
@@ -646,5 +649,53 @@ describe("ScoreRenderer", () => {
     });
 
     expect(onSelectedRangeChange).toHaveBeenLastCalledWith({ startIndex: 0, endIndex: 2 });
+  });
+
+  it("renders score practice controls and keeps at least one hand enabled", async () => {
+    const onHandModeChange = vi.fn();
+    const onRunModeChange = vi.fn();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} handMode="right" runMode="once" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onHandModeChange={onHandModeChange} onRunModeChange={onRunModeChange} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const rightHand = container.querySelector<HTMLButtonElement>('[aria-label="Toggle right hand"]');
+    const leftHand = container.querySelector<HTMLButtonElement>('[aria-label="Toggle left hand"]');
+    const loop = container.querySelector<HTMLButtonElement>('[aria-label="Loop selected range"]');
+    expect(rightHand?.getAttribute("aria-pressed")).toBe("true");
+    expect(rightHand?.getAttribute("aria-disabled")).toBe("true");
+    expect(leftHand?.getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => {
+      rightHand?.click();
+      leftHand?.click();
+      loop?.click();
+    });
+
+    expect(onHandModeChange).toHaveBeenCalledTimes(1);
+    expect(onHandModeChange).toHaveBeenCalledWith("both");
+    expect(onRunModeChange).toHaveBeenCalledWith("loop");
+  });
+
+  it("configures OSMD with the selected score page colours", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} scoreTheme="night" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    expect(osmdMocks.constructorOptions.at(-1)).toMatchObject({
+      defaultColorMusic: "#e8edf2",
+      defaultColorLabel: "#e8edf2",
+      defaultColorTitle: "#e8edf2",
+      pageBackgroundColor: "#00000000",
+    });
   });
 });
