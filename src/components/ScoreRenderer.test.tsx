@@ -128,12 +128,12 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
@@ -147,12 +147,12 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={2} eventCount={3} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={2} eventCount={3} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
@@ -167,31 +167,75 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} wrongNotes={[61]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} feedbackMarkers={[61].map((note) => ({ note, kind: "wrong" as const }))} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     expect(osmdMocks.load).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("C#4");
-    expect(container.querySelector(".wrong-note-ghost")).not.toBeNull();
+    expect(container.querySelector(".note-feedback.wrong")).not.toBeNull();
   });
 
+
+  it("shows correct-note feedback in green without reloading the score", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} feedbackMarkers={[{ note: 60, kind: "correct" }]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    expect(osmdMocks.load).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("C4");
+    expect(container.querySelector(".note-feedback.correct")).not.toBeNull();
+  });
+
+  it("hides correct and wrong note names independently", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} feedbackMarkers={[{ note: 60, kind: "correct" }, { note: 61, kind: "wrong" }]} showCorrectNoteNames={false} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector(".note-feedback.correct")).not.toBeNull();
+    expect(container.querySelector(".note-feedback.wrong")).not.toBeNull();
+    expect(container.textContent).not.toContain("C4");
+    expect(container.textContent).toContain("C#4");
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} feedbackMarkers={[{ note: 60, kind: "correct" }, { note: 61, kind: "wrong" }]} showCorrectNoteNames={true} showWrongNoteNames={false} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("C4");
+    expect(container.textContent).not.toContain("C#4");
+  });
   it("places wrong-note ghosts by diatonic staff position", async () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} wrongNotes={[60, 61, 62, 64, 65, 67, 69]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={1} feedbackMarkers={[60, 61, 62, 64, 65, 67, 69].map((note) => ({ note, kind: "wrong" as const }))} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
-    const markers = Array.from(container.querySelectorAll<HTMLElement>(".wrong-note-ghost"));
+    const markers = Array.from(container.querySelectorAll<HTMLElement>(".note-feedback"));
     const tops = markers.map((marker) => parseFloat(marker.style.top));
     const [c, cSharp, d, e, f, g, a] = tops;
     const staffStep = d - c;
@@ -208,11 +252,11 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={{ ...currentEvent, keyFifths: -4 }} eventCount={1} wrongNotes={[68, 69, 73, 74]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={{ ...currentEvent, keyFifths: -4 }} eventCount={1} feedbackMarkers={[68, 69, 73, 74].map((note) => ({ note, kind: "wrong" as const }))} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
-    const markers = Array.from(container.querySelectorAll<HTMLElement>(".wrong-note-ghost"));
+    const markers = Array.from(container.querySelectorAll<HTMLElement>(".note-feedback"));
     const tops = markers.map((marker) => parseFloat(marker.style.top));
     const [aFlat, aNatural, dFlat, dNatural] = tops;
 
@@ -221,6 +265,38 @@ describe("ScoreRenderer", () => {
     expect(container.textContent).not.toContain("G#4");
     expect(aFlat).toBeCloseTo(aNatural);
     expect(dFlat).toBeCloseTo(dNatural);
+  });
+  it("uses narrow graphical anchors instead of broad staff-entry spans", async () => {
+    const events: ScoreEvent[] = [
+      { ...currentEvent, id: "event-1", measureNumber: 1, startQuarter: 0, measureStartQuarter: 0 },
+      { ...currentEvent, id: "event-2", measureNumber: 1, startQuarter: 1, measureStartQuarter: 0 },
+    ];
+    const staffEntries = [0, 0.25].map((timestamp, index) => ({
+      relInMeasureTimestamp: { RealValue: timestamp },
+      PositionAndShape: {
+        AbsolutePosition: { x: 10 + index * 10, y: 12 },
+        Size: { width: 12, height: 4.2 },
+      },
+      getAbsoluteStartAndEnd: () => [10 + index * 10, 80 + index * 10],
+    }));
+    osmdState.graphicSheet = {
+      findGraphicalMeasureByMeasureNumber: vi.fn(() => ({ staffEntries })),
+    };
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={events[0]} eventCount={events.length} events={events} selectedRange={{ startIndex: 0, endIndex: 0 }} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const currentMarker = container.querySelector<HTMLElement>(".score-current-event-marker");
+    const selectedRect = container.querySelector<HTMLElement>(".score-selection-rect.committed");
+
+    expect(currentMarker).not.toBeNull();
+    expect(parseFloat(currentMarker?.style.width ?? "0")).toBe(24);
+    expect(parseFloat(selectedRect?.style.width ?? "0")).toBeLessThan(80);
   });
   it("anchors the current marker to graphical event positions after skipped hand events", async () => {
     const events: ScoreEvent[] = [
@@ -244,40 +320,66 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={2} currentEvent={events[2]} eventCount={events.length} events={events} wrongNotes={[59]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={2} currentEvent={events[2]} eventCount={events.length} events={events} feedbackMarkers={[59].map((note) => ({ note, kind: "wrong" as const }))} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     const currentMarker = container.querySelector<HTMLElement>(".score-current-event-marker");
-    const wrongMarker = container.querySelector<HTMLElement>(".wrong-note-ghost");
+    const wrongMarker = container.querySelector<HTMLElement>(".note-feedback.wrong");
 
     expect(currentMarker).not.toBeNull();
     expect(parseFloat(currentMarker?.style.left ?? "0")).toBeGreaterThan(250);
     expect(parseFloat(wrongMarker?.style.left ?? "0")).toBeGreaterThan(250);
   });
-  it("selects a normalized range by dragging over transparent event targets", async () => {
+  it("selects a normalized range by dragging across the full score surface", async () => {
     const onSelectedRangeChange = vi.fn();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} wrongNotes={[]} onSelectedRangeChange={onSelectedRangeChange} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={onSelectedRangeChange} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
-    const targets = Array.from(container.querySelectorAll<HTMLButtonElement>(".score-event-hit-zone"));
-    expect(targets).toHaveLength(3);
+    const layer = container.querySelector<HTMLElement>(".score-selection-layer");
+    expect(layer).not.toBeNull();
 
     await act(async () => {
-      targets[0].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-      targets[2].dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
-      targets[2].dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      layer?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 90, clientY: 140 }));
+      layer?.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 180, clientY: 140 }));
+    });
+
+    expect(onSelectedRangeChange).not.toHaveBeenCalled();
+    expect(container.querySelector(".score-selection-rect.dragging")).not.toBeNull();
+
+    await act(async () => {
+      layer?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 180, clientY: 140 }));
     });
 
     expect(onSelectedRangeChange).toHaveBeenLastCalledWith({ startIndex: 0, endIndex: 2 });
   });
 
+  it("keeps treble and bass anchors in one selection segment for the same system", async () => {
+    cursorRects = [
+      { left: 100, top: 120, width: 4, height: 48 },
+      { left: 132, top: 180, width: 4, height: 48 },
+      { left: 164, top: 120, width: 4, height: 48 },
+      { left: 196, top: 180, width: 4, height: 48 },
+    ];
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={4} selectedRange={{ startIndex: 0, endIndex: 3 }} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const selectedRects = Array.from(container.querySelectorAll<HTMLElement>(".score-selection-rect.committed"));
+    expect(selectedRects).toHaveLength(1);
+    expect(parseFloat(selectedRects[0].style.height)).toBeGreaterThan(100);
+  });
   it("renders separate selection segments across systems", async () => {
     cursorRects = [
       { left: 100, top: 120, width: 4, height: 48 },
@@ -292,7 +394,7 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={6} selectedRange={{ startIndex: 1, endIndex: 4 }} wrongNotes={[]} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={6} selectedRange={{ startIndex: 1, endIndex: 4 }} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
@@ -311,18 +413,25 @@ describe("ScoreRenderer", () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} selectedRange={{ startIndex: 0, endIndex: 1 }} wrongNotes={[]} onSelectedRangeChange={onSelectedRangeChange} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} selectedRange={{ startIndex: 0, endIndex: 1 }} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={onSelectedRangeChange} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     const rightHandle = container.querySelector<HTMLButtonElement>(".score-selection-handle.end");
-    const targets = Array.from(container.querySelectorAll<HTMLButtonElement>(".score-event-hit-zone"));
+    const layer = container.querySelector<HTMLElement>(".score-selection-layer");
     expect(rightHandle).not.toBeNull();
+    expect(layer).not.toBeNull();
 
     await act(async () => {
-      rightHandle?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-      targets[2].dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
-      targets[2].dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      rightHandle?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 160, clientY: 140 }));
+      layer?.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 180, clientY: 140 }));
+    });
+
+    expect(onSelectedRangeChange).not.toHaveBeenCalled();
+    expect(container.querySelector(".score-selection-rect.dragging")).not.toBeNull();
+
+    await act(async () => {
+      layer?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 180, clientY: 140 }));
     });
 
     expect(onSelectedRangeChange).toHaveBeenLastCalledWith({ startIndex: 0, endIndex: 2 });

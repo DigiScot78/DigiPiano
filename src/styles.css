@@ -151,6 +151,25 @@ dd {
   margin-bottom: 0.65rem;
 }
 
+.feedback-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0 0 0.65rem;
+  color: #64707a;
+  font-size: 0.9rem;
+}
+
+.feedback-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.feedback-controls input {
+  width: auto;
+  margin: 0;
+}
 .selection-summary {
   margin: 0 0 0.55rem;
   color: #1d5f74;
@@ -215,7 +234,7 @@ dd {
 
 .score-selection-visual-layer,
 .score-selection-layer,
-.wrong-note-ghost-layer {
+.note-feedback-layer {
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -228,9 +247,11 @@ dd {
 
 .score-selection-layer {
   z-index: 13;
+  cursor: crosshair;
+  pointer-events: auto;
 }
 
-.wrong-note-ghost-layer {
+.note-feedback-layer {
   z-index: 20;
 }
 
@@ -300,7 +321,7 @@ dd {
   border-right: 1px solid rgba(255, 255, 255, 0.9);
 }
 
-.wrong-note-ghost {
+.note-feedback {
   position: absolute;
   display: flex;
   align-items: center;
@@ -309,26 +330,33 @@ dd {
   transform: translate(-50%, -50%);
 }
 
-.wrong-note-head {
+.note-feedback-head {
   display: block;
   width: 1.05rem;
   height: 0.78rem;
-  border: 2px solid #c92a2a;
+  border: 2px solid currentColor;
   border-radius: 50%;
-  background: rgba(255, 245, 245, 0.95);
-  box-shadow: 0 1px 5px rgba(80, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 5px rgba(18, 47, 38, 0.2);
   transform: rotate(-18deg);
 }
 
-.wrong-note-name {
-  border: 1px solid #c92a2a;
+.note-feedback-name {
+  border: 1px solid currentColor;
   border-radius: 999px;
-  background: #fff5f5;
-  color: #9b1c1c;
+  background: white;
   padding: 0.12rem 0.36rem;
   font-size: 0.72rem;
   font-weight: 700;
-  box-shadow: 0 1px 4px rgba(80, 0, 0, 0.15);
+  box-shadow: 0 1px 4px rgba(18, 47, 38, 0.15);
+}
+
+.note-feedback.correct {
+  color: #1f8a4c;
+}
+
+.note-feedback.wrong {
+  color: #c92a2a;
 }
 
 .debug-panel {

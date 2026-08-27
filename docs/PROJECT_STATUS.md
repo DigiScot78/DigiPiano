@@ -7,16 +7,18 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Vite React TypeScript app starts locally with `npm run dev`.
 - `.mxl`, `.musicxml`, and `.xml` files can be selected from the local computer.
 - `.mxl` files are decompressed in-browser with `fflate`.
-- OpenSheetMusicDisplay renders the selected score as conventional notation.
-- MusicXML is normalized into ordered playable `ScoreEvent` objects with per-note staff, pitch spelling, and key-signature metadata.
+- OpenSheetMusicDisplay renders selected scores as conventional notation and is configured to honor MusicXML system/page breaks when the file provides them.
+- MusicXML is normalized into ordered playable `ScoreEvent` objects with per-note staff, pitch spelling, key-signature metadata, and lightweight import diagnostics.
 - The app requests Web MIDI access, lists MIDI inputs, and subscribes to the selected input. This has been smoke-tested with a real keyboard by the user.
 - MIDI note-on, note-off, velocity-zero note-off, and sustain pedal messages are decoded; real keypresses have been observed by the user.
 - Held notes are compared with the current expected event; user-confirmed real-keyboard progress works after the renderer lifecycle fix.
-- Chords advance only when every expected filtered note is held; extra notes are shown in the status panel and as red ghost noteheads near the current score event, but do not block progress.
-- Visual score selection supports drag-to-select, segmented cross-system highlights that meet between systems, inverted dimming after selection, and left/right resize handles that snap to score events.
+- Chords advance only when every expected filtered note is held; extra notes are reported but do not block progress.
+- Correct held notes render as green score feedback markers, wrong held notes render as red markers, and note-name text can be toggled independently for correct and wrong feedback.
+- After a correct event advances, the still-held completed notes are suppressed from wrong-note feedback until released so they do not appear as mistakes against the next event.
+- Visual score selection supports freeform drag-to-select, segmented cross-system highlights, inverted dimming after selection, and left/right resize handles that preview smoothly and snap on release.
 - Selected ranges can play once or loop, and practice can be filtered to both hands, right hand staff 1, or left hand staff 2; one-hand practice skips events with no notes for the selected hand.
 - A simulation button can advance events without hardware.
-- Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, expected event, event index, selected-hand playability, next playable index, parser warnings, and comparison results.
+- Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, ignored carried notes, expected event, event index, selected-hand playability, next playable index, parser warnings, import diagnostics, comparison results, and practice-attempt diagnostics.
 
 ## Recently Completed
 - Implemented the first browser-only PoC architecture.
@@ -25,17 +27,21 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Added `Samples/` to `.gitignore`; local sample files remain available for manual testing but are not committed.
 - Verified through a temporary local-only test that `Samples/Mad_world_Piano.mxl` decompresses and produces playable score events.
 - Fixed a renderer lifecycle bug where MIDI/debug rerenders could reload OpenSheetMusicDisplay and cause severe memory growth per keypress.
-- Added interactive score selection, once/loop range practice, staff-based hand filtering with selected-hand event skipping, segmented cross-system selection, inverted selection dimming, resize handles, and red ghost-note feedback for wrong held notes.
+- Reworked score selection so dragging and resize handles use freeform pointer previews and resolve to score events only on release.
+- Added OSMD graphical-event anchoring, narrower current-event markers, MusicXML system-break rendering options, and import diagnostics for staff/layout troubleshooting.
+- Fixed rest-over-pitched-note parsing so rests in another voice at the same timestamp do not hide playable notes.
+- Added green correct-note feedback, red wrong-note feedback, independent note-name toggles, and carry-over suppression for notes still held after a correct advancement.
 
 ## Work In Progress
-- Interactive score foundation is implemented and awaiting focused manual validation against `Samples/Mad_world_Piano.mxl` with the real MIDI keyboard.
+- Current baseline is usable for `Samples/Mad_world_Piano.mxl` per user feedback. Wrong/correct note reporting is improved but still needs more real-keyboard refinement.
+- `Samples/Final_Fantast_IV_The_Prelude_-_Piano_Solo.mxl` appears to encode its opening pitched notes on staff 1 only, so left-hand practice has little/no opening material for that file. Other tested scores appear to split hands normally.
 
 ## Known Issues Or Blockers
 - Written repeat expansion is deferred; the parser follows printed measure order and reports repeat warnings.
-- Score overlays now prefer OSMD graphical measure/timestamp mapping instead of cursor-step sampling. Cursor sampling remains a fallback when graphical lookup is unavailable, and complex MusicXML constructs may still expose alignment gaps.
-- Wrong-note ghost y-position is approximate and staff/pitch based, but now uses MusicXML/key-signature-aware diatonic staff steps rather than chromatic semitone spacing; exact notehead-level placement is deferred until renderer integration is evaluated further.
+- Score overlays prefer OSMD graphical measure/timestamp mapping instead of cursor-step sampling, but exact notehead-level placement is still deferred.
+- Correct/wrong score feedback placement is approximate and staff/pitch based; it uses MusicXML/key-signature-aware diatonic staff steps rather than exact rendered notehead geometry.
 - Tied stop-only notes are skipped as re-strikes, but tie durations are not merged into extended event durations.
-- Real MIDI hardware has been partially validated by the user: device detection, keypress display, and correct-event score/progress advancement work. Selected-hand event skipping, device connection/disconnection behavior, sustain pedal behavior, selection resizing, and ghost-note placement still need focused validation.
+- Real MIDI hardware has been partially validated by the user: device detection, keypress display, Mad World score rendering, score selection, and basic progression are working well. Feedback behavior still needs follow-up polish.
 - No `.mid` playback/comparison path is implemented; the `.mxl` score remains the source of truth.
 
 ## Important Assumptions
@@ -45,9 +51,10 @@ The project is a browser-based piano learning proof of concept. The current mile
 - `Samples/` may contain copyrighted or third-party music and should remain local-only unless explicitly approved for commit.
 
 ## Recommended Next Steps
-- Load `Samples/Mad_world_Piano.mxl` and manually validate segmented cross-system selection, inverted dimming, and left/right resize handles.
-- Confirm once/loop practice uses resized ranges correctly.
-- Test current-position and wrong-note overlay alignment with one-hand practice on the real keyboard, especially across passages where the inactive hand has multiple skipped events.
+- Continue with wrong/correct note feedback polish: validate green markers, red markers, label toggles, and held-note carry-over suppression on a real keyboard.
+- Decide whether correct/wrong markers should linger briefly, fade out, attach to actual noteheads, or stay as live held-note indicators only.
+- Confirm once/loop practice uses resized ranges correctly across several scores.
+- Use import diagnostics when a score appears to assign notes to the wrong hand; verify `firstPitchedMeasureByStaff`, `firstMeasures`, and `firstParsedEvents` before changing parser behavior.
 - Decide whether the OSMD graphical-event overlay strategy is accurate enough for the next milestone or whether deeper notehead-level renderer integration is required.
 - Decide how to handle repeat expansion before moving beyond the proof of concept.
 - Consider MIDI file use only if it adds concrete value for playback-order validation or reference playback.

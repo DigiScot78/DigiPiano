@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceWhenSatisfied,
   compareHeldNotesToEvent,
+  feedbackMarkersForHeldNotes,
   filterEventForHand,
   firstPlayableIndex,
   initialLearningState,
@@ -111,6 +112,30 @@ describe("score event matching", () => {
     expect(compareHeldNotesToEvent([60, 64], twoHandEvent, "left")).toMatchObject({ satisfied: false, extraNotes: [60, 64] });
   });
 
+
+  it("classifies correct and wrong held-note feedback", () => {
+    expect(feedbackMarkersForHeldNotes([60, 61, 64], chord)).toEqual([
+      { note: 60, kind: "correct" },
+      { note: 61, kind: "wrong" },
+      { note: 64, kind: "correct" },
+    ]);
+  });
+
+  it("filters carried completed notes out of feedback only", () => {
+    expect(feedbackMarkersForHeldNotes([60, 61, 64], chord, "both", [60, 64])).toEqual([
+      { note: 61, kind: "wrong" },
+    ]);
+    expect(compareHeldNotesToEvent([60, 64, 67], chord)).toMatchObject({ satisfied: true });
+  });
+
+  it("resumes normal feedback once an ignored note is no longer supplied", () => {
+    expect(feedbackMarkersForHeldNotes([61], single, "both", [60])).toEqual([
+      { note: 61, kind: "wrong" },
+    ]);
+    expect(feedbackMarkersForHeldNotes([60], single, "both", [])).toEqual([
+      { note: 60, kind: "correct" },
+    ]);
+  });
   it("advances only when the current event is satisfied", () => {
     const events = [single, chord];
     const waiting = advanceWhenSatisfied(initialLearningState(), events, [61]);

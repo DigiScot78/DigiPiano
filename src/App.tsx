@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScoreRenderer } from "./components/ScoreRenderer";
 import {
   advanceWhenSatisfied,
   compareHeldNotesToEvent,
   filterEventForHand,
+  feedbackMarkersForHeldNotes,
   firstPlayableIndex,
   initialLearningState,
   isEventPlayableForHand,
@@ -21,11 +22,30 @@ import type { LoadedScore, ParsedScore, ScoreEvent } from "./music/scoreTypes";
 import { useMidiInput } from "./hooks/useMidiInput";
 import "./styles.css";
 
+interface PracticeAttemptDiagnostic {
+  source: "midi" | "simulation";
+  triggeringMidiNote?: number;
+  heldNotesBefore: number[];
+  heldNotesAfter: number[];
+  startingIndex: number;
+  resolvedIndex: number;
+  resultingIndex: number;
+  expectedEventId?: string;
+  measureNumber?: number;
+  expectedNotes: number[];
+  satisfied: boolean;
+  missingNotes: number[];
+  extraNotes: number[];
+  advanced: boolean;
+  completed: boolean;
+}
+
 function App() {
   const midi = useMidiInput();
   const [loadedScore, setLoadedScore] = useState<LoadedScore | null>(null);
   const [parsedScore, setParsedScore] = useState<ParsedScore>({ events: [], warnings: [] });
   const [learningState, setLearningState] = useState<LearningState>(initialLearningState());
+  const learningStateRef = useRef<LearningState>(learningState);
   const [scoreError, setScoreError] = useState<string | undefined>();
   const [scoreStatus, setScoreStatus] = useState<"empty" | "loading" | "ready" | "error">("empty");
   const [renderError, setRenderError] = useState<string | undefined>();
@@ -33,6 +53,11 @@ function App() {
   const [selectedRange, setSelectedRange] = useState<ScoreSelectionRange | undefined>();
   const [handMode, setHandMode] = useState<HandMode>("both");
   const [runMode, setRunMode] = useState<PracticeRunMode>("once");
+  const [lastPracticeAttempt, setLastPracticeAttempt] = useState<PracticeAttemptDiagnostic | undefined>();
+  const [showCorrectNoteNames, setShowCorrectNoteNames] = useState(true);
+  const [showWrongNoteNames, setShowWrongNoteNames] = useState(true);
+  const [carriedCompletedNotes, setCarriedCompletedNotes] = useState<number[]>([]);
+  const previousHeldNotesRef = useRef<number[]>([]);
 
   const currentEvent = parsedScore.events[learningState.currentIndex];
   const expectedEvent = useMemo(() => filterEventForHand(currentEvent, handMode), [currentEvent, handMode]);
@@ -47,9 +72,9 @@ function App() {
     () => Array.from(new Set([...midi.heldNotes, ...simulatedHeldNotes])).sort((a, b) => a - b),
     [midi.heldNotes, simulatedHeldNotes],
   );
-  const liveComparison = useMemo(
-    () => compareHeldNotesToEvent(combinedHeldNotes, currentEvent, handMode),
-    [combinedHeldNotes, currentEvent, handMode],
+  const scoreFeedbackMarkers = useMemo(
+    () => feedbackMarkersForHeldNotes(combinedHeldNotes, currentEvent, handMode, carriedCompletedNotes),
+    [carriedCompletedNotes, combinedHeldNotes, currentEvent, handMode],
   );
 
   const practiceOptions = useMemo(() => ({ handMode, runMode, range: selectedRange }), [handMode, runMode, selectedRange]);
@@ -57,7 +82,9 @@ function App() {
   useEffect(() => {
     setLearningState((current) => {
       const nextIndex = resolvePracticeIndex(current.currentIndex, parsedScore.events, handMode, selectedRange);
-      return nextIndex === current.currentIndex ? current : initialLearningState(nextIndex);
+      const next = nextIndex === current.currentIndex ? current : initialLearningState(nextIndex);
+      learningStateRef.current = next;
+      return next;
     });
     setSimulatedHeldNotes([]);
   }, [handMode, parsedScore.events, selectedRange]);
@@ -71,16 +98,21 @@ function App() {
     setScoreError(undefined);
     setRenderError(undefined);
     setScoreStatus("loading");
-    setLearningState(initialLearningState());
+    const resetState = initialLearningState();
+    learningStateRef.current = resetState;
+    setLearningState(resetState);
     setSimulatedHeldNotes([]);
     setSelectedRange(undefined);
 
     try {
       const score = await loadScoreFile(file);
       const parsed = parseMusicXmlTimeline(score.xmlText);
+      console.debug("[score-import]", importDiagnosticsForDebug(parsed));
       setLoadedScore(score);
       setParsedScore(parsed);
-      setLearningState(initialLearningState(firstPlayableIndex(parsed.events, handMode) ?? 0));
+      const nextState = initialLearningState(firstPlayableIndex(parsed.events, handMode) ?? 0);
+      learningStateRef.current = nextState;
+      setLearningState(nextState);
     } catch (error) {
       setLoadedScore(null);
       setParsedScore({ events: [], warnings: [] });
@@ -89,21 +121,85 @@ function App() {
     }
   };
 
-  const advanceWithNotes = useCallback((notes: number[]) => {
-    setLearningState((current) => advanceWhenSatisfied(current, parsedScore.events, notes, practiceOptions));
-  }, [parsedScore.events, practiceOptions]);
+  const advanceWithNotes = useCallback((
+    notes: number[],
+    diagnosticContext?: {
+      source: PracticeAttemptDiagnostic["source"];
+      triggeringMidiNote?: number;
+      heldNotesBefore: number[];
+      heldNotesAfter: number[];
+    },
+  ) => {
+    const current = learningStateRef.current;
+    const resolvedIndexBeforeAdvance = resolvePracticeIndex(current.currentIndex, parsedScore.events, handMode, selectedRange);
+    const activeEventBeforeAdvance = parsedScore.events[resolvedIndexBeforeAdvance];
+    const expectedNotesBeforeAdvance = filterEventForHand(activeEventBeforeAdvance, handMode)?.midiNotes ?? [];
+    const next = advanceWhenSatisfied(current, parsedScore.events, notes, practiceOptions);
+    learningStateRef.current = next;
+    setLearningState(next);
+
+    const advanced = next.currentIndex !== resolvedIndexBeforeAdvance || next.completedEventIds.length > current.completedEventIds.length || next.isComplete !== current.isComplete;
+    if (advanced) {
+      const held = new Set(notes);
+      setCarriedCompletedNotes(expectedNotesBeforeAdvance.filter((note) => held.has(note)));
+    }
+
+    if (diagnosticContext) {
+      const resolvedIndex = resolvedIndexBeforeAdvance;
+      const activeEvent = activeEventBeforeAdvance;
+      const comparison = compareHeldNotesToEvent(notes, activeEvent, handMode);
+      const diagnostic: PracticeAttemptDiagnostic = {
+        source: diagnosticContext.source,
+        triggeringMidiNote: diagnosticContext.triggeringMidiNote,
+        heldNotesBefore: diagnosticContext.heldNotesBefore,
+        heldNotesAfter: diagnosticContext.heldNotesAfter,
+        startingIndex: current.currentIndex,
+        resolvedIndex,
+        resultingIndex: next.currentIndex,
+        expectedEventId: activeEvent?.id,
+        measureNumber: activeEvent?.measureNumber,
+        expectedNotes: filterEventForHand(activeEvent, handMode)?.midiNotes ?? [],
+        satisfied: comparison.satisfied,
+        missingNotes: comparison.missingNotes,
+        extraNotes: comparison.extraNotes,
+        advanced,
+        completed: next.isComplete,
+      };
+      setLastPracticeAttempt(diagnostic);
+      console.debug("[practice-attempt]", diagnostic);
+    }
+  }, [handMode, parsedScore.events, practiceOptions, selectedRange]);
 
   useEffect(() => {
-    if (midi.messageCounter === 0 || midi.lastMessage?.kind !== "note-on") {
+    setCarriedCompletedNotes((current) => current.filter((note) => combinedHeldNotes.includes(note)));
+  }, [combinedHeldNotes]);
+
+  useEffect(() => {
+    if (midi.messageCounter === 0) {
       return;
     }
-    advanceWithNotes(combinedHeldNotes);
+
+    const heldNotesBefore = previousHeldNotesRef.current;
+    previousHeldNotesRef.current = combinedHeldNotes;
+    if (midi.lastMessage?.kind !== "note-on" || midi.lastMessage.noteNumber === undefined) {
+      return;
+    }
+
+    advanceWithNotes(combinedHeldNotes, {
+      source: "midi",
+      triggeringMidiNote: midi.lastMessage.noteNumber,
+      heldNotesBefore,
+      heldNotesAfter: combinedHeldNotes,
+    });
   }, [advanceWithNotes, combinedHeldNotes, midi.lastMessage, midi.messageCounter]);
 
   const handleSelectionChange = useCallback((range: ScoreSelectionRange | undefined) => {
     setSelectedRange(range);
-    setLearningState(initialLearningState(firstPlayableIndex(parsedScore.events, handMode, range) ?? range?.startIndex ?? 0));
+    const nextState = initialLearningState(firstPlayableIndex(parsedScore.events, handMode, range) ?? range?.startIndex ?? 0);
+    learningStateRef.current = nextState;
+    setLearningState(nextState);
     setSimulatedHeldNotes([]);
+    setCarriedCompletedNotes([]);
   }, [handMode, parsedScore.events]);
 
   const simulateCurrentEvent = () => {
@@ -111,7 +207,11 @@ function App() {
       return;
     }
     setSimulatedHeldNotes(expectedEvent.midiNotes);
-    advanceWithNotes(expectedEvent.midiNotes);
+    advanceWithNotes(expectedEvent.midiNotes, {
+      source: "simulation",
+      heldNotesBefore: combinedHeldNotes,
+      heldNotesAfter: expectedEvent.midiNotes,
+    });
   };
 
   const clearSelection = () => {
@@ -119,13 +219,17 @@ function App() {
   };
 
   const resetProgress = () => {
-    setLearningState(initialLearningState(firstPlayableIndex(parsedScore.events, handMode, selectedRange) ?? selectedRange?.startIndex ?? 0));
+    const nextState = initialLearningState(firstPlayableIndex(parsedScore.events, handMode, selectedRange) ?? selectedRange?.startIndex ?? 0);
+    learningStateRef.current = nextState;
+    setLearningState(nextState);
     setSimulatedHeldNotes([]);
+    setCarriedCompletedNotes([]);
   };
 
   const handleHandModeChange = (nextHandMode: HandMode) => {
     setHandMode(nextHandMode);
     setSimulatedHeldNotes([]);
+    setCarriedCompletedNotes([]);
   };
 
   return (
@@ -192,11 +296,15 @@ function App() {
               </select>
             </label>
           </div>
+          <div className="feedback-controls">
+            <label><input type="checkbox" checked={showCorrectNoteNames} onChange={(event) => setShowCorrectNoteNames(event.target.checked)} /> Correct note names</label>
+            <label><input type="checkbox" checked={showWrongNoteNames} onChange={(event) => setShowWrongNoteNames(event.target.checked)} /> Wrong note names</label>
+          </div>
           <SelectionSummary range={selectedRange} events={parsedScore.events} />
           {expectedEvent ? <ExpectedEvent event={expectedEvent} index={learningState.currentIndex} total={parsedScore.events.length} isComplete={learningState.isComplete} /> : <p className="muted">Load a score to begin.</p>}
           <div className="button-row">
             <button type="button" onClick={simulateCurrentEvent} disabled={!expectedEvent || expectedEvent.midiNotes.length === 0 || learningState.isComplete}>Simulate Current Event</button>
-            <button type="button" onClick={() => setSimulatedHeldNotes([])}>Release Simulated Notes</button>
+<button type="button" onClick={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); }}>Release Simulated Notes</button>
             <button type="button" onClick={resetProgress}>Reset</button>
             <button type="button" onClick={clearSelection} disabled={!selectedRange}>Clear Selection</button>
           </div>
@@ -215,7 +323,9 @@ function App() {
             eventCount={parsedScore.events.length}
             events={parsedScore.events}
             selectedRange={selectedRange}
-            wrongNotes={liveComparison.extraNotes}
+            feedbackMarkers={scoreFeedbackMarkers}
+            showCorrectNoteNames={showCorrectNoteNames}
+            showWrongNoteNames={showWrongNoteNames}
             onSelectedRangeChange={handleSelectionChange}
             onRenderStateChange={(next) => {
               setScoreStatus(next.status);
@@ -240,7 +350,9 @@ function App() {
           heldNotes={combinedHeldNotes}
           sustainOn={midi.heldState.sustainOn}
           comparison={learningState.lastComparison}
+          lastPracticeAttempt={lastPracticeAttempt}
           simulatedHeldNotes={simulatedHeldNotes}
+          carriedCompletedNotes={carriedCompletedNotes}
         />
       </section>
     </main>
@@ -320,7 +432,9 @@ function DebugPanel(props: {
   heldNotes: number[];
   sustainOn: boolean;
   comparison?: unknown;
+  lastPracticeAttempt?: PracticeAttemptDiagnostic;
   simulatedHeldNotes: number[];
+  carriedCompletedNotes: number[];
 }) {
   return (
     <aside className="debug-panel">
@@ -330,6 +444,7 @@ function DebugPanel(props: {
         <div><dt>Selected MIDI</dt><dd>{props.selectedMidiDevice ?? "None"}</dd></div>
         <div><dt>Held notes</dt><dd>{formatNotes(props.heldNotes)}</dd></div>
         <div><dt>Simulated notes</dt><dd>{formatNotes(props.simulatedHeldNotes)}</dd></div>
+        <div><dt>Ignored held</dt><dd>{formatNotes(props.carriedCompletedNotes)}</dd></div>
         <div><dt>Sustain</dt><dd>{props.sustainOn ? "On" : "Off"}</dd></div>
         <div><dt>Event index</dt><dd>{props.currentIndex}</dd></div>
         <div><dt>Hand mode</dt><dd>{props.handMode}</dd></div>
@@ -348,12 +463,54 @@ function DebugPanel(props: {
       <pre>{JSON.stringify(props.lastMessage ?? null, null, 2)}</pre>
       <h3>Last Comparison</h3>
       <pre>{JSON.stringify(props.comparison ?? null, null, 2)}</pre>
+      <h3>Last Practice Attempt</h3>
+      <pre>{JSON.stringify(props.lastPracticeAttempt ?? null, null, 2)}</pre>
       <h3>Parser Warnings</h3>
       {props.parsedScore.warnings.length === 0 ? <p className="muted">None</p> : <ul>{props.parsedScore.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul>}
+      <h3>Import Diagnostics</h3>
+      <pre>{JSON.stringify(importDiagnosticsForDebug(props.parsedScore), null, 2)}</pre>
     </aside>
   );
 }
 
+function importDiagnosticsForDebug(parsedScore: ParsedScore) {
+  const diagnostics = parsedScore.diagnostics;
+  if (!diagnostics) {
+    return null;
+  }
+
+  return {
+    firstPitchedMeasureByStaff: diagnostics.firstPitchedMeasureByStaff,
+    firstMeasures: diagnostics.measures.slice(0, 16),
+    systemBreaks: diagnostics.measures
+      .filter((measure) => measure.printNewSystem || measure.printNewPage || measure.hasSystemLayout)
+      .map((measure) => ({
+        measureNumber: measure.measureNumber,
+        printNewSystem: measure.printNewSystem,
+        printNewPage: measure.printNewPage,
+        hasSystemLayout: measure.hasSystemLayout,
+        width: measure.width,
+      })),
+    firstParsedEvents: parsedScore.events.slice(0, 20).map((event, index) => ({
+      index,
+      id: event.id,
+      measureNumber: event.measureNumber,
+      startQuarter: event.startQuarter,
+      durationQuarters: event.durationQuarters,
+      midiNotes: event.midiNotes,
+      noteNames: event.midiNotes.map(midiNoteToName),
+      staffNumbers: event.staffNumbers,
+      voiceNumbers: event.voiceNumbers,
+      noteDetails: event.noteDetails.map((note) => ({
+        midiNote: note.midiNote,
+        noteName: midiNoteToName(note.midiNote),
+        staffNumber: note.staffNumber,
+        voiceNumber: note.voiceNumber,
+        sourceNoteId: note.sourceNoteId,
+      })),
+    })),
+  };
+}
 function formatNotes(notes: number[] | undefined): string {
   if (!notes || notes.length === 0) {
     return "None";

@@ -14,6 +14,10 @@ export interface MatchResult {
   extraNotes: number[];
 }
 
+export interface NoteFeedbackMarker {
+  note: number;
+  kind: "correct" | "wrong";
+}
 export interface LearningState {
   currentIndex: number;
   completedEventIds: string[];
@@ -27,6 +31,22 @@ export interface PracticeOptions {
   range?: ScoreSelectionRange;
 }
 
+export function feedbackMarkersForHeldNotes(
+  heldNotes: Iterable<number>,
+  event: ScoreEvent | undefined,
+  handMode: HandMode = "both",
+  ignoredNotes: Iterable<number> = [],
+): NoteFeedbackMarker[] {
+  const expected = new Set(notesForHand(event, handMode));
+  const ignored = new Set(ignoredNotes);
+  return Array.from(new Set(heldNotes))
+    .filter((note) => !ignored.has(note))
+    .sort((a, b) => a - b)
+    .map((note) => ({
+      note,
+      kind: expected.has(note) ? "correct" : "wrong",
+    }));
+}
 export function compareHeldNotesToEvent(
   heldNotes: Iterable<number>,
   event: ScoreEvent | undefined,

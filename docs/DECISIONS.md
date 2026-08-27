@@ -17,3 +17,6 @@ The first implementation follows printed measure order and reports repeat markin
 
 ## 6. Keep Sample Music Local-Only For Now
 `Samples/` is ignored by Git. The provided `.mxl` and `.mid` files are useful for local testing, but committing third-party music files should be an explicit licensing decision.
+
+## 7. Trust MusicXML Staff Assignments For Hand Mode
+Hand mode uses explicit MusicXML staff numbers: staff 1 is treated as right hand and staff 2 as left hand. The app does not infer hand ownership from pitch because that would guess incorrectly for cross-staff notation, overlapping hands, and unusual arrangements. Import diagnostics are used to identify source files whose exported staff assignments do not match the expected visual/musical layout.

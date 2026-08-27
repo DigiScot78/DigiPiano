@@ -24,9 +24,26 @@ export interface ScoreEvent {
   isRest?: boolean;
 }
 
+export interface ScoreMeasureDiagnostic {
+  measureNumber: number;
+  pitchedByStaff: Record<string, number>;
+  restsByStaff: Record<string, number>;
+  pitchedByStaffVoice: Record<string, number>;
+  printNewSystem: boolean;
+  printNewPage: boolean;
+  hasSystemLayout: boolean;
+  width?: number;
+}
+
+export interface ScoreDiagnostics {
+  measures: ScoreMeasureDiagnostic[];
+  firstPitchedMeasureByStaff: Record<string, number>;
+}
+
 export interface ParsedScore {
   events: ScoreEvent[];
   warnings: string[];
+  diagnostics?: ScoreDiagnostics;
 }
 
 export interface LoadedScore {

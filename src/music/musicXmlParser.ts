@@ -1,5 +1,5 @@
 import { pitchToMidi } from "./note";
-import type { ParsedScore, ScoreEvent, ScoreEventNote } from "./scoreTypes";
+import type { ParsedScore, ScoreDiagnostics, ScoreEvent, ScoreEventNote, ScoreMeasureDiagnostic } from "./scoreTypes";
 import { parseXml } from "./musicXmlLoader";
 
 interface PartCursorState {
@@ -35,6 +35,8 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
   const doc = parseXml(xmlText, "MusicXML score");
   const warnings = collectGlobalWarnings(doc);
   const events = new Map<string, PendingEvent>();
+  const measureDiagnostics: ScoreMeasureDiagnostic[] = [];
+  const firstPitchedMeasureByStaff: Record<string, number> = {};
 
   for (const part of Array.from(doc.querySelectorAll("score-partwise > part, part"))) {
     const partId = part.getAttribute("id") ?? "part";
@@ -51,6 +53,13 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
       measureIndex += 1;
       const measureNumber = Number(measure.getAttribute("number")) || measureIndex;
       state.measureStartQuarter = state.currentQuarter;
+      const diagnostic = diagnosticForMeasure(measure, measureNumber);
+      measureDiagnostics.push(diagnostic);
+      for (const [staff, count] of Object.entries(diagnostic.pitchedByStaff)) {
+        if (count > 0 && firstPitchedMeasureByStaff[staff] === undefined) {
+          firstPitchedMeasureByStaff[staff] = measureNumber;
+        }
+      }
 
       for (const child of Array.from(measure.children)) {
         switch (child.localName) {
@@ -107,12 +116,73 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
     .map(toScoreEvent)
     .sort((a, b) => a.startQuarter - b.startQuarter || a.measureNumber - b.measureNumber || a.id.localeCompare(b.id));
 
+  const diagnostics: ScoreDiagnostics = {
+    measures: measureDiagnostics,
+    firstPitchedMeasureByStaff,
+  };
+
   return {
     events: normalized.filter((event) => !event.isRest),
     warnings,
+    diagnostics,
   };
 }
 
+function diagnosticForMeasure(measure: Element, measureNumber: number): ScoreMeasureDiagnostic {
+  const pitchedByStaff: Record<string, number> = {};
+  const restsByStaff: Record<string, number> = {};
+  const pitchedByStaffVoice: Record<string, number> = {};
+  let printNewSystem = false;
+  let printNewPage = false;
+  let hasSystemLayout = false;
+
+  for (const child of Array.from(measure.children)) {
+    if (child.localName === "print") {
+      printNewSystem ||= child.getAttribute("new-system") === "yes";
+      printNewPage ||= child.getAttribute("new-page") === "yes";
+      hasSystemLayout ||= child.querySelector(":scope > system-layout") !== null;
+      continue;
+    }
+
+    if (child.localName !== "note") {
+      continue;
+    }
+
+    const staff = String(numberText(child.querySelector("staff")) ?? 1);
+    const voice = text(child.querySelector("voice")) ?? "1";
+    if (child.querySelector(":scope > pitch")) {
+      incrementRecord(pitchedByStaff, staff);
+      incrementRecord(pitchedByStaffVoice, `${staff}:${voice}`);
+    } else if (child.querySelector(":scope > rest")) {
+      incrementRecord(restsByStaff, staff);
+    }
+  }
+
+  const width = numberAttribute(measure, "width");
+  return {
+    measureNumber,
+    pitchedByStaff,
+    restsByStaff,
+    pitchedByStaffVoice,
+    printNewSystem,
+    printNewPage,
+    hasSystemLayout,
+    ...(width === undefined ? {} : { width }),
+  };
+}
+
+function incrementRecord(record: Record<string, number>, key: string): void {
+  record[key] = (record[key] ?? 0) + 1;
+}
+
+function numberAttribute(element: Element, attributeName: string): number | undefined {
+  const value = element.getAttribute(attributeName);
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 function handleNote(
   note: Element,
   context: {
@@ -171,10 +241,11 @@ function handleNote(
 
   const sourceNoteId = note.getAttribute("default-x") ?? `${context.measureNumber}:${event.sourceNoteIds.length}`;
   event.durationQuarters = Math.max(event.durationQuarters, durationQuarters);
-  event.staffNumbers.add(staff);
-  event.voiceNumbers.add(voice);
-  event.sourceNoteIds.push(sourceNoteId);
   if (pitch !== null) {
+    event.isRest = false;
+    event.staffNumbers.add(staff);
+    event.voiceNumbers.add(voice);
+    event.sourceNoteIds.push(sourceNoteId);
     event.noteDetails.push({
       midiNote: pitch.midiNote,
       staffNumber: staff,
@@ -184,6 +255,11 @@ function handleNote(
       pitchAlter: pitch.alter,
       pitchOctave: pitch.octave,
     });
+  } else if (event.noteDetails.length === 0) {
+    event.staffNumbers.add(staff);
+    event.voiceNumbers.add(voice);
+    event.sourceNoteIds.push(sourceNoteId);
+    event.isRest = true;
   }
 
   if (!isChordMember) {
