@@ -639,6 +639,7 @@ describe("ScoreRenderer", () => {
     expect(onSelectedRangeChange).not.toHaveBeenCalled();
     expect(container.querySelector(".score-selection-rect.dragging")).not.toBeNull();
     expect(container.querySelectorAll(".score-selection-dim.range").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll(".score-selection-handle")).toHaveLength(0);
 
     await act(async () => {
       layer?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 180, clientY: 140 }));

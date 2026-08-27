@@ -443,7 +443,7 @@ export function ScoreRenderer({
         onPointerUp={finishPointerSelection}
         onPointerCancel={finishPointerSelection}
       >
-        {startHandleRect && endHandleRect && selectedRange && interactionMode !== "selecting" ? (
+        {startHandleRect && endHandleRect && selectedRange && interactionMode === "idle" ? (
           <>
             <button
               type="button"
