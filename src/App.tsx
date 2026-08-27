@@ -20,6 +20,8 @@ import { loadScoreFile } from "./music/musicXmlLoader";
 import { parseMusicXmlTimeline } from "./music/musicXmlParser";
 import type { LoadedScore, ParsedScore, ScoreEvent } from "./music/scoreTypes";
 import { useMidiInput } from "./hooks/useMidiInput";
+import type { AppTheme, ScoreTheme } from "./theme/appearance";
+import { useAppearanceSettings } from "./theme/useAppearanceSettings";
 import "./styles.css";
 
 interface PracticeAttemptDiagnostic {
@@ -44,6 +46,7 @@ const COMPLETED_FEEDBACK_DURATION_MS = 450;
 
 function App() {
   const midi = useMidiInput();
+  const appearance = useAppearanceSettings();
   const [loadedScore, setLoadedScore] = useState<LoadedScore | null>(null);
   const [parsedScore, setParsedScore] = useState<ParsedScore>({ events: [], warnings: [] });
   const [learningState, setLearningState] = useState<LearningState>(initialLearningState());
@@ -60,6 +63,7 @@ function App() {
   const [showWrongNoteNames, setShowWrongNoteNames] = useState(true);
   const [carriedCompletedNotes, setCarriedCompletedNotes] = useState<number[]>([]);
   const [completedFeedback, setCompletedFeedback] = useState<CompletedNoteFeedback | undefined>();
+  const [midiSettingsOpen, setMidiSettingsOpen] = useState(false);
   const completedFeedbackTimerRef = useRef<number | undefined>(undefined);
   const completedFeedbackIdRef = useRef(0);
   const previousHeldNotesRef = useRef<number[]>([]);
@@ -73,6 +77,19 @@ function App() {
   }, []);
 
   useEffect(() => clearCompletedFeedback, [clearCompletedFeedback]);
+
+  useEffect(() => {
+    if (!midiSettingsOpen) {
+      return;
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMidiSettingsOpen(false);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [midiSettingsOpen]);
 
   const currentEvent = parsedScore.events[learningState.currentIndex];
   const expectedEvent = useMemo(() => filterEventForHand(currentEvent, handMode), [currentEvent, handMode]);
@@ -273,82 +290,9 @@ function App() {
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div>
-          <h1>Piano Learning PoC</h1>
-          <p>MusicXML score to rendered notation to expected MIDI event to live-key recognition.</p>
-        </div>
-        <div className="browser-badges" aria-label="Browser capabilities">
-          <span className={midi.secureContext ? "badge ok" : "badge warning"}>{midi.secureContext ? "Secure context" : "Insecure context"}</span>
-          <span className={midi.supported ? "badge ok" : "badge warning"}>{midi.supported ? "Web MIDI available" : "Web MIDI unavailable"}</span>
-        </div>
+        <h1>Piano Learning</h1>
+        <button type="button" className="settings-button" aria-label="Open settings" title="Settings" onClick={() => setMidiSettingsOpen(true)}><SettingsIcon /></button>
       </header>
-
-      <section className="control-grid">
-        <section className="panel">
-          <h2>Score File</h2>
-          <input type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />
-          {loadedScore ? <ScoreInfo score={loadedScore} eventCount={parsedScore.events.length} /> : <p className="muted">Select `Samples/Mad_world_Piano.mxl` or another MusicXML score from this computer.</p>}
-          {scoreError ? <p className="error">{scoreError}</p> : null}
-          {renderError ? <p className="error">Renderer: {renderError}</p> : null}
-        </section>
-
-        <section className="panel">
-          <h2>MIDI Input</h2>
-          <button type="button" onClick={midi.requestAccess} disabled={!midi.supported || midi.accessStatus === "requesting"}>
-            {midi.accessStatus === "requesting" ? "Requesting..." : "Request MIDI Access"}
-          </button>
-          <p className="muted">Status: {midi.accessStatus}; permission: {midi.permissionStatus}</p>
-          {midi.error ? <p className="error">{midi.error}</p> : null}
-          <label>
-            MIDI input
-            <select value={midi.selectedInputId ?? ""} onChange={(event) => midi.selectInput(event.target.value)} disabled={midi.inputs.length === 0}>
-              <option value="">No input selected</option>
-              {midi.inputs.map((input) => (
-                <option key={input.id} value={input.id}>{input.name}</option>
-              ))}
-            </select>
-          </label>
-          <div className="device-list">
-            {midi.inputs.length === 0 ? <span className="muted">No MIDI inputs listed yet.</span> : midi.inputs.map((input) => (
-              <span key={input.id} className="device-chip">{input.name} ({input.state ?? "unknown"})</span>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel current-event-panel">
-          <h2>Practice</h2>
-          <div className="practice-controls">
-            <label>
-              Hand
-              <select value={handMode} onChange={(event) => handleHandModeChange(event.target.value as HandMode)}>
-                <option value="both">Both hands</option>
-                <option value="right">Right hand</option>
-                <option value="left">Left hand</option>
-              </select>
-            </label>
-            <label>
-              Run mode
-              <select value={runMode} onChange={(event) => setRunMode(event.target.value as PracticeRunMode)}>
-                <option value="once">Play once</option>
-                <option value="loop">Loop selection</option>
-              </select>
-            </label>
-          </div>
-          <div className="feedback-controls">
-            <label><input type="checkbox" checked={showCorrectNoteNames} onChange={(event) => setShowCorrectNoteNames(event.target.checked)} /> Correct note names</label>
-            <label><input type="checkbox" checked={showWrongNoteNames} onChange={(event) => setShowWrongNoteNames(event.target.checked)} /> Wrong note names</label>
-          </div>
-          <SelectionSummary range={selectedRange} events={parsedScore.events} />
-          {expectedEvent ? <ExpectedEvent event={expectedEvent} index={learningState.currentIndex} total={parsedScore.events.length} isComplete={learningState.isComplete} /> : <p className="muted">Load a score to begin.</p>}
-          <div className="button-row">
-            <button type="button" onClick={simulateCurrentEvent} disabled={!expectedEvent || expectedEvent.midiNotes.length === 0 || learningState.isComplete}>Simulate Current Event</button>
-<button type="button" onClick={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); }}>Release Simulated Notes</button>
-            <button type="button" onClick={resetProgress}>Reset</button>
-            <button type="button" onClick={clearSelection} disabled={!selectedRange}>Clear Selection</button>
-          </div>
-          <ComparisonSummary state={learningState} />
-        </section>
-      </section>
 
       <section className="score-layout">
         <div className="score-frame">
@@ -364,16 +308,45 @@ function App() {
             feedbackMarkers={scoreFeedbackMarkers}
             completedFeedback={completedFeedback}
             handMode={handMode}
+            runMode={runMode}
+            scoreTheme={appearance.scoreTheme}
             showCorrectNoteNames={showCorrectNoteNames}
             showWrongNoteNames={showWrongNoteNames}
             onSelectedRangeChange={handleSelectionChange}
+            onHandModeChange={handleHandModeChange}
+            onRunModeChange={setRunMode}
             onRenderStateChange={(next) => {
               setScoreStatus(next.status);
               setRenderError(next.error);
             }}
           />
         </div>
-        <DebugPanel
+        <div className="right-sidebar">
+          <section className="panel file-panel">
+            <label className="file-picker-button">
+              Open score
+              <input type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />
+            </label>
+            {scoreError ? <p className="error compact-message">{scoreError}</p> : null}
+            {renderError ? <p className="error compact-message">Renderer: {renderError}</p> : null}
+          </section>
+          <section className="panel practice-panel">
+            <h2>Practice</h2>
+            <div className="feedback-controls">
+              <label><input type="checkbox" checked={showCorrectNoteNames} onChange={(event) => setShowCorrectNoteNames(event.target.checked)} /> Correct names</label>
+              <label><input type="checkbox" checked={showWrongNoteNames} onChange={(event) => setShowWrongNoteNames(event.target.checked)} /> Wrong names</label>
+            </div>
+            <SelectionSummary range={selectedRange} events={parsedScore.events} />
+            {expectedEvent ? <ExpectedEvent event={expectedEvent} index={learningState.currentIndex} total={parsedScore.events.length} isComplete={learningState.isComplete} /> : <p className="muted">Load a score to begin.</p>}
+            <div className="button-row compact-actions">
+              <button type="button" onClick={simulateCurrentEvent} disabled={!expectedEvent || expectedEvent.midiNotes.length === 0 || learningState.isComplete}>Simulate</button>
+              <button type="button" onClick={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); }}>Release</button>
+              <button type="button" onClick={resetProgress}>Reset</button>
+              <button type="button" onClick={clearSelection} disabled={!selectedRange}>Clear range</button>
+            </div>
+            <ComparisonSummary state={learningState} />
+          </section>
+          <DebugPanel
           loadedScore={loadedScore}
           parsedScore={parsedScore}
           currentEvent={currentEvent}
@@ -393,22 +366,103 @@ function App() {
           lastPracticeAttempt={lastPracticeAttempt}
           simulatedHeldNotes={simulatedHeldNotes}
           carriedCompletedNotes={carriedCompletedNotes}
-        />
+          />
+        </div>
       </section>
+      {midiSettingsOpen ? (
+        <SettingsDialog
+          midi={midi}
+          appTheme={appearance.appTheme}
+          scoreTheme={appearance.scoreTheme}
+          onAppThemeChange={appearance.setAppTheme}
+          onScoreThemeChange={appearance.setScoreTheme}
+          onClose={() => setMidiSettingsOpen(false)}
+        />
+      ) : null}
     </main>
   );
 }
 
-function ScoreInfo({ score, eventCount }: { score: LoadedScore; eventCount: number }) {
+function SettingsIcon() {
   return (
-    <dl className="info-list">
-      <div><dt>File</dt><dd>{score.fileName}</dd></div>
-      <div><dt>Type</dt><dd>{score.fileType}</dd></div>
-      <div><dt>Title</dt><dd>{score.info.title ?? "Unknown"}</dd></div>
-      <div><dt>Composer</dt><dd>{score.info.composer ?? "Unknown"}</dd></div>
-      <div><dt>Parts</dt><dd>{score.info.partCount}</dd></div>
-      <div><dt>Playable events</dt><dd>{eventCount}</dd></div>
-    </dl>
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M19.4 13a7.7 7.7 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a8 8 0 0 0-1.7-1L15 3.3h-4L10.6 6a8 8 0 0 0-1.7 1l-2.5-1-2 3.4L6.5 11a7.7 7.7 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a8 8 0 0 0 1.7 1l.4 2.7h4l.4-2.7a8 8 0 0 0 1.7-1l2.5 1 2-3.4L19.4 13ZM13 15.5A3.5 3.5 0 1 1 13 8a3.5 3.5 0 0 1 0 7.5Z" />
+    </svg>
+  );
+}
+
+function SettingsDialog({
+  midi,
+  appTheme,
+  scoreTheme,
+  onAppThemeChange,
+  onScoreThemeChange,
+  onClose,
+}: {
+  midi: ReturnType<typeof useMidiInput>;
+  appTheme: AppTheme;
+  scoreTheme: ScoreTheme;
+  onAppThemeChange: (theme: AppTheme) => void;
+  onScoreThemeChange: (theme: ScoreTheme) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <header>
+          <div>
+            <h2 id="settings-title">Settings</h2>
+            <p>Customise the workspace, score, and connected keyboard.</p>
+          </div>
+          <button type="button" className="dialog-close" aria-label="Close settings" onClick={onClose}>×</button>
+        </header>
+        <section className="settings-section" aria-labelledby="appearance-settings-title">
+          <h3 id="appearance-settings-title">Appearance</h3>
+          <span className="settings-label">Application</span>
+          <div className="theme-choice-row" aria-label="Application theme">
+            {(["system", "light", "dark"] as const).map((theme) => (
+              <button key={theme} type="button" className={appTheme === theme ? "selected" : ""} aria-pressed={appTheme === theme} onClick={() => onAppThemeChange(theme)}>
+                {theme[0].toUpperCase() + theme.slice(1)}
+              </button>
+            ))}
+          </div>
+          <span className="settings-label score-style-label">Score page</span>
+          <div className="score-theme-choices" aria-label="Score page style">
+            <button type="button" className={`score-theme-choice paper${scoreTheme === "paper" ? " selected" : ""}`} aria-pressed={scoreTheme === "paper"} onClick={() => onScoreThemeChange("paper")}>
+              <span className="score-theme-swatch" aria-hidden="true">♪</span>
+              <span><strong>Paper</strong><small>Warm traditional page</small></span>
+            </button>
+            <button type="button" className={`score-theme-choice night${scoreTheme === "night" ? " selected" : ""}`} aria-pressed={scoreTheme === "night"} onClick={() => onScoreThemeChange("night")}>
+              <span className="score-theme-swatch" aria-hidden="true">♪</span>
+              <span><strong>Night</strong><small>Dark page, pale notation</small></span>
+            </button>
+          </div>
+        </section>
+        <section className="settings-section midi-settings-section" aria-labelledby="midi-settings-title">
+          <h3 id="midi-settings-title">MIDI input</h3>
+        <div className="midi-status-row">
+          <span className={`status-dot ${midi.accessStatus === "ready" ? "ready" : ""}`} aria-hidden="true" />
+          <span>{midi.accessStatus === "ready" ? "MIDI connected" : midi.accessStatus === "requesting" ? "Connecting…" : "MIDI not connected"}</span>
+        </div>
+        {!midi.supported ? <p className="error">Web MIDI is not supported in this browser.</p> : null}
+        {!midi.secureContext ? <p className="error">Web MIDI requires localhost or HTTPS.</p> : null}
+        {midi.error ? <p className="error">{midi.error}</p> : null}
+        {midi.accessStatus !== "ready" ? (
+          <button type="button" onClick={midi.requestAccess} disabled={!midi.supported || !midi.secureContext || midi.accessStatus === "requesting"}>
+            {midi.accessStatus === "requesting" ? "Connecting…" : "Connect MIDI"}
+          </button>
+        ) : null}
+        <label className="settings-field">
+          MIDI input
+          <select value={midi.selectedInputId ?? ""} onChange={(event) => midi.selectInput(event.target.value)} disabled={midi.inputs.length === 0}>
+            <option value="">No input selected</option>
+            {midi.inputs.map((input) => <option key={input.id} value={input.id}>{input.name}</option>)}
+          </select>
+        </label>
+        <p className="settings-hint">A previously authorised keyboard reconnects automatically when the browser retains MIDI permission.</p>
+        </section>
+      </section>
+    </div>
   );
 }
 

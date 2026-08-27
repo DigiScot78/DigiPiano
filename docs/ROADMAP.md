@@ -18,6 +18,9 @@ Acceptance criteria:
 - Practice can run over the full score or selected range.
 - Run mode supports play once and loop selection.
 - Hand mode supports both hands, right hand staff 1, and left hand staff 2, skipping events without notes for the selected hand.
+- Staff-aligned RH/LH score toggles control hand mode without allowing both hands to be disabled, and an extensible floating score toolbar exposes loop mode.
+- The score-first layout keeps temporary file/practice/debug controls in a compact sidebar, while MIDI setup is isolated in a modal and reuses previously granted access.
+- Appearance settings independently control System/Light/Dark application chrome and extensible score-page presets, initially Paper and Night.
 - A smooth freeform outline guides selection and resizing while neighbour-midpoint fading previews the exact committed range; event inclusion changes when the moving boundary crosses an event's true anchor.
 - Correct and wrong note feedback works against filtered expected notes and appears as green/red score markers near the current score event, with independent note-name label toggles.
 - Core selection, resizing, filtering, and loop logic has automated tests.

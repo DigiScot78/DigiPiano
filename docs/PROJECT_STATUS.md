@@ -19,6 +19,9 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Visual score selection uses a smooth freeform drag/resize outline as a positioning guide while event-aligned clear/faded regions use true anchors and neighbour midpoints to show the exact range that release will commit without exposing adjacent events.
 - Selected ranges can play once or loop, and practice can be filtered to both hands, right hand staff 1, or left hand staff 2; one-hand practice skips events with no notes for the selected hand.
 - One-hand modes apply a lighter white-wash fade to the inactive staff across the full score or within the active selection preview, while feedback and interaction overlays remain clear.
+- Practice hand selection now uses staff-aligned RH/LH toggles beside the score and prevents disabling the final active hand; loop mode lives in an extensible floating toolbar above the score or active selection.
+- The score now occupies the primary page area, with compact file/practice/debug panels in a narrow right sidebar. MIDI configuration opens from a top-right cog in a centred modal, remembers the chosen input, and reconnects automatically when browser permission is already granted.
+- Settings now include a persisted System/Light/Dark application theme and independent Paper/Night score styles. Paper uses a warm textured page; Night asks OSMD to render pale notation on a dark page, with all fading and interaction overlays using matching score tokens.
 - A simulation button can advance events without hardware.
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, ignored carried notes, expected event, event index, selected-hand playability, next playable index, parser warnings, import diagnostics, comparison results, and practice-attempt diagnostics.
 
