@@ -202,6 +202,27 @@ describe("ScoreRenderer", () => {
     expect(container.querySelector(".note-feedback.correct")).not.toBeNull();
   });
 
+  it("keeps completed correct feedback anchored to the previous event", async () => {
+    const events = [
+      { ...currentEvent, id: "event-1", midiNotes: [60] },
+      { ...currentEvent, id: "event-2", startQuarter: 1, midiNotes: [64] },
+    ];
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={1} currentEvent={events[1]} eventCount={2} events={events} feedbackMarkers={[]} completedFeedback={{ id: 1, eventIndex: 0, event: events[0], markers: [{ note: 60, kind: "correct", staffNumber: 1 }] }} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const completedMarker = container.querySelector<HTMLElement>(".note-feedback.correct.completed");
+    const currentMarker = container.querySelector<HTMLElement>(".score-current-event-marker");
+    expect(completedMarker).not.toBeNull();
+    expect(parseFloat(completedMarker?.style.left ?? "0")).toBeLessThan(parseFloat(currentMarker?.style.left ?? "0"));
+    expect(osmdMocks.load).toHaveBeenCalledTimes(1);
+  });
+
   it("hides correct and wrong note names independently", async () => {
     container = document.createElement("div");
     document.body.append(container);
@@ -431,6 +452,46 @@ describe("ScoreRenderer", () => {
     expect(parseFloat(currentMarker?.style.left ?? "0")).toBeGreaterThan(250);
     expect(parseFloat(wrongMarker?.style.left ?? "0")).toBeGreaterThan(250);
   });
+
+  it("bounds a selected event halfway to its unselected neighbours", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={1} eventCount={3} selectedRange={{ startIndex: 1, endIndex: 1 }} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const selectedRect = container.querySelector<HTMLElement>(".score-selection-rect.committed");
+    expect(parseFloat(selectedRect?.style.left ?? "0")).toBeCloseTo(118);
+    expect(parseFloat(selectedRect?.style.width ?? "0")).toBeCloseTo(32);
+  });
+
+  it("dims the inactive hand across the score and clips it to a selected range", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} handMode="right" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const fullScoreHandDim = container.querySelector<HTMLElement>(".score-selection-dim.inactive-hand");
+    expect(fullScoreHandDim).not.toBeNull();
+    const fullWidth = parseFloat(fullScoreHandDim?.style.width ?? "0");
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} selectedRange={{ startIndex: 1, endIndex: 1 }} handMode="right" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const selectedHandDim = container.querySelector<HTMLElement>(".score-selection-dim.inactive-hand");
+    expect(selectedHandDim).not.toBeNull();
+    expect(parseFloat(selectedHandDim?.style.width ?? "0")).toBeLessThan(fullWidth);
+    expect(container.querySelectorAll(".score-selection-dim.range").length).toBeGreaterThan(0);
+  });
   it("selects a normalized range by dragging across the full score surface", async () => {
     const onSelectedRangeChange = vi.fn();
     container = document.createElement("div");
@@ -451,13 +512,61 @@ describe("ScoreRenderer", () => {
     });
 
     expect(onSelectedRangeChange).not.toHaveBeenCalled();
-    expect(container.querySelector(".score-selection-rect.dragging")).not.toBeNull();
+    const previewRect = container.querySelector<HTMLElement>(".score-selection-rect.dragging");
+    expect(previewRect).not.toBeNull();
+    expect(container.querySelectorAll(".score-selection-dim.range").length).toBeGreaterThan(0);
+    expect(parseFloat(previewRect?.style.left ?? "0")).toBeCloseTo(90);
+    expect(parseFloat(previewRect?.style.width ?? "0")).toBeCloseTo(90);
 
     await act(async () => {
       layer?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 180, clientY: 140 }));
     });
 
     expect(onSelectedRangeChange).toHaveBeenLastCalledWith({ startIndex: 0, endIndex: 2 });
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} selectedRange={{ startIndex: 0, endIndex: 2 }} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={onSelectedRangeChange} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+    expect(container.querySelector<HTMLElement>(".score-selection-rect.committed")).not.toBeNull();
+  });
+
+  it("includes an event only after the smooth drag boundary crosses its center", async () => {
+    const onSelectedRangeChange = vi.fn();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={onSelectedRangeChange} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const layer = container.querySelector<HTMLElement>(".score-selection-layer");
+    await act(async () => {
+      layer?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 90, clientY: 140 }));
+      layer?.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 133, clientY: 140 }));
+    });
+
+    const beforeCrossingDims = Array.from(container.querySelectorAll<HTMLElement>(".score-selection-dim.range"))
+      .map((rect) => rect.getAttribute("style"));
+    const beforeCrossingGuideWidth = parseFloat(container.querySelector<HTMLElement>(".score-selection-rect.dragging")?.style.width ?? "0");
+
+    await act(async () => {
+      layer?.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 135, clientY: 140 }));
+    });
+
+    const afterCrossingDims = Array.from(container.querySelectorAll<HTMLElement>(".score-selection-dim.range"))
+      .map((rect) => rect.getAttribute("style"));
+    const afterCrossingGuideWidth = parseFloat(container.querySelector<HTMLElement>(".score-selection-rect.dragging")?.style.width ?? "0");
+    expect(afterCrossingGuideWidth).toBeGreaterThan(beforeCrossingGuideWidth);
+    expect(afterCrossingDims).not.toEqual(beforeCrossingDims);
+    expect(onSelectedRangeChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      layer?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 135, clientY: 140 }));
+    });
+    expect(onSelectedRangeChange).toHaveBeenLastCalledWith({ startIndex: 0, endIndex: 1 });
   });
 
   it("keeps treble and bass anchors in one selection segment for the same system", async () => {
@@ -529,6 +638,7 @@ describe("ScoreRenderer", () => {
 
     expect(onSelectedRangeChange).not.toHaveBeenCalled();
     expect(container.querySelector(".score-selection-rect.dragging")).not.toBeNull();
+    expect(container.querySelectorAll(".score-selection-dim.range").length).toBeGreaterThan(0);
 
     await act(async () => {
       layer?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 180, clientY: 140 }));

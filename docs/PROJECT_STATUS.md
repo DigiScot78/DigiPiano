@@ -15,8 +15,10 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Chords advance only when every expected filtered note is held; extra notes are reported but do not block progress.
 - Correct held notes render as green score feedback markers, wrong held notes render as red markers, and note-name text can be toggled independently for correct and wrong feedback. Vertical pitch placement is calibrated independently from OSMD's rendered treble and bass staff lines; correct notes use their MusicXML staff and wrong notes use the nearest active expected note's staff.
 - After a correct event advances, the still-held completed notes are suppressed from wrong-note feedback until released so they do not appear as mistakes against the next event.
-- Visual score selection supports freeform drag-to-select, segmented cross-system highlights, inverted dimming after selection, and left/right resize handles that preview smoothly and snap on release.
+- Correct notes from a completed event remain anchored at that event for 450ms, staying solid briefly before fading; wrong-note feedback remains live-only.
+- Visual score selection uses a smooth freeform drag/resize outline as a positioning guide while event-aligned clear/faded regions use true anchors and neighbour midpoints to show the exact range that release will commit without exposing adjacent events.
 - Selected ranges can play once or loop, and practice can be filtered to both hands, right hand staff 1, or left hand staff 2; one-hand practice skips events with no notes for the selected hand.
+- One-hand modes apply a lighter white-wash fade to the inactive staff across the full score or within the active selection preview, while feedback and interaction overlays remain clear.
 - A simulation button can advance events without hardware.
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, ignored carried notes, expected event, event index, selected-hand playability, next playable index, parser warnings, import diagnostics, comparison results, and practice-attempt diagnostics.
 
@@ -52,7 +54,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 
 ## Recommended Next Steps
 - Continue with wrong/correct note feedback polish: validate green markers, red markers, label toggles, and held-note carry-over suppression on a real keyboard.
-- Decide whether correct/wrong markers should linger briefly, fade out, attach to actual noteheads, or stay as live held-note indicators only.
+- Validate the 450ms completed-correct linger/fade timing with a real keyboard and adjust only if it feels too fast or distracting.
 - Confirm once/loop practice uses resized ranges correctly across several scores.
 - Use import diagnostics when a score appears to assign notes to the wrong hand; verify `firstPitchedMeasureByStaff`, `firstMeasures`, and `firstParsedEvents` before changing parser behavior.
 - Decide whether the OSMD graphical-event overlay strategy is accurate enough for the next milestone or whether deeper notehead-level renderer integration is required.

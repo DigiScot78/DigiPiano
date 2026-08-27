@@ -263,7 +263,11 @@ dd {
 }
 
 .score-selection-dim {
-  background: rgba(29, 35, 40, 0.3);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.score-selection-dim.inactive-hand {
+  background: rgba(255, 255, 255, 0.55);
 }
 
 .score-selection-rect {
@@ -357,6 +361,21 @@ dd {
 
 .note-feedback.wrong {
   color: #c92a2a;
+}
+
+.note-feedback.completed {
+  animation: completed-note-feedback 450ms ease-out forwards;
+}
+
+@keyframes completed-note-feedback {
+  0%,
+  55% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
 }
 
 .debug-panel {

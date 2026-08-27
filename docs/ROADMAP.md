@@ -18,6 +18,7 @@ Acceptance criteria:
 - Practice can run over the full score or selected range.
 - Run mode supports play once and loop selection.
 - Hand mode supports both hands, right hand staff 1, and left hand staff 2, skipping events without notes for the selected hand.
+- A smooth freeform outline guides selection and resizing while neighbour-midpoint fading previews the exact committed range; event inclusion changes when the moving boundary crosses an event's true anchor.
 - Correct and wrong note feedback works against filtered expected notes and appears as green/red score markers near the current score event, with independent note-name label toggles.
 - Core selection, resizing, filtering, and loop logic has automated tests.
 
@@ -56,6 +57,7 @@ Acceptance criteria:
 - Correct held notes show green feedback during partial chords and wrong held notes show red feedback.
 - Note-name text for correct and wrong feedback can be toggled independently.
 - Completed notes that remain held after advancement do not immediately become wrong-note feedback on the next event.
+- Completed correct notes remain anchored to the completed event briefly, then fade; wrong notes remain live-only.
 - Feedback marker y-placement is useful enough for unfamiliar players to locate the pressed key relative to the current score position.
 - Missing expected notes are distinguishable from extra held notes.
 - If direct notehead-level highlighting is attempted, it is isolated behind renderer adapter APIs.
@@ -76,9 +78,11 @@ Deferred decisions:
 - Renderer: OpenSheetMusicDisplay with app-owned overlays; OSMD is configured to honor MusicXML `new-system` and `new-page` breaks when present.
 - Selection: freeform pointer drag mapped to `ScoreEvent` indices on release, with segmented system-row rectangles that preserve mid-system boundaries and meet vertically between systems.
 - Selection after release: outside content is dimmed; selected area remains clear.
+- Live fading: strong white-wash fading follows the event-backed draft while a separate freeform outline follows the pointer; one-hand modes use a lighter wash for the inactive staff within the current clear range or across the full score when no range exists.
 - Selection resizing: left/right handles preview smoothly and snap to `ScoreEvent` anchors on release.
 - Note feedback: app-owned green/red marker heads show correct/wrong held notes near the current score event; vertical pitch placement derives independently from rendered treble and bass staff-line geometry, with wrong notes assigned to the nearest active expected staff, and correct and wrong note-name labels can be toggled independently.
 - Held-note carry-over: notes that completed the previous event are ignored for wrong-note feedback against the next event until released.
+- Completed feedback: successful green markers remain at the completed event for 450ms and fade during the final portion; newer completions replace older snapshots.
 - Hand split: staff 1 is right hand; staff 2 is left hand; one-hand progression skips events with no notes for the selected hand.
 - Score diagnostics: debug output reports staff counts, system breaks, first parsed events, and practice attempts to troubleshoot file/parser/renderer mismatches.
 - Looping: practice loop waits for correct MIDI input and jumps back to selection start.

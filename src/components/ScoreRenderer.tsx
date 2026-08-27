@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Fraction, OpenSheetMusicDisplay, PointF2D } from "opensheetmusicdisplay";
 import { midiNoteToName } from "../music/note";
-import type { NoteFeedbackMarker, ScoreSelectionRange } from "../learning/matcher";
+import type { HandMode, NoteFeedbackMarker, ScoreSelectionRange } from "../learning/matcher";
 import { normalizeSelectionRange } from "../learning/matcher";
 import type { ScoreEvent } from "../music/scoreTypes";
 
@@ -21,10 +21,19 @@ interface ScoreRendererProps {
   events?: ScoreEvent[];
   selectedRange?: ScoreSelectionRange;
   feedbackMarkers: NoteFeedbackMarker[];
+  completedFeedback?: CompletedNoteFeedback;
+  handMode?: HandMode;
   showCorrectNoteNames: boolean;
   showWrongNoteNames: boolean;
   onSelectedRangeChange: (range: ScoreSelectionRange | undefined) => void;
   onRenderStateChange: (state: { status: "empty" | "loading" | "ready" | "error"; error?: string }) => void;
+}
+
+export interface CompletedNoteFeedback {
+  id: number;
+  eventIndex: number;
+  event: ScoreEvent;
+  markers: NoteFeedbackMarker[];
 }
 
 interface OverlayPosition {
@@ -39,6 +48,7 @@ interface OverlaySize {
 
 interface EventPosition extends OverlayPosition {
   index: number;
+  anchorX: number;
   width: number;
   height: number;
   staffAnchors?: StaffAnchor[];
@@ -79,6 +89,8 @@ export function ScoreRenderer({
   events = EMPTY_SCORE_EVENTS,
   selectedRange,
   feedbackMarkers,
+  completedFeedback,
+  handMode = "both",
   showCorrectNoteNames,
   showWrongNoteNames,
   onSelectedRangeChange,
@@ -159,6 +171,7 @@ export function ScoreRenderer({
       positions.push({
         index,
         left: Math.max(0, rect.left - shellRect.left),
+        anchorX: Math.max(0, rect.left + rect.width / 2 - shellRect.left),
         top: Math.max(0, rect.top - shellRect.top),
         width: Math.max(24, rect.width || 24),
         height: Math.max(42, rect.height || 42),
@@ -266,21 +279,33 @@ export function ScoreRenderer({
   }, []);
 
   const systemRows = useMemo(() => rowsForPositions(eventPositions), [eventPositions]);
-  const isPointerPreview = dragStartPoint !== undefined && (interactionMode === "selecting" || interactionMode === "resizing-start" || interactionMode === "resizing-end");
-  const visibleRange = isPointerPreview ? undefined : draftRange ?? selectedRange;
+  const isPointerPreview = interactionMode === "selecting" || interactionMode === "resizing-start" || interactionMode === "resizing-end";
+  const visibleRange = draftRange ?? selectedRange;
   const rangeSelectionRects = useMemo(() => rectsForRange(visibleRange, eventPositions, systemRows), [eventPositions, systemRows, visibleRange]);
   const effectiveOverlaySize = useMemo(() => effectiveSizeForRows(overlaySize, systemRows), [overlaySize, systemRows]);
   const dragSelectionRects = useMemo(() => rectsForDrag(dragStartPoint, dragEndPoint, systemRows, effectiveOverlaySize), [dragEndPoint, dragStartPoint, effectiveOverlaySize, systemRows]);
-  const selectionRects = isPointerPreview ? dragSelectionRects : rangeSelectionRects;
-  const committedDimRects = useMemo(
-    () => (selectedRange && interactionMode === "idle" ? dimRectsForSelection(selectionRects, effectiveOverlaySize) : []),
-    [effectiveOverlaySize, interactionMode, selectedRange, selectionRects],
+  const outlineRects = isPointerPreview ? dragSelectionRects : rangeSelectionRects;
+  const hasVisibleRange = visibleRange !== undefined;
+  const rangeDimRects = useMemo(
+    () => (hasVisibleRange ? dimRectsForSelection(rangeSelectionRects, effectiveOverlaySize) : []),
+    [effectiveOverlaySize, hasVisibleRange, rangeSelectionRects],
+  );
+  const inactiveHandDimRects = useMemo(
+    () => dimRectsForInactiveHand(handMode, systemRows, hasVisibleRange ? rangeSelectionRects : undefined),
+    [handMode, hasVisibleRange, rangeSelectionRects, systemRows],
   );
   const isDragging = isPointerPreview;
   const currentPosition = eventPositions.find((position) => position.index === currentEventIndex);
   const noteFeedbackMarkers = useMemo(
     () => feedbackMarkers.map((feedback) => markerForNoteFeedback(feedback, currentPosition, currentEvent)),
     [currentEvent, currentPosition, feedbackMarkers],
+  );
+  const completedPosition = completedFeedback
+    ? eventPositions.find((position) => position.index === completedFeedback.eventIndex)
+    : undefined;
+  const completedNoteFeedbackMarkers = useMemo(
+    () => completedFeedback?.markers.map((feedback) => markerForNoteFeedback(feedback, completedPosition, completedFeedback.event)) ?? [],
+    [completedFeedback, completedPosition],
   );
 
   const pointFromPointerEvent = (event: React.PointerEvent<HTMLElement>): DragPoint | undefined => {
@@ -298,7 +323,7 @@ export function ScoreRenderer({
   };
 
   const rangeForPoint = (point: DragPoint): ScoreSelectionRange | undefined => {
-    const index = nearestEventIndexForPoint(point, systemRows);
+    const index = boundaryEventIndexForPoint(point, dragStartRef.current ?? point, systemRows);
     if (index === undefined) {
       return undefined;
     }
@@ -329,7 +354,8 @@ export function ScoreRenderer({
     dragStartRef.current = point;
     setDragStartPoint(point);
     setDragEndPoint(point);
-    setDraftRange(undefined);
+    const index = nearestEventIndexForPoint(point, systemRows);
+    setDraftRange(index === undefined ? undefined : normalizeSelectionRange(index, index, eventCount));
     setInteractionMode("selecting");
   };
 
@@ -341,17 +367,19 @@ export function ScoreRenderer({
 
     if (interactionMode === "selecting" && dragStartRef.current) {
       setDragEndPoint(point);
+      setDraftRange(rangeForPoint(point));
       return;
     }
 
     if ((interactionMode === "resizing-start" || interactionMode === "resizing-end") && selectedRange) {
       setDragEndPoint(point);
+      setDraftRange(rangeForPoint(point));
     }
   };
 
   const finishPointerSelection = (event: React.PointerEvent<HTMLElement>) => {
     const point = pointFromPointerEvent(event);
-    const nextRange = point ? rangeForPoint(point) : undefined;
+    const nextRange = point ? rangeForPoint(point) : draftRange;
 
     dragStartRef.current = null;
     resizeEdgeRef.current = null;
@@ -379,10 +407,10 @@ export function ScoreRenderer({
     capturePointer(event.currentTarget, event.pointerId);
     resizeEdgeRef.current = edge;
     setInteractionMode(edge === "start" ? "resizing-start" : "resizing-end");
-    dragStartRef.current = null;
+    dragStartRef.current = fixedPoint;
     setDragStartPoint(fixedPoint);
     setDragEndPoint(movingPoint);
-    setDraftRange(undefined);
+    setDraftRange(selectedRange);
   };
 
   const startHandleRect = rangeSelectionRects[0];
@@ -392,10 +420,13 @@ export function ScoreRenderer({
     <div ref={shellRef} className="score-renderer-shell">
       <div ref={containerRef} className="score-renderer" aria-label="Rendered sheet music" />
       <div className="score-selection-visual-layer" aria-hidden="true">
-        {committedDimRects.map((rect, index) => (
-          <div key={`dim-${index}`} className="score-selection-dim" style={rectStyle(rect)} />
+        {rangeDimRects.map((rect, index) => (
+          <div key={`range-dim-${index}`} className="score-selection-dim range" style={rectStyle(rect)} />
         ))}
-        {selectionRects.map((rect, index) => (
+        {inactiveHandDimRects.map((rect, index) => (
+          <div key={`hand-dim-${index}`} className="score-selection-dim inactive-hand" style={rectStyle(rect)} />
+        ))}
+        {outlineRects.map((rect, index) => (
           <div
             key={`selection-${index}`}
             className={`score-selection-rect${isDragging ? " dragging" : ""}${selectedRange && !isDragging ? " committed" : ""}`}
@@ -442,6 +473,12 @@ export function ScoreRenderer({
           <div key={`${marker.kind}-${marker.note}`} className={`note-feedback ${marker.kind}`} style={{ left: marker.left, top: marker.top }} aria-label={`${marker.kind === "correct" ? "Correct" : "Wrong"} note ${marker.name}`}>
             <span className="note-feedback-head" aria-hidden="true" />
             {shouldShowNoteName(marker.kind, showCorrectNoteNames, showWrongNoteNames) ? <span className="note-feedback-name">{marker.name}</span> : null}
+          </div>
+        ))}
+        {completedNoteFeedbackMarkers.map((marker) => (
+          <div key={`completed-${completedFeedback?.id}-${marker.note}-${marker.staffNumber}`} className={`note-feedback ${marker.kind} completed`} style={{ left: marker.left, top: marker.top }} aria-label={`Correct note ${marker.name}`}>
+            <span className="note-feedback-head" aria-hidden="true" />
+            {showCorrectNoteNames ? <span className="note-feedback-name">{marker.name}</span> : null}
           </div>
         ))}
       </div>
@@ -525,6 +562,7 @@ function positionForEvent(graphicSheet: GraphicalSheetLike, shell: HTMLElement, 
   return {
     index,
     left,
+    anchorX: midpoint(left, right),
     top,
     width: Math.max(24, right - left),
     height: Math.max(42, bottom - top),
@@ -640,18 +678,24 @@ function rectsForRange(range: ScoreSelectionRange | undefined, positions: EventP
     return [];
   }
 
-  const firstSelectedRow = rowIndexForPosition(rows, selected[0]);
-  const lastSelectedRow = rowIndexForPosition(rows, selected[selected.length - 1]);
-
   return rows
     .map((row, rowIndex) => {
-      const selectedInRow = selected.filter((position) => row.positions.includes(position));
+      const rowPositions = [...row.positions].sort((a, b) => eventCenterX(a) - eventCenterX(b) || a.index - b.index);
+      const selectedInRow = rowPositions.filter((position) => selected.includes(position));
       if (selectedInRow.length === 0) {
         return undefined;
       }
 
-      const left = rowIndex === firstSelectedRow ? Math.min(...selectedInRow.map((position) => position.left)) - 16 : row.left - 16;
-      const right = rowIndex === lastSelectedRow ? Math.max(...selectedInRow.map((position) => position.left + position.width)) + 34 : row.right + 34;
+      const firstSelectedIndex = rowPositions.indexOf(selectedInRow[0]);
+      const lastSelectedIndex = rowPositions.indexOf(selectedInRow[selectedInRow.length - 1]);
+      const previousPosition = rowPositions[firstSelectedIndex - 1];
+      const nextPosition = rowPositions[lastSelectedIndex + 1];
+      const left = previousPosition
+        ? midpoint(eventCenterX(previousPosition), eventCenterX(selectedInRow[0]))
+        : row.left - 16;
+      const right = nextPosition
+        ? midpoint(eventCenterX(selectedInRow[selectedInRow.length - 1]), eventCenterX(nextPosition))
+        : row.right + 34;
       const previousRow = rows[rowIndex - 1];
       const nextRow = rows[rowIndex + 1];
       const top = previousRow ? midpoint(previousRow.bottom, row.top) : row.top - 24;
@@ -660,7 +704,7 @@ function rectsForRange(range: ScoreSelectionRange | undefined, positions: EventP
       return {
         left: Math.max(0, left),
         top: Math.max(0, top),
-        width: Math.max(28, right - left),
+        width: Math.max(2, right - left),
         height: Math.max(42, bottom - top),
       };
     })
@@ -692,8 +736,8 @@ function rectsForDrag(start: DragPoint | undefined, end: DragPoint | undefined, 
   const firstRowIndex = Math.min(startRowIndex, endRowIndex);
   const lastRowIndex = Math.max(startRowIndex, endRowIndex);
   const forward = startRowIndex < endRowIndex || (startRowIndex === endRowIndex && start.left <= end.left);
-
   const rects: OverlayRect[] = [];
+
   for (let rowIndex = firstRowIndex; rowIndex <= lastRowIndex; rowIndex += 1) {
     const row = rows[rowIndex];
     const bounds = visualBoundsForRow(rows, rowIndex);
@@ -770,6 +814,35 @@ function nearestEventIndexForPoint(point: DragPoint, rows: ScoreRow[]): number |
   }, row.positions[0])?.index;
 }
 
+function boundaryEventIndexForPoint(point: DragPoint, start: DragPoint, rows: ScoreRow[]): number | undefined {
+  if (rows.length === 0) {
+    return undefined;
+  }
+
+  const rowIndex = clamp(point.rowIndex, 0, rows.length - 1);
+  const startRowIndex = clamp(start.rowIndex, 0, rows.length - 1);
+  const rowPositions = [...rows[rowIndex].positions].sort((a, b) => eventCenterX(a) - eventCenterX(b));
+  const forward = rowIndex > startRowIndex || (rowIndex === startRowIndex && point.left >= start.left);
+
+  if (forward) {
+    const crossed = rowPositions.filter((position) => eventCenterX(position) <= point.left).at(-1);
+    if (crossed) {
+      return crossed.index;
+    }
+
+    const previousRow = rows.slice(0, rowIndex).reverse().find((row) => row.positions.length > 0);
+    return previousRow?.positions.at(-1)?.index ?? rowPositions[0]?.index;
+  }
+
+  const crossed = rowPositions.find((position) => eventCenterX(position) >= point.left);
+  if (crossed) {
+    return crossed.index;
+  }
+
+  const nextRow = rows.slice(rowIndex + 1).find((row) => row.positions.length > 0);
+  return nextRow?.positions[0]?.index ?? rowPositions.at(-1)?.index;
+}
+
 function visualBoundsForRow(rows: ScoreRow[], rowIndex: number): { top: number; bottom: number } {
   const row = rows[rowIndex];
   const previousRow = rows[rowIndex - 1];
@@ -781,7 +854,7 @@ function visualBoundsForRow(rows: ScoreRow[], rowIndex: number): { top: number; 
 }
 
 function eventCenterX(position: EventPosition): number {
-  return position.left + position.width / 2;
+  return position.anchorX;
 }
 
 function capturePointer(element: HTMLElement, pointerId: number): void {
@@ -832,6 +905,58 @@ function dimRectsForSelection(selectionRects: OverlayRect[], size: OverlaySize):
 
 type ScoreRow = { top: number; bottom: number; left: number; right: number; positions: EventPosition[] };
 
+function dimRectsForInactiveHand(handMode: HandMode, rows: ScoreRow[], activeSelectionRects?: OverlayRect[]): OverlayRect[] {
+  if (handMode === "both") {
+    return [];
+  }
+
+  return rows.flatMap((row, rowIndex) => {
+    const bounds = visualBoundsForRow(rows, rowIndex);
+    const trebleLines = staffLinesForRow(row, 1);
+    const bassLines = staffLinesForRow(row, 2);
+    const split = trebleLines && bassLines
+      ? midpoint(trebleLines[trebleLines.length - 1], bassLines[0])
+      : midpoint(bounds.top, bounds.bottom);
+    const left = Math.max(0, row.left - 16);
+    const right = row.right + 34;
+    const baseRect: OverlayRect = handMode === "right"
+      ? {
+          left,
+          top: split,
+          width: Math.max(0, right - left),
+          height: Math.max(0, bounds.bottom - split),
+        }
+      : {
+          left,
+          top: bounds.top,
+          width: Math.max(0, right - left),
+          height: Math.max(0, split - bounds.top),
+        };
+
+    if (!activeSelectionRects) {
+      return baseRect.width > 0 && baseRect.height > 0 ? [baseRect] : [];
+    }
+
+    return activeSelectionRects
+      .map((selectionRect) => intersectRects(baseRect, selectionRect))
+      .filter((rect): rect is OverlayRect => rect !== undefined);
+  });
+}
+
+function staffLinesForRow(row: ScoreRow, staffNumber: number): number[] | undefined {
+  return row.positions.find((position) => (position.staffLineTops?.[staffNumber]?.length ?? 0) >= 5)?.staffLineTops?.[staffNumber];
+}
+
+function intersectRects(a: OverlayRect, b: OverlayRect): OverlayRect | undefined {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.left + a.width, b.left + b.width);
+  const bottom = Math.min(a.top + a.height, b.top + b.height);
+  return right > left && bottom > top
+    ? { left, top, width: right - left, height: bottom - top }
+    : undefined;
+}
+
 function rowsForPositions(positions: EventPosition[]): ScoreRow[] {
   const rows: ScoreRow[] = [];
   let currentRow: ScoreRow | undefined;
@@ -866,10 +991,6 @@ function rowsForPositions(positions: EventPosition[]): ScoreRow[] {
   return rows;
 }
 
-function rowIndexForPosition(rows: Array<{ positions: EventPosition[] }>, position: EventPosition): number {
-  return Math.max(0, rows.findIndex((row) => row.positions.includes(position)));
-}
-
 function rectStyle(rect: OverlayRect): React.CSSProperties {
   return {
     left: rect.left,
@@ -883,9 +1004,9 @@ function shouldShowNoteName(kind: NoteFeedbackMarker["kind"], showCorrectNoteNam
   return kind === "correct" ? showCorrectNoteNames : showWrongNoteNames;
 }
 
-function markerForNoteFeedback(feedback: NoteFeedbackMarker, currentPosition: EventPosition | undefined, currentEvent: ScoreEvent | undefined): { note: number; kind: NoteFeedbackMarker["kind"]; name: string; left: number; top: number } {
+function markerForNoteFeedback(feedback: NoteFeedbackMarker, currentPosition: EventPosition | undefined, currentEvent: ScoreEvent | undefined): { note: number; kind: NoteFeedbackMarker["kind"]; staffNumber: number; name: string; left: number; top: number } {
   const note = feedback.note;
-  const position = currentPosition ?? { left: 24, top: 24, width: 24, height: 96, index: 0 };
+  const position = currentPosition ?? { left: 24, anchorX: 36, top: 24, width: 24, height: 96, index: 0 };
   const staffNumber = feedback.staffNumber ?? staffForFeedbackNote(note, currentEvent);
   const spelling = spellingForFeedbackNote(note, staffNumber, currentEvent);
   const staffAnchor = position.staffAnchors?.find((anchor) => anchor.staffNumber === staffNumber);
@@ -896,6 +1017,7 @@ function markerForNoteFeedback(feedback: NoteFeedbackMarker, currentPosition: Ev
   return {
     note,
     kind: feedback.kind,
+    staffNumber,
     name: nameForSpelling(spelling) ?? midiNoteToName(note),
     left: (staffAnchor?.left ?? position.left) + FEEDBACK_HORIZONTAL_OFFSET,
     top: Math.max(4, y),

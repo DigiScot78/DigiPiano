@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScoreRenderer } from "./components/ScoreRenderer";
+import { ScoreRenderer, type CompletedNoteFeedback } from "./components/ScoreRenderer";
 import {
   advanceWhenSatisfied,
   compareHeldNotesToEvent,
@@ -40,6 +40,8 @@ interface PracticeAttemptDiagnostic {
   completed: boolean;
 }
 
+const COMPLETED_FEEDBACK_DURATION_MS = 450;
+
 function App() {
   const midi = useMidiInput();
   const [loadedScore, setLoadedScore] = useState<LoadedScore | null>(null);
@@ -57,7 +59,20 @@ function App() {
   const [showCorrectNoteNames, setShowCorrectNoteNames] = useState(true);
   const [showWrongNoteNames, setShowWrongNoteNames] = useState(true);
   const [carriedCompletedNotes, setCarriedCompletedNotes] = useState<number[]>([]);
+  const [completedFeedback, setCompletedFeedback] = useState<CompletedNoteFeedback | undefined>();
+  const completedFeedbackTimerRef = useRef<number | undefined>(undefined);
+  const completedFeedbackIdRef = useRef(0);
   const previousHeldNotesRef = useRef<number[]>([]);
+
+  const clearCompletedFeedback = useCallback(() => {
+    if (completedFeedbackTimerRef.current !== undefined) {
+      window.clearTimeout(completedFeedbackTimerRef.current);
+      completedFeedbackTimerRef.current = undefined;
+    }
+    setCompletedFeedback(undefined);
+  }, []);
+
+  useEffect(() => clearCompletedFeedback, [clearCompletedFeedback]);
 
   const currentEvent = parsedScore.events[learningState.currentIndex];
   const expectedEvent = useMemo(() => filterEventForHand(currentEvent, handMode), [currentEvent, handMode]);
@@ -87,7 +102,8 @@ function App() {
       return next;
     });
     setSimulatedHeldNotes([]);
-  }, [handMode, parsedScore.events, selectedRange]);
+    clearCompletedFeedback();
+  }, [clearCompletedFeedback, handMode, parsedScore.events, selectedRange]);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -103,6 +119,7 @@ function App() {
     setLearningState(resetState);
     setSimulatedHeldNotes([]);
     setSelectedRange(undefined);
+    clearCompletedFeedback();
 
     try {
       const score = await loadScoreFile(file);
@@ -142,6 +159,24 @@ function App() {
     if (advanced) {
       const held = new Set(notes);
       setCarriedCompletedNotes(expectedNotesBeforeAdvance.filter((note) => held.has(note)));
+      const completedEvent = filterEventForHand(activeEventBeforeAdvance, handMode);
+      if (completedEvent) {
+        const id = completedFeedbackIdRef.current + 1;
+        completedFeedbackIdRef.current = id;
+        if (completedFeedbackTimerRef.current !== undefined) {
+          window.clearTimeout(completedFeedbackTimerRef.current);
+        }
+        setCompletedFeedback({
+          id,
+          eventIndex: resolvedIndexBeforeAdvance,
+          event: completedEvent,
+          markers: feedbackMarkersForHeldNotes(notes, activeEventBeforeAdvance, handMode).filter((marker) => marker.kind === "correct"),
+        });
+        completedFeedbackTimerRef.current = window.setTimeout(() => {
+          setCompletedFeedback((currentFeedback) => currentFeedback?.id === id ? undefined : currentFeedback);
+          completedFeedbackTimerRef.current = undefined;
+        }, COMPLETED_FEEDBACK_DURATION_MS);
+      }
     }
 
     if (diagnosticContext) {
@@ -200,7 +235,8 @@ function App() {
     setLearningState(nextState);
     setSimulatedHeldNotes([]);
     setCarriedCompletedNotes([]);
-  }, [handMode, parsedScore.events]);
+    clearCompletedFeedback();
+  }, [clearCompletedFeedback, handMode, parsedScore.events]);
 
   const simulateCurrentEvent = () => {
     if (!expectedEvent || expectedEvent.midiNotes.length === 0) {
@@ -224,12 +260,14 @@ function App() {
     setLearningState(nextState);
     setSimulatedHeldNotes([]);
     setCarriedCompletedNotes([]);
+    clearCompletedFeedback();
   };
 
   const handleHandModeChange = (nextHandMode: HandMode) => {
     setHandMode(nextHandMode);
     setSimulatedHeldNotes([]);
     setCarriedCompletedNotes([]);
+    clearCompletedFeedback();
   };
 
   return (
@@ -324,6 +362,8 @@ function App() {
             events={parsedScore.events}
             selectedRange={selectedRange}
             feedbackMarkers={scoreFeedbackMarkers}
+            completedFeedback={completedFeedback}
+            handMode={handMode}
             showCorrectNoteNames={showCorrectNoteNames}
             showWrongNoteNames={showWrongNoteNames}
             onSelectedRangeChange={handleSelectionChange}
