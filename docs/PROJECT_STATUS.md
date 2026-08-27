@@ -13,7 +13,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - MIDI note-on, note-off, velocity-zero note-off, and sustain pedal messages are decoded; real keypresses have been observed by the user.
 - Held notes are compared with the current expected event; user-confirmed real-keyboard progress works after the renderer lifecycle fix.
 - Chords advance only when every expected filtered note is held; extra notes are reported but do not block progress.
-- Correct held notes render as green score feedback markers, wrong held notes render as red markers, and note-name text can be toggled independently for correct and wrong feedback.
+- Correct held notes render as green score feedback markers, wrong held notes render as red markers, and note-name text can be toggled independently for correct and wrong feedback. Vertical pitch placement is calibrated independently from OSMD's rendered treble and bass staff lines; correct notes use their MusicXML staff and wrong notes use the nearest active expected note's staff.
 - After a correct event advances, the still-held completed notes are suppressed from wrong-note feedback until released so they do not appear as mistakes against the next event.
 - Visual score selection supports freeform drag-to-select, segmented cross-system highlights, inverted dimming after selection, and left/right resize handles that preview smoothly and snap on release.
 - Selected ranges can play once or loop, and practice can be filtered to both hands, right hand staff 1, or left hand staff 2; one-hand practice skips events with no notes for the selected hand.
@@ -39,7 +39,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 ## Known Issues Or Blockers
 - Written repeat expansion is deferred; the parser follows printed measure order and reports repeat warnings.
 - Score overlays prefer OSMD graphical measure/timestamp mapping instead of cursor-step sampling, but exact notehead-level placement is still deferred.
-- Correct/wrong score feedback placement is approximate and staff/pitch based; it uses MusicXML/key-signature-aware diatonic staff steps rather than exact rendered notehead geometry.
+- Correct/wrong score feedback uses rendered staff-line geometry plus MusicXML/key-signature-aware diatonic steps, but remains an app-owned overlay rather than exact rendered notehead geometry.
 - Tied stop-only notes are skipped as re-strikes, but tie durations are not merged into extended event durations.
 - Real MIDI hardware has been partially validated by the user: device detection, keypress display, Mad World score rendering, score selection, and basic progression are working well. Feedback behavior still needs follow-up polish.
 - No `.mid` playback/comparison path is implemented; the `.mxl` score remains the source of truth.

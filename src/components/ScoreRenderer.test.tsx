@@ -246,6 +246,105 @@ describe("ScoreRenderer", () => {
     expect(g - c).toBeCloseTo(staffStep * 4);
     expect(a - c).toBeCloseTo(staffStep * 5);
   });
+  it("anchors middle C to the first ledger line below the rendered treble staff", async () => {
+    const event = { ...currentEvent, staffNumbers: [1] };
+    const staffEntry = {
+      relInMeasureTimestamp: { RealValue: 0 },
+      PositionAndShape: { AbsolutePosition: { x: 10, y: 12 } },
+    };
+    const measure = {
+      staffEntries: [staffEntry],
+      ParentStaffLine: {
+        PositionAndShape: { AbsolutePosition: { x: 0, y: 8 } },
+        StaffLines: [0, 1.2, 2.4, 3.6, 4.8].map((y) => ({ Start: { x: 0, y }, End: { x: 20, y } })),
+      },
+    };
+    osmdState.graphicSheet = {
+      findGraphicalMeasureByMeasureNumber: vi.fn(() => measure),
+    };
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={event} eventCount={1} events={[event]} feedbackMarkers={[59, 60, 62].map((note) => ({ note, kind: "wrong" as const }))} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const [b3, c4, d4] = Array.from(container.querySelectorAll<HTMLElement>(".note-feedback")).map((marker) => parseFloat(marker.style.top));
+    expect(c4).toBeCloseTo(140);
+    expect(b3 - c4).toBeCloseTo(6);
+    expect(c4 - d4).toBeCloseTo(6);
+  });
+  it("keeps adjacent feedback notes on the score-contextual staff", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    const twoStaffEvent: ScoreEvent = {
+      ...currentEvent,
+      midiNotes: [48, 60],
+      staffNumbers: [1, 2],
+      noteDetails: [
+        { midiNote: 48, staffNumber: 2, voiceNumber: "1", sourceNoteId: "bass-c" },
+        { midiNote: 60, staffNumber: 1, voiceNumber: "1", sourceNoteId: "treble-c" },
+      ],
+    };
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={twoStaffEvent} eventCount={1} feedbackMarkers={[{ note: 60, kind: "correct" }, { note: 59, kind: "wrong" }]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const correctMarker = container.querySelector<HTMLElement>(".note-feedback.correct");
+    const wrongMarker = container.querySelector<HTMLElement>(".note-feedback.wrong");
+    const correctTop = parseFloat(correctMarker?.style.top ?? "0");
+    const wrongTop = parseFloat(wrongMarker?.style.top ?? "0");
+
+    expect(wrongTop).toBeGreaterThan(correctTop);
+    expect(wrongTop - correctTop).toBeLessThan(8);
+  });
+  it("uses contextual treble and bass geometry for a split chord", async () => {
+    const event: ScoreEvent = {
+      ...currentEvent,
+      midiNotes: [57, 64, 69],
+      staffNumbers: [1, 2],
+      noteDetails: [
+        { midiNote: 57, staffNumber: 2, voiceNumber: "2", sourceNoteId: "a3" },
+        { midiNote: 64, staffNumber: 1, voiceNumber: "1", sourceNoteId: "e4" },
+        { midiNote: 69, staffNumber: 1, voiceNumber: "1", sourceNoteId: "a4" },
+      ],
+    };
+    const staffEntry = {
+      relInMeasureTimestamp: { RealValue: 0 },
+      PositionAndShape: { AbsolutePosition: { x: 10, y: 12 } },
+    };
+    const measureForStaff = (staffNumber: number) => ({
+      staffEntries: [staffEntry],
+      ParentStaffLine: {
+        PositionAndShape: { AbsolutePosition: { x: 0, y: staffNumber === 1 ? 8 : 24 } },
+        StaffLines: [0, 1.2, 2.4, 3.6, 4.8].map((y) => ({ Start: { x: 0, y }, End: { x: 20, y } })),
+      },
+    });
+    osmdState.graphicSheet = {
+      findGraphicalMeasureByMeasureNumber: vi.fn((_measureNumber: number, staffIndex: number) => measureForStaff(staffIndex + 1)),
+    };
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={event} eventCount={1} events={[event]} feedbackMarkers={[{ note: 57, kind: "correct", staffNumber: 2 }, { note: 60, kind: "wrong", staffNumber: 2 }, { note: 62, kind: "wrong", staffNumber: 1 }, { note: 64, kind: "correct", staffNumber: 1 }]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const markers = Array.from(container.querySelectorAll<HTMLElement>(".note-feedback"));
+    const [a3, c4, d4, e4] = markers.map((marker) => parseFloat(marker.style.top));
+    expect(a3).toBeCloseTo(240);
+    expect(c4).toBeCloseTo(228);
+    expect(d4).toBeCloseTo(134);
+    expect(e4).toBeCloseTo(128);
+  });
   it("uses flat-key spelling for black-key wrong-note ghosts", async () => {
     container = document.createElement("div");
     document.body.append(container);
@@ -296,6 +395,7 @@ describe("ScoreRenderer", () => {
 
     expect(currentMarker).not.toBeNull();
     expect(parseFloat(currentMarker?.style.width ?? "0")).toBe(24);
+    expect(parseFloat(currentMarker?.style.height ?? "0")).toBe(192);
     expect(parseFloat(selectedRect?.style.width ?? "0")).toBeLessThan(80);
   });
   it("anchors the current marker to graphical event positions after skipped hand events", async () => {

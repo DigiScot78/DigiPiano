@@ -41,6 +41,12 @@ interface EventPosition extends OverlayPosition {
   index: number;
   width: number;
   height: number;
+  staffAnchors?: StaffAnchor[];
+  staffLineTops?: Partial<Record<number, number[]>>;
+}
+
+interface StaffAnchor extends OverlayPosition {
+  staffNumber: number;
 }
 
 interface OverlayRect extends OverlayPosition {
@@ -57,6 +63,12 @@ type InteractionMode = "idle" | "selecting" | "resizing-start" | "resizing-end";
 
 const SYSTEM_WRAP_LEFT_TOLERANCE = 48;
 const SYSTEM_WRAP_TOP_TOLERANCE = 28;
+const GRAPHICAL_EVENT_ANCHOR_HEIGHT = 48;
+const CURRENT_EVENT_MARKER_HEIGHT = 192;
+const FALLBACK_FEEDBACK_HALF_LINE_SPACING = 4.5;
+const FALLBACK_FEEDBACK_MIDDLE_C_OFFSET = 96;
+const FEEDBACK_HORIZONTAL_OFFSET = 32;
+const TREBLE_TO_BASS_ANCHOR_OFFSET = 96;
 const EMPTY_SCORE_EVENTS: ScoreEvent[] = [];
 
 export function ScoreRenderer({
@@ -390,7 +402,7 @@ export function ScoreRenderer({
             style={rectStyle(rect)}
           />
         ))}
-        {currentPosition ? <div className="score-current-event-marker" style={rectStyle(currentPosition)} /> : null}
+        {currentPosition ? <div className="score-current-event-marker" style={rectStyle(currentMarkerRect(currentPosition))} /> : null}
       </div>
       <div
         className="score-selection-layer"
@@ -446,6 +458,17 @@ type GraphicalMeasureLike = {
   staffEntries?: GraphicalStaffEntryLike[];
   findGraphicalStaffEntryFromTimestamp?: (timestamp: Fraction) => GraphicalStaffEntryLike | undefined;
   PositionAndShape?: BoundingBoxLike;
+  ParentStaffLine?: StaffLineLike;
+};
+
+type StaffLineLike = {
+  PositionAndShape?: BoundingBoxLike;
+  StaffLines?: GraphicalLineLike[];
+};
+
+type GraphicalLineLike = {
+  Start?: { x?: number; y?: number };
+  End?: { x?: number; y?: number };
 };
 
 type GraphicalStaffEntryLike = {
@@ -475,16 +498,20 @@ function eventPositionsFromGraphicSheet(osmd: OpenSheetMusicDisplay | null, shel
 function positionForEvent(graphicSheet: GraphicalSheetLike, shell: HTMLElement, event: ScoreEvent, index: number): EventPosition | undefined {
   const staffNumbers = event.staffNumbers.length > 0 ? event.staffNumbers : [event.noteDetails[0]?.staffNumber ?? 1];
   const entries = staffNumbers
-    .map((staffNumber) => graphicalEntryForEvent(graphicSheet, event, staffNumber))
-    .filter((entry): entry is GraphicalStaffEntryLike => entry !== undefined);
+    .map((staffNumber) => ({ staffNumber, entry: graphicalEntryForEvent(graphicSheet, event, staffNumber) }))
+    .filter((item): item is { staffNumber: number; entry: GraphicalStaffEntryLike } => item.entry !== undefined);
 
   if (entries.length === 0) {
     return undefined;
   }
 
-  const rects = entries
-    .map((entry) => rectForGraphicalEntry(graphicSheet, shell, entry))
-    .filter((rect): rect is OverlayRect => rect !== undefined);
+  const anchoredRects = entries
+    .map(({ entry, staffNumber }) => {
+      const rect = rectForGraphicalEntry(graphicSheet, shell, entry);
+      return rect ? { rect, staffNumber } : undefined;
+    })
+    .filter((anchored): anchored is { rect: OverlayRect; staffNumber: number } => anchored !== undefined);
+  const rects = anchoredRects.map(({ rect }) => rect);
 
   if (rects.length === 0) {
     return undefined;
@@ -501,7 +528,43 @@ function positionForEvent(graphicSheet: GraphicalSheetLike, shell: HTMLElement, 
     top,
     width: Math.max(24, right - left),
     height: Math.max(42, bottom - top),
+    staffAnchors: anchoredRects.map(({ rect, staffNumber }) => ({
+      staffNumber,
+      left: rect.left,
+      top: rect.top,
+    })),
+    staffLineTops: staffLineTopsForEvent(graphicSheet, shell, event),
   };
+}
+
+function staffLineTopsForEvent(graphicSheet: GraphicalSheetLike, shell: HTMLElement, event: ScoreEvent): Partial<Record<number, number[]>> | undefined {
+  const staffLineTops = [1, 2].reduce<Partial<Record<number, number[]>>>((result, staffNumber) => {
+    const tops = staffLineTopsForMeasure(graphicSheet, shell, event.measureNumber, staffNumber);
+    if (tops) {
+      result[staffNumber] = tops;
+    }
+    return result;
+  }, {});
+  return Object.keys(staffLineTops).length > 0 ? staffLineTops : undefined;
+}
+
+function staffLineTopsForMeasure(graphicSheet: GraphicalSheetLike, shell: HTMLElement, measureNumber: number, staffNumber: number): number[] | undefined {
+  const measure = graphicSheet.findGraphicalMeasureByMeasureNumber?.(measureNumber, Math.max(0, staffNumber - 1));
+  const staffLine = measure?.ParentStaffLine;
+  const staffOrigin = staffLine?.PositionAndShape?.AbsolutePosition;
+  if (staffOrigin?.x === undefined || staffOrigin.y === undefined) {
+    return undefined;
+  }
+  const staffOriginX = staffOrigin.x;
+  const staffOriginY = staffOrigin.y;
+
+  const tops = (staffLine?.StaffLines ?? [])
+    .map((line) => line.Start ?? line.End)
+    .filter((point): point is { x: number; y: number } => point?.x !== undefined && point.y !== undefined)
+    .map((point) => pointToShellPosition(graphicSheet, shell, staffOriginX + point.x, staffOriginY + point.y).top)
+    .sort((a, b) => a - b);
+
+  return tops.length >= 5 ? tops.slice(0, 5) : undefined;
 }
 
 function graphicalEntryForEvent(graphicSheet: GraphicalSheetLike, event: ScoreEvent, staffNumber: number): GraphicalStaffEntryLike | undefined {
@@ -535,13 +598,11 @@ function rectForGraphicalEntry(graphicSheet: GraphicalSheetLike, shell: HTMLElem
   }
 
   const domPoint = pointToShellPosition(graphicSheet, shell, position.x, position.y);
-  const height = Math.max(42, (entry.PositionAndShape?.Size?.height ?? 4.2) * OSMD_UNIT_TO_CSS_PIXEL);
-
   return {
     left: Math.max(0, domPoint.left - 12),
-    top: Math.max(0, domPoint.top - height * 0.25),
+    top: Math.max(0, domPoint.top - GRAPHICAL_EVENT_ANCHOR_HEIGHT * 0.25),
     width: 24,
-    height,
+    height: GRAPHICAL_EVENT_ANCHOR_HEIGHT,
   };
 }
 
@@ -825,20 +886,60 @@ function shouldShowNoteName(kind: NoteFeedbackMarker["kind"], showCorrectNoteNam
 function markerForNoteFeedback(feedback: NoteFeedbackMarker, currentPosition: EventPosition | undefined, currentEvent: ScoreEvent | undefined): { note: number; kind: NoteFeedbackMarker["kind"]; name: string; left: number; top: number } {
   const note = feedback.note;
   const position = currentPosition ?? { left: 24, top: 24, width: 24, height: 96, index: 0 };
-  const staffNumber = staffForWrongNote(note, currentEvent);
-  const spelling = spellingForWrongNote(note, staffNumber, currentEvent);
-  const staffTop = position.top + (staffNumber === 2 ? position.height * 0.56 : position.height * 0.12);
-  const reference = { step: "C", alter: 0, octave: staffNumber === 2 ? 3 : 4 };
-  const halfLineSpacing = Math.max(3, Math.min(5.5, position.height / 14.5));
-  const y = staffTop + 24 + halfLineSpacing - diatonicStepDistance(reference, spelling) * halfLineSpacing;
+  const staffNumber = feedback.staffNumber ?? staffForFeedbackNote(note, currentEvent);
+  const spelling = spellingForFeedbackNote(note, staffNumber, currentEvent);
+  const staffAnchor = position.staffAnchors?.find((anchor) => anchor.staffNumber === staffNumber);
+  const middleC = { step: "C", alter: 0, octave: 4 };
+  const { middleCTop, halfLineSpacing } = feedbackPitchGeometry(position, staffNumber);
+  const y = middleCTop - diatonicStepDistance(middleC, spelling) * halfLineSpacing;
 
   return {
     note,
     kind: feedback.kind,
     name: nameForSpelling(spelling) ?? midiNoteToName(note),
-    left: position.left + Math.max(10, position.width + 8),
+    left: (staffAnchor?.left ?? position.left) + FEEDBACK_HORIZONTAL_OFFSET,
     top: Math.max(4, y),
   };
+}
+
+function feedbackPitchGeometry(position: EventPosition, staffNumber: number): { middleCTop: number; halfLineSpacing: number } {
+  const staffLines = position.staffLineTops?.[staffNumber];
+  if (staffLines && staffLines.length >= 5) {
+    const lineSpacings = staffLines.slice(1).map((top, index) => top - staffLines[index]);
+    const staffSpace = lineSpacings.reduce((total, spacing) => total + spacing, 0) / lineSpacings.length;
+    return {
+      middleCTop: staffNumber === 2 ? staffLines[0] - staffSpace : staffLines[staffLines.length - 1] + staffSpace,
+      halfLineSpacing: staffSpace / 2,
+    };
+  }
+
+  return {
+    middleCTop: systemTopForPosition(position) + FALLBACK_FEEDBACK_MIDDLE_C_OFFSET,
+    halfLineSpacing: FALLBACK_FEEDBACK_HALF_LINE_SPACING,
+  };
+}
+
+function currentMarkerRect(position: EventPosition): OverlayRect {
+  return {
+    left: position.left,
+    top: systemTopForPosition(position),
+    width: 24,
+    height: CURRENT_EVENT_MARKER_HEIGHT,
+  };
+}
+
+function systemTopForPosition(position: EventPosition): number {
+  const trebleAnchor = position.staffAnchors?.find((anchor) => anchor.staffNumber === 1);
+  if (trebleAnchor) {
+    return trebleAnchor.top;
+  }
+
+  const bassAnchor = position.staffAnchors?.find((anchor) => anchor.staffNumber === 2);
+  if (bassAnchor) {
+    return Math.max(0, bassAnchor.top - TREBLE_TO_BASS_ANCHOR_OFFSET);
+  }
+
+  return position.top;
 }
 
 type PitchSpelling = {
@@ -847,7 +948,7 @@ type PitchSpelling = {
   octave: number;
 };
 
-function spellingForWrongNote(note: number, staffNumber: number, currentEvent: ScoreEvent | undefined): PitchSpelling {
+function spellingForFeedbackNote(note: number, staffNumber: number, currentEvent: ScoreEvent | undefined): PitchSpelling {
   const matchingScoreNote = currentEvent?.noteDetails.find(
     (detail) => detail.midiNote === note && detail.staffNumber === staffNumber && detail.pitchStep && detail.pitchOctave !== undefined,
   ) ?? currentEvent?.noteDetails.find((detail) => detail.midiNote === note && detail.pitchStep && detail.pitchOctave !== undefined);
@@ -919,13 +1020,26 @@ const FLAT_PITCH_CLASS_SPELLINGS: PitchSpelling[] = [
   { step: "B", alter: 0, octave: 0 },
 ];
 
-function staffForWrongNote(note: number, currentEvent: ScoreEvent | undefined): number {
+function staffForFeedbackNote(note: number, currentEvent: ScoreEvent | undefined): number {
   const eventStaves = new Set(currentEvent?.staffNumbers ?? []);
   if (eventStaves.size === 1) {
     return Array.from(eventStaves)[0] ?? 1;
   }
-  if (eventStaves.has(1) && eventStaves.has(2)) {
-    return note < 60 ? 2 : 1;
+
+  const exactScoreNote = currentEvent?.noteDetails.find((detail) => detail.midiNote === note);
+  if (exactScoreNote) {
+    return exactScoreNote.staffNumber;
   }
-  return note < 60 ? 2 : 1;
+
+  const nearestScoreNote = currentEvent?.noteDetails.reduce<ScoreEvent["noteDetails"][number] | undefined>((nearest, detail) => {
+    if (!nearest) {
+      return detail;
+    }
+    return Math.abs(detail.midiNote - note) < Math.abs(nearest.midiNote - note) ? detail : nearest;
+  }, undefined);
+  if (nearestScoreNote) {
+    return nearestScoreNote.staffNumber;
+  }
+
+  return note <= 60 ? 2 : 1;
 }

@@ -319,7 +319,7 @@ function App() {
           <ScoreRenderer
             xmlText={loadedScore?.xmlText}
             currentEventIndex={learningState.currentIndex}
-            currentEvent={currentEvent}
+            currentEvent={expectedEvent}
             eventCount={parsedScore.events.length}
             events={parsedScore.events}
             selectedRange={selectedRange}

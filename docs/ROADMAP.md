@@ -77,7 +77,7 @@ Deferred decisions:
 - Selection: freeform pointer drag mapped to `ScoreEvent` indices on release, with segmented system-row rectangles that preserve mid-system boundaries and meet vertically between systems.
 - Selection after release: outside content is dimmed; selected area remains clear.
 - Selection resizing: left/right handles preview smoothly and snap to `ScoreEvent` anchors on release.
-- Note feedback: app-owned green/red marker heads show correct/wrong held notes near the current score event; correct and wrong note-name labels can be toggled independently.
+- Note feedback: app-owned green/red marker heads show correct/wrong held notes near the current score event; vertical pitch placement derives independently from rendered treble and bass staff-line geometry, with wrong notes assigned to the nearest active expected staff, and correct and wrong note-name labels can be toggled independently.
 - Held-note carry-over: notes that completed the previous event are ignored for wrong-note feedback against the next event until released.
 - Hand split: staff 1 is right hand; staff 2 is left hand; one-hand progression skips events with no notes for the selected hand.
 - Score diagnostics: debug output reports staff counts, system breaks, first parsed events, and practice attempts to troubleshoot file/parser/renderer mismatches.

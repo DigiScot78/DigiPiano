@@ -17,6 +17,7 @@ export interface MatchResult {
 export interface NoteFeedbackMarker {
   note: number;
   kind: "correct" | "wrong";
+  staffNumber?: number;
 }
 export interface LearningState {
   currentIndex: number;
@@ -37,7 +38,8 @@ export function feedbackMarkersForHeldNotes(
   handMode: HandMode = "both",
   ignoredNotes: Iterable<number> = [],
 ): NoteFeedbackMarker[] {
-  const expected = new Set(notesForHand(event, handMode));
+  const expectedEvent = filterEventForHand(event, handMode);
+  const expected = new Set(expectedEvent?.midiNotes ?? []);
   const ignored = new Set(ignoredNotes);
   return Array.from(new Set(heldNotes))
     .filter((note) => !ignored.has(note))
@@ -45,7 +47,35 @@ export function feedbackMarkersForHeldNotes(
     .map((note) => ({
       note,
       kind: expected.has(note) ? "correct" : "wrong",
+      staffNumber: staffForFeedbackNote(note, expectedEvent),
     }));
+}
+
+function staffForFeedbackNote(note: number, event: ScoreEvent | undefined): number {
+  const details = event?.noteDetails ?? [];
+  const exactMatches = details.filter((detail) => detail.midiNote === note);
+  if (exactMatches.length > 0) {
+    return preferredStaffForPitch(note, exactMatches.map((detail) => detail.staffNumber));
+  }
+
+  if (details.length > 0) {
+    const minimumDistance = Math.min(...details.map((detail) => Math.abs(detail.midiNote - note)));
+    const nearestStaves = details
+      .filter((detail) => Math.abs(detail.midiNote - note) === minimumDistance)
+      .map((detail) => detail.staffNumber);
+    return preferredStaffForPitch(note, nearestStaves);
+  }
+
+  return conventionalStaffForPitch(note);
+}
+
+function preferredStaffForPitch(note: number, staffNumbers: number[]): number {
+  const preferred = conventionalStaffForPitch(note);
+  return staffNumbers.includes(preferred) ? preferred : staffNumbers[0] ?? preferred;
+}
+
+function conventionalStaffForPitch(note: number): number {
+  return note <= 60 ? 2 : 1;
 }
 export function compareHeldNotesToEvent(
   heldNotes: Iterable<number>,

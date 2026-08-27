@@ -115,25 +115,47 @@ describe("score event matching", () => {
 
   it("classifies correct and wrong held-note feedback", () => {
     expect(feedbackMarkersForHeldNotes([60, 61, 64], chord)).toEqual([
-      { note: 60, kind: "correct" },
-      { note: 61, kind: "wrong" },
-      { note: 64, kind: "correct" },
+      { note: 60, kind: "correct", staffNumber: 1 },
+      { note: 61, kind: "wrong", staffNumber: 1 },
+      { note: 64, kind: "correct", staffNumber: 1 },
     ]);
   });
 
   it("filters carried completed notes out of feedback only", () => {
     expect(feedbackMarkersForHeldNotes([60, 61, 64], chord, "both", [60, 64])).toEqual([
-      { note: 61, kind: "wrong" },
+      { note: 61, kind: "wrong", staffNumber: 1 },
     ]);
     expect(compareHeldNotesToEvent([60, 64, 67], chord)).toMatchObject({ satisfied: true });
   });
 
   it("resumes normal feedback once an ignored note is no longer supplied", () => {
     expect(feedbackMarkersForHeldNotes([61], single, "both", [60])).toEqual([
-      { note: 61, kind: "wrong" },
+      { note: 61, kind: "wrong", staffNumber: 1 },
     ]);
     expect(feedbackMarkersForHeldNotes([60], single, "both", [])).toEqual([
-      { note: 60, kind: "correct" },
+      { note: 60, kind: "correct", staffNumber: 1 },
+    ]);
+  });
+  it("assigns wrong notes to the nearest active expected staff", () => {
+    const splitChord: ScoreEvent = {
+      ...twoHandEvent,
+      midiNotes: [57, 64, 69],
+      noteDetails: [
+        { midiNote: 57, staffNumber: 2, voiceNumber: "2", sourceNoteId: "a3" },
+        { midiNote: 64, staffNumber: 1, voiceNumber: "1", sourceNoteId: "e4" },
+        { midiNote: 69, staffNumber: 1, voiceNumber: "1", sourceNoteId: "a4" },
+      ],
+    };
+
+    expect(feedbackMarkersForHeldNotes([60, 62], splitChord)).toEqual([
+      { note: 60, kind: "wrong", staffNumber: 2 },
+      { note: 62, kind: "wrong", staffNumber: 1 },
+    ]);
+    expect(feedbackMarkersForHeldNotes([60], splitChord, "right")).toEqual([
+      { note: 60, kind: "wrong", staffNumber: 1 },
+    ]);
+    expect(feedbackMarkersForHeldNotes([62], splitChord, "left")).toEqual([
+      { note: 62, kind: "wrong", staffNumber: 2 },
     ]);
   });
   it("advances only when the current event is satisfied", () => {
