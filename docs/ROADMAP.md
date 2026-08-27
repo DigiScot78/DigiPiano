@@ -39,7 +39,7 @@ Acceptance criteria:
 - A decision is recorded: continue OSMD overlay strategy, deepen OSMD integration, or evaluate an alternative renderer.
 
 ## Milestone 3: Practice Session Tools
-Status: planned.
+Status: in progress; soundless timed playback and onset marking implemented.
 
 Goals:
 - Make selected range practice feel deliberate and repeatable without persistence.
@@ -49,6 +49,9 @@ Acceptance criteria:
 - User can reset to range start, loop continuously, or play selected range once.
 - Current hand mode and run mode are visible in the main practice panel.
 - Debug panel exposes selected range, filtered expected event, selected-hand playability, next playable event, and completion state.
+- Soundless Play follows MusicXML tempo over the full score or selection, with a configurable countdown and fallback tempo.
+- Loop playback waits for keyboard or MIDI confirmation before beginning the next countdown.
+- Timestamped MIDI note-ons produce one deduplicated green completion per written note plus individual red mistake attempts at their played score-time positions; results default to appearing after playback and remain until cleared or a new run starts.
 
 ## Milestone 4: Feedback Quality
 Status: in progress.

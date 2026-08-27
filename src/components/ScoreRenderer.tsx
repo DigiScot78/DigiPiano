@@ -4,6 +4,7 @@ import { midiNoteToName } from "../music/note";
 import type { HandMode, NoteFeedbackMarker, PracticeRunMode, ScoreSelectionRange } from "../learning/matcher";
 import { normalizeSelectionRange } from "../learning/matcher";
 import type { ScoreEvent } from "../music/scoreTypes";
+import type { MissedPerformanceNote, PerformanceResult, PlaybackPhase } from "../playback/playback";
 import { SCORE_THEME_PRESETS, type ScoreTheme } from "../theme/appearance";
 
 type CursorLike = {
@@ -23,6 +24,12 @@ interface ScoreRendererProps {
   selectedRange?: ScoreSelectionRange;
   feedbackMarkers: NoteFeedbackMarker[];
   completedFeedback?: CompletedNoteFeedback;
+  performanceResults?: PerformanceResult[];
+  missedPerformanceNotes?: MissedPerformanceNote[];
+  playbackPhase?: PlaybackPhase;
+  countdownValue?: number;
+  showStartCue?: boolean;
+  canPlay?: boolean;
   handMode?: HandMode;
   runMode?: PracticeRunMode;
   scoreTheme?: ScoreTheme;
@@ -31,6 +38,9 @@ interface ScoreRendererProps {
   onSelectedRangeChange: (range: ScoreSelectionRange | undefined) => void;
   onHandModeChange?: (mode: HandMode) => void;
   onRunModeChange?: (mode: PracticeRunMode) => void;
+  onPlay?: () => void;
+  onStop?: () => void;
+  onClearPerformance?: () => void;
   onRenderStateChange: (state: { status: "empty" | "loading" | "ready" | "error"; error?: string }) => void;
 }
 
@@ -95,6 +105,12 @@ export function ScoreRenderer({
   selectedRange,
   feedbackMarkers,
   completedFeedback,
+  performanceResults = [],
+  missedPerformanceNotes = [],
+  playbackPhase = "idle",
+  countdownValue,
+  showStartCue = false,
+  canPlay = false,
   handMode = "both",
   runMode = "once",
   scoreTheme = "paper",
@@ -103,6 +119,9 @@ export function ScoreRenderer({
   onSelectedRangeChange,
   onHandModeChange,
   onRunModeChange,
+  onPlay,
+  onStop,
+  onClearPerformance,
   onRenderStateChange,
 }: ScoreRendererProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -321,6 +340,22 @@ export function ScoreRenderer({
     () => completedFeedback?.markers.map((feedback) => markerForNoteFeedback(feedback, completedPosition, completedFeedback.event)) ?? [],
     [completedFeedback, completedPosition],
   );
+  const recordedNoteFeedbackMarkers = useMemo(() => performanceResults.map((result) => {
+    const event = events[result.eventIndex];
+    const position = eventPositions.find((item) => item.index === result.eventIndex);
+    const displayedNote = result.result === "correct" ? result.expectedNote : result.playedNote;
+    const marker = markerForNoteFeedback({ note: displayedNote, kind: result.result, staffNumber: result.staffNumber }, position, event);
+    const left = result.result === "correct"
+      ? expectedNoteAnchorX(position, result.staffNumber, marker.left)
+      : scoreTimeAnchorX(result.scoreQuarter, events, eventPositions, position?.anchorX ?? marker.left);
+    return { ...marker, id: result.id, left };
+  }), [eventPositions, events, performanceResults]);
+  const missedNoteFeedbackMarkers = useMemo(() => missedPerformanceNotes.map((missed) => {
+    const event = events[missed.eventIndex];
+    const position = eventPositions.find((item) => item.index === missed.eventIndex);
+    const marker = markerForNoteFeedback({ note: missed.note, kind: "wrong", staffNumber: missed.staffNumber }, position, event);
+    return { ...marker, id: missed.id, left: expectedNoteAnchorX(position, missed.staffNumber, marker.left) };
+  }), [eventPositions, events, missedPerformanceNotes]);
 
   const pointFromPointerEvent = (event: React.PointerEvent<HTMLElement>): DragPoint | undefined => {
     const shell = shellRef.current;
@@ -462,10 +497,10 @@ export function ScoreRenderer({
             style={rectStyle(rect)}
           />
         ))}
-        {currentPosition ? <div className="score-current-event-marker" style={rectStyle(currentMarkerRect(currentPosition))} /> : null}
+        {currentPosition ? <div className={`score-current-event-marker${showStartCue ? " playback-onset" : ""}`} style={rectStyle(currentMarkerRect(currentPosition))} /> : null}
       </div>
       <div
-        className="score-selection-layer"
+        className={`score-selection-layer${playbackPhase === "idle" ? "" : " playback-active"}`}
         aria-label="Score selection layer"
         onPointerDown={beginSelection}
         onPointerMove={updatePointerSelection}
@@ -506,6 +541,7 @@ export function ScoreRenderer({
             aria-label="Toggle right hand"
             aria-pressed={handMode !== "left"}
             aria-disabled={handMode === "right"}
+            disabled={playbackPhase !== "idle"}
             title={handMode === "right" ? "Right hand must remain on" : "Toggle right hand"}
             onClick={() => toggleHand("right")}
           >RH</button>
@@ -516,20 +552,24 @@ export function ScoreRenderer({
             aria-label="Toggle left hand"
             aria-pressed={handMode !== "right"}
             aria-disabled={handMode === "left"}
+            disabled={playbackPhase !== "idle"}
             title={handMode === "left" ? "Left hand must remain on" : "Toggle left hand"}
             onClick={() => toggleHand("left")}
           >LH</button>
           <div className="score-practice-toolbar" style={{ left: Math.max(8, controlBoundaryLeft), top: toolbarTop }} role="toolbar" aria-label="Practice toolbar">
+            {playbackPhase === "idle" ? <button type="button" aria-label="Play score" title="Play" disabled={!canPlay} onClick={onPlay}><PlayIcon /></button> : <button type="button" aria-label="Stop playback" title="Stop" onClick={onStop}><StopIcon /></button>}
             <button
               type="button"
               className={runMode === "loop" ? "active" : ""}
               aria-label="Loop selected range"
               aria-pressed={runMode === "loop"}
+              disabled={playbackPhase !== "idle"}
               title={runMode === "loop" ? "Loop on" : "Loop off"}
               onClick={() => onRunModeChange?.(runMode === "loop" ? "once" : "loop")}
             >
               <LoopIcon />
             </button>
+            <button type="button" aria-label="Clear performance markers" title="Clear performance" disabled={performanceResults.length === 0 && missedPerformanceNotes.length === 0} onClick={onClearPerformance}><ClearIcon /></button>
           </div>
         </div>
       ) : null}
@@ -546,7 +586,16 @@ export function ScoreRenderer({
             {showCorrectNoteNames ? <span className="note-feedback-name">{marker.name}</span> : null}
           </div>
         ))}
+        {recordedNoteFeedbackMarkers.map((marker) => (
+          <div key={`recorded-${marker.id}`} className={`note-feedback ${marker.kind} recorded`} style={{ left: marker.left, top: marker.top }} aria-label={`${marker.kind === "correct" ? "Correct" : "Wrong"} recorded note ${marker.name}`}>
+            <span className="note-feedback-head" aria-hidden="true" />
+          </div>
+        ))}
+        {missedNoteFeedbackMarkers.map((marker) => <span key={`missed-${marker.id}`} className="missed-note-feedback" style={{ left: marker.left, top: marker.top }} aria-label={`Missed note ${marker.name}`}>×</span>)}
       </div>
+      {playbackPhase === "countdown" ? <div className="playback-overlay countdown" role="status" aria-live="assertive"><div className="playback-message"><strong>{countdownValue ?? ""}</strong></div></div> : null}
+      {showStartCue ? <div className="playback-overlay start-cue" role="status" aria-live="assertive"><div className="playback-message"><strong>Go</strong></div></div> : null}
+      {playbackPhase === "waiting-restart" ? <div className="playback-overlay restart" role="status" aria-live="polite"><div className="playback-message"><span>Loop complete</span><strong>Press any key to start again</strong></div></div> : null}
     </div>
   );
 }
@@ -558,6 +607,10 @@ function LoopIcon() {
     </svg>
   );
 }
+
+function PlayIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8L7 4Z" /></svg>; }
+function StopIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z" /></svg>; }
+function ClearIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 6 1-2h8l1 2h4v2H3V6h4Zm1 4h8l-1 10H9L8 10Z" /></svg>; }
 
 function handModeAfterToggle(mode: HandMode, hand: "right" | "left"): HandMode {
   if (hand === "right") {
@@ -1112,6 +1165,28 @@ function markerForNoteFeedback(feedback: NoteFeedbackMarker, currentPosition: Ev
     left: (staffAnchor?.left ?? position.left) + FEEDBACK_HORIZONTAL_OFFSET,
     top: Math.max(4, y),
   };
+}
+
+function expectedNoteAnchorX(position: EventPosition | undefined, staffNumber: number | undefined, fallback: number): number {
+  if (!position) return fallback - FEEDBACK_HORIZONTAL_OFFSET;
+  const staffAnchor = position.staffAnchors?.find((anchor) => anchor.staffNumber === staffNumber);
+  return staffAnchor ? staffAnchor.left + 12 : position.anchorX;
+}
+
+function scoreTimeAnchorX(scoreQuarter: number, events: ScoreEvent[], positions: EventPosition[], fallback: number): number {
+  const timed = positions.map((position) => ({ position, quarter: events[position.index]?.startQuarter }))
+    .filter((item): item is { position: EventPosition; quarter: number } => item.quarter !== undefined)
+    .sort((a, b) => a.quarter - b.quarter);
+  const before = [...timed].reverse().find((item) => item.quarter <= scoreQuarter);
+  const after = timed.find((item) => item.quarter >= scoreQuarter);
+  if (!before && !after) return fallback;
+  if (!before) return after?.position.anchorX ?? fallback;
+  if (!after) return before.position.anchorX;
+  const sameSystem = Math.abs(before.position.top - after.position.top) <= SYSTEM_WRAP_TOP_TOLERANCE;
+  const span = after.quarter - before.quarter;
+  if (!sameSystem || span <= 0) return Math.abs(scoreQuarter - before.quarter) <= Math.abs(after.quarter - scoreQuarter) ? before.position.anchorX : after.position.anchorX;
+  const progress = clamp((scoreQuarter - before.quarter) / span, 0, 1);
+  return before.position.anchorX + (after.position.anchorX - before.position.anchorX) * progress;
 }
 
 function feedbackPitchGeometry(position: EventPosition, staffNumber: number): { middleCTop: number; halfLineSpacing: number } {

@@ -23,3 +23,15 @@ Hand mode uses explicit MusicXML staff numbers: staff 1 is treated as right hand
 
 ## 8. Keep Piano Geometry Normalized And Read-Only
 The first keyboard panel derives every key from MIDI bounds and expresses its horizontal position and width as normalized values over the white-key span. This makes the geometry independent of viewport pixels and reusable by a future falling-note view. The keyboard is visual feedback only for this milestone; pointer input, synthesis, recording, and falling notes remain separate future capabilities.
+
+## 9. Use A Monotonic Tempo-Aware Playback Clock
+Soundless playback converts MusicXML quarter positions through an explicit tempo map and derives state from `performance.now()` rather than chained timeouts. MIDI note arrival is timestamped at the input handler so React rendering latency does not affect onset scoring. This provides a deterministic base for later audio and piano-roll work without coupling musical time to UI frames.
+
+## 10. Keep Timed Playback Separate From Untimed Learning
+Play mode owns its own cursor, countdown, loop waiting, and performance attempts. MIDI input during Play is recorded but never advances the normal wait-for-correct-note learning state. Stopping therefore restores the user's previous untimed position while retaining the completed performance overlay.
+
+## 11. Separate Correct Completions From Mistake Attempts
+Timed marking deduplicates valid green hits to one completion per expected event/pitch and centers them over the written note. Wrong-pitch and mistimed hits remain individual red attempts at their played pitch and score-time position instead of consuming an expected slot. This keeps successful-note feedback clean while preserving the timing and pitch pattern of mistakes; exact rendered notehead bounds remain deferred in favor of the existing event/pitch overlay geometry.
+
+## 12. Make Go The Exact Playback Boundary
+The countdown retains its final number until playback time zero. Go appears only at that boundary and shares the same monotonic timestamp used for MIDI scoring, accompanied by a brief first-event pulse. Loop-waiting prompts do not fade the score so completed results remain reviewable.

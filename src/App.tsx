@@ -25,6 +25,10 @@ import type { AppTheme, ScoreTheme } from "./theme/appearance";
 import { useAppearanceSettings } from "./theme/useAppearanceSettings";
 import { usePianoSettings } from "./piano/usePianoSettings";
 import type { PianoSettings } from "./piano/piano";
+import { usePlaySettings } from "./playback/usePlaySettings";
+import { usePlaybackSession } from "./playback/usePlaybackSession";
+import type { PlaySettings } from "./playback/settings";
+import { shouldShowPerformanceResults } from "./playback/playback";
 import "./styles.css";
 
 interface PracticeAttemptDiagnostic {
@@ -51,8 +55,9 @@ function App() {
   const midi = useMidiInput();
   const appearance = useAppearanceSettings();
   const piano = usePianoSettings();
+  const play = usePlaySettings();
   const [loadedScore, setLoadedScore] = useState<LoadedScore | null>(null);
-  const [parsedScore, setParsedScore] = useState<ParsedScore>({ events: [], warnings: [] });
+  const [parsedScore, setParsedScore] = useState<ParsedScore>({ events: [], tempoChanges: [], warnings: [] });
   const [learningState, setLearningState] = useState<LearningState>(initialLearningState());
   const learningStateRef = useRef<LearningState>(learningState);
   const [scoreError, setScoreError] = useState<string | undefined>();
@@ -71,6 +76,10 @@ function App() {
   const completedFeedbackTimerRef = useRef<number | undefined>(undefined);
   const completedFeedbackIdRef = useRef(0);
   const previousHeldNotesRef = useRef<number[]>([]);
+  const processedMidiCounterRef = useRef(0);
+
+  const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, handMode, range: selectedRange, runMode, settings: play.settings });
+  const { phase: playbackPhase, handleMidiNoteOn, start: startPlayback } = playback;
 
   const clearCompletedFeedback = useCallback(() => {
     if (completedFeedbackTimerRef.current !== undefined) {
@@ -112,6 +121,11 @@ function App() {
     () => feedbackMarkersForHeldNotes(combinedHeldNotes, currentEvent, handMode, carriedCompletedNotes),
     [carriedCompletedNotes, combinedHeldNotes, currentEvent, handMode],
   );
+  const playbackCursorIndex = playback.phase === "countdown" ? playback.plan?.events[0]?.eventIndex
+    : playback.phase === "waiting-restart" ? playback.plan?.events.at(-1)?.eventIndex
+      : playback.currentEventIndex;
+  const displayedEventIndex = playback.phase === "idle" ? learningState.currentIndex : (playbackCursorIndex ?? learningState.currentIndex);
+  const displayedEvent = playback.phase === "idle" ? expectedEvent : filterEventForHand(parsedScore.events[displayedEventIndex], handMode);
 
   const practiceOptions = useMemo(() => ({ handMode, runMode, range: selectedRange }), [handMode, runMode, selectedRange]);
 
@@ -140,6 +154,8 @@ function App() {
     setLearningState(resetState);
     setSimulatedHeldNotes([]);
     setSelectedRange(undefined);
+    playback.stop();
+    playback.clearResults();
     clearCompletedFeedback();
 
     try {
@@ -153,7 +169,7 @@ function App() {
       setLearningState(nextState);
     } catch (error) {
       setLoadedScore(null);
-      setParsedScore({ events: [], warnings: [] });
+      setParsedScore({ events: [], tempoChanges: [], warnings: [] });
       setScoreStatus("error");
       setScoreError(error instanceof Error ? error.message : "Score loading failed.");
     }
@@ -231,9 +247,10 @@ function App() {
   }, [combinedHeldNotes]);
 
   useEffect(() => {
-    if (midi.messageCounter === 0) {
+    if (midi.messageCounter === 0 || processedMidiCounterRef.current === midi.messageCounter) {
       return;
     }
+    processedMidiCounterRef.current = midi.messageCounter;
 
     const heldNotesBefore = previousHeldNotesRef.current;
     previousHeldNotesRef.current = combinedHeldNotes;
@@ -241,13 +258,27 @@ function App() {
       return;
     }
 
-    advanceWithNotes(combinedHeldNotes, {
-      source: "midi",
-      triggeringMidiNote: midi.lastMessage.noteNumber,
-      heldNotesBefore,
-      heldNotesAfter: combinedHeldNotes,
-    });
-  }, [advanceWithNotes, combinedHeldNotes, midi.lastMessage, midi.messageCounter]);
+    if (playbackPhase !== "idle") {
+      handleMidiNoteOn(midi.lastMessage.noteNumber, midi.lastMessageAtMs ?? performance.now());
+    } else {
+      advanceWithNotes(combinedHeldNotes, {
+        source: "midi",
+        triggeringMidiNote: midi.lastMessage.noteNumber,
+        heldNotesBefore,
+        heldNotesAfter: combinedHeldNotes,
+      });
+    }
+  }, [advanceWithNotes, combinedHeldNotes, handleMidiNoteOn, midi.lastMessage, midi.lastMessageAtMs, midi.messageCounter, playbackPhase]);
+
+  useEffect(() => {
+    if (playbackPhase !== "waiting-restart") return;
+    const restart = (event: KeyboardEvent) => {
+      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+      startPlayback();
+    };
+    window.addEventListener("keydown", restart);
+    return () => window.removeEventListener("keydown", restart);
+  }, [playbackPhase, startPlayback]);
 
   const handleSelectionChange = useCallback((range: ScoreSelectionRange | undefined) => {
     setSelectedRange(range);
@@ -304,13 +335,19 @@ function App() {
           {scoreStatus === "loading" ? <div className="score-placeholder">Loading score...</div> : null}
           <ScoreRenderer
             xmlText={loadedScore?.xmlText}
-            currentEventIndex={learningState.currentIndex}
-            currentEvent={expectedEvent}
+            currentEventIndex={displayedEventIndex}
+            currentEvent={displayedEvent}
             eventCount={parsedScore.events.length}
             events={parsedScore.events}
             selectedRange={selectedRange}
-            feedbackMarkers={scoreFeedbackMarkers}
+            feedbackMarkers={playback.phase === "idle" ? scoreFeedbackMarkers : []}
             completedFeedback={completedFeedback}
+            performanceResults={shouldShowPerformanceResults(playback.phase, play.settings.showHitsWhilePlaying) ? playback.results : []}
+            missedPerformanceNotes={playback.missedNotes}
+            playbackPhase={playback.phase}
+            countdownValue={playback.countdownValue}
+            showStartCue={playback.showStartCue}
+            canPlay={Boolean(playback.plan)}
             handMode={handMode}
             runMode={runMode}
             scoreTheme={appearance.scoreTheme}
@@ -319,6 +356,9 @@ function App() {
             onSelectedRangeChange={handleSelectionChange}
             onHandModeChange={handleHandModeChange}
             onRunModeChange={setRunMode}
+            onPlay={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); clearCompletedFeedback(); playback.start(); }}
+            onStop={playback.stop}
+            onClearPerformance={playback.clearResults}
             onRenderStateChange={(next) => {
               setScoreStatus(next.status);
               setRenderError(next.error);
@@ -343,10 +383,10 @@ function App() {
             <SelectionSummary range={selectedRange} events={parsedScore.events} />
             {expectedEvent ? <ExpectedEvent event={expectedEvent} index={learningState.currentIndex} total={parsedScore.events.length} isComplete={learningState.isComplete} /> : <p className="muted">Load a score to begin.</p>}
             <div className="button-row compact-actions">
-              <button type="button" onClick={simulateCurrentEvent} disabled={!expectedEvent || expectedEvent.midiNotes.length === 0 || learningState.isComplete}>Simulate</button>
-              <button type="button" onClick={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); }}>Release</button>
-              <button type="button" onClick={resetProgress}>Reset</button>
-              <button type="button" onClick={clearSelection} disabled={!selectedRange}>Clear range</button>
+              <button type="button" onClick={simulateCurrentEvent} disabled={playback.phase !== "idle" || !expectedEvent || expectedEvent.midiNotes.length === 0 || learningState.isComplete}>Simulate</button>
+              <button type="button" onClick={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); }} disabled={playback.phase !== "idle"}>Release</button>
+              <button type="button" onClick={resetProgress} disabled={playback.phase !== "idle"}>Reset</button>
+              <button type="button" onClick={clearSelection} disabled={playback.phase !== "idle" || !selectedRange}>Clear range</button>
             </div>
             <ComparisonSummary state={learningState} />
           </section>
@@ -370,13 +410,15 @@ function App() {
           lastPracticeAttempt={lastPracticeAttempt}
           simulatedHeldNotes={simulatedHeldNotes}
           carriedCompletedNotes={carriedCompletedNotes}
+          playbackPhase={playback.phase}
+          performanceResults={playback.results}
           />
         </div>
       </section>
       <PianoPanel
-        expectedNotes={expectedEvent?.midiNotes ?? []}
+        expectedNotes={playback.phase === "playing" ? playback.expectedNotes : playback.phase === "idle" ? expectedEvent?.midiNotes ?? [] : []}
         heldNotes={combinedHeldNotes}
-        ignoredCarriedNotes={carriedCompletedNotes}
+        ignoredCarriedNotes={playback.phase === "idle" ? carriedCompletedNotes : []}
         settings={piano.settings}
         onSettingsChange={piano.setSettings}
       />
@@ -386,10 +428,12 @@ function App() {
           appTheme={appearance.appTheme}
           scoreTheme={appearance.scoreTheme}
           pianoSettings={piano.settings}
+          playSettings={play.settings}
           onAppThemeChange={appearance.setAppTheme}
           onScoreThemeChange={appearance.setScoreTheme}
           onPianoSettingsChange={piano.setSettings}
           onResetPianoColors={piano.resetColors}
+          onPlaySettingsChange={play.setSettings}
           onClose={() => setMidiSettingsOpen(false)}
         />
       ) : null}
@@ -410,20 +454,24 @@ function SettingsDialog({
   appTheme,
   scoreTheme,
   pianoSettings,
+  playSettings,
   onAppThemeChange,
   onScoreThemeChange,
   onPianoSettingsChange,
   onResetPianoColors,
+  onPlaySettingsChange,
   onClose,
 }: {
   midi: ReturnType<typeof useMidiInput>;
   appTheme: AppTheme;
   scoreTheme: ScoreTheme;
   pianoSettings: PianoSettings;
+  playSettings: PlaySettings;
   onAppThemeChange: (theme: AppTheme) => void;
   onScoreThemeChange: (theme: ScoreTheme) => void;
   onPianoSettingsChange: (update: Partial<PianoSettings>) => void;
   onResetPianoColors: () => void;
+  onPlaySettingsChange: (update: Partial<PlaySettings>) => void;
   onClose: () => void;
 }) {
   return (
@@ -466,6 +514,16 @@ function SettingsDialog({
             <label>Wrong <input type="color" value={pianoSettings.wrongColor} onChange={(event) => onPianoSettingsChange({ wrongColor: event.target.value })} /></label>
           </div>
           <button type="button" className="secondary-button" onClick={onResetPianoColors}>Reset colours</button>
+        </section>
+        <section className="settings-section" aria-labelledby="play-settings-title">
+          <h3 id="play-settings-title">Play</h3>
+          <div className="play-settings-grid">
+            <label>Countdown (seconds)<input type="number" min="0" max="10" step="1" value={playSettings.countdownSeconds} onChange={(event) => onPlaySettingsChange({ countdownSeconds: clampSetting(event.target.value, 0, 10) })} /></label>
+            <label>Fallback tempo (BPM)<input type="number" min="30" max="300" step="1" value={playSettings.fallbackBpm} onChange={(event) => onPlaySettingsChange({ fallbackBpm: clampSetting(event.target.value, 30, 300) })} /></label>
+            <label>Hit tolerance (ms)<input type="number" min="0" max="1000" step="25" value={playSettings.hitToleranceMs} onChange={(event) => onPlaySettingsChange({ hitToleranceMs: clampSetting(event.target.value, 0, 1000) })} /></label>
+            <label className="play-checkbox-setting">Show hits while playing<input type="checkbox" checked={playSettings.showHitsWhilePlaying} onChange={(event) => onPlaySettingsChange({ showHitsWhilePlaying: event.target.checked })} /></label>
+          </div>
+          <p className="settings-hint">Embedded score tempo is used when available. The fallback applies before the first tempo marking or when none is supplied.</p>
         </section>
         <section className="settings-section midi-settings-section" aria-labelledby="midi-settings-title">
           <h3 id="midi-settings-title">MIDI input</h3>
@@ -558,6 +616,8 @@ function DebugPanel(props: {
   lastPracticeAttempt?: PracticeAttemptDiagnostic;
   simulatedHeldNotes: number[];
   carriedCompletedNotes: number[];
+  playbackPhase: string;
+  performanceResults: unknown[];
 }) {
   return (
     <aside className="debug-panel">
@@ -577,6 +637,9 @@ function DebugPanel(props: {
         <div><dt>Playable</dt><dd>{props.currentEventPlayable ? "Yes" : "No"}</dd></div>
         <div><dt>Next playable</dt><dd>{props.nextPlayableEventIndex ?? "None"}</dd></div>
         <div><dt>Parsed events</dt><dd>{props.parsedScore.events.length}</dd></div>
+        <div><dt>Tempo changes</dt><dd>{props.parsedScore.tempoChanges.length}</dd></div>
+        <div><dt>Playback</dt><dd>{props.playbackPhase}</dd></div>
+        <div><dt>Recorded notes</dt><dd>{props.performanceResults.length}</dd></div>
       </dl>
       <h3>Current Event</h3>
       <pre>{JSON.stringify(props.currentEvent ?? null, null, 2)}</pre>
@@ -639,6 +702,10 @@ function formatNotes(notes: number[] | undefined): string {
     return "None";
   }
   return notes.map((note) => `${note} ${midiNoteToName(note)}`).join(", ");
+}
+
+function clampSetting(value: string, min: number, max: number): number {
+  return Math.min(Math.max(Math.round(Number(value) || min), min), max);
 }
 
 export default App;

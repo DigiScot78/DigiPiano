@@ -1,5 +1,5 @@
 import { pitchToMidi } from "./note";
-import type { ParsedScore, ScoreDiagnostics, ScoreEvent, ScoreEventNote, ScoreMeasureDiagnostic } from "./scoreTypes";
+import type { ParsedScore, ScoreDiagnostics, ScoreEvent, ScoreEventNote, ScoreMeasureDiagnostic, TempoChange } from "./scoreTypes";
 import { parseXml } from "./musicXmlLoader";
 
 interface PartCursorState {
@@ -35,6 +35,7 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
   const doc = parseXml(xmlText, "MusicXML score");
   const warnings = collectGlobalWarnings(doc);
   const events = new Map<string, PendingEvent>();
+  const tempoChanges: TempoChange[] = [];
   const measureDiagnostics: ScoreMeasureDiagnostic[] = [];
   const firstPitchedMeasureByStaff: Record<string, number> = {};
 
@@ -93,6 +94,11 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
             });
             break;
           }
+          case "direction": {
+            const tempo = tempoFromDirection(child, divisions, state.currentQuarter);
+            if (tempo) tempoChanges.push(tempo);
+            break;
+          }
           case "barline": {
             const repeatDirection = child.querySelector("repeat")?.getAttribute("direction");
             if (repeatDirection) {
@@ -123,10 +129,35 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
 
   return {
     events: normalized.filter((event) => !event.isRest),
+    tempoChanges: normalizeTempoChanges(tempoChanges),
     warnings,
     diagnostics,
   };
 }
+
+function tempoFromDirection(direction: Element, divisions: number, currentQuarter: number): TempoChange | undefined {
+  const soundTempo = numberAttribute(direction.querySelector("sound[tempo]"), "tempo");
+  const offset = (numberText(direction.querySelector(":scope > offset")) ?? 0) / divisions;
+  if (soundTempo !== undefined && soundTempo > 0) return { quarter: currentQuarter + offset, bpm: soundTempo, source: "sound" };
+  const metronome = direction.querySelector("metronome");
+  const perMinute = numberText(metronome?.querySelector("per-minute") ?? null);
+  const beatUnit = metronome?.querySelector("beat-unit")?.textContent?.trim().toLowerCase();
+  if (!perMinute || !beatUnit) return undefined;
+  const quarterMultiplier: Record<string, number> = { whole: 4, half: 2, quarter: 1, eighth: 0.5, "16th": 0.25, "32nd": 0.125 };
+  let multiplier = quarterMultiplier[beatUnit];
+  if (!multiplier) return undefined;
+  const dotCount = metronome?.querySelectorAll("beat-unit-dot").length ?? 0;
+  multiplier *= dotCount === 0 ? 1 : 2 - 1 / Math.pow(2, dotCount);
+  return { quarter: currentQuarter + offset, bpm: perMinute * multiplier, source: "metronome" };
+}
+
+function normalizeTempoChanges(changes: TempoChange[]): TempoChange[] {
+  const byQuarter = new Map<number, TempoChange>();
+  for (const change of changes.sort((a, b) => a.quarter - b.quarter || tempoSourceOrder(a) - tempoSourceOrder(b))) byQuarter.set(change.quarter, change);
+  return Array.from(byQuarter.values()).sort((a, b) => a.quarter - b.quarter);
+}
+
+function tempoSourceOrder(change: TempoChange): number { return change.source === "sound" ? 1 : 0; }
 
 function diagnosticForMeasure(measure: Element, measureNumber: number): ScoreMeasureDiagnostic {
   const pitchedByStaff: Record<string, number> = {};
@@ -175,7 +206,8 @@ function incrementRecord(record: Record<string, number>, key: string): void {
   record[key] = (record[key] ?? 0) + 1;
 }
 
-function numberAttribute(element: Element, attributeName: string): number | undefined {
+function numberAttribute(element: Element | null, attributeName: string): number | undefined {
+  if (!element) return undefined;
   const value = element.getAttribute(attributeName);
   if (!value) {
     return undefined;

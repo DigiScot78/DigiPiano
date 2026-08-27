@@ -219,4 +219,11 @@ describe("parseMusicXmlTimeline", () => {
     const parsed = parseMusicXmlTimeline(fixture);
     expect(parsed.warnings.some((warning) => warning.includes("repeats"))).toBe(true);
   });
+  it("parses sound and metronome tempo changes into quarter-note BPM", () => {
+    const parsed = parseMusicXmlTimeline(`<?xml version="1.0"?><score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>2</divisions></attributes><direction><sound tempo="90"/></direction><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note><direction><direction-type><metronome><beat-unit>eighth</beat-unit><beat-unit-dot/><per-minute>120</per-minute></metronome></direction-type></direction><note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration></note></measure></part></score-partwise>`);
+    expect(parsed.tempoChanges).toEqual([
+      { quarter: 0, bpm: 90, source: "sound" },
+      { quarter: 2, bpm: 90, source: "metronome" },
+    ]);
+  });
 });

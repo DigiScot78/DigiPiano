@@ -24,6 +24,9 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Settings now include a persisted System/Light/Dark application theme and independent Paper/Night score styles. Paper uses a warm textured page; Night asks OSMD to render pale notation on a dark page, with all fading and interaction overlays using matching score tokens.
 - A persisted, collapsible full-width piano panel is fixed to the bottom of the viewport so it remains visible while long scores scroll. It supports 88/76/61/49-key and validated custom ranges, three heights, Auto/Fit/Scroll width modes, optional scientific note labels, and accessible expected/correct/wrong/carried-note states. Expected notes outside the visible range can be revealed in one action.
 - Piano highlight colours are configurable in Settings. Normalized key geometry and panel-level visual tokens provide the horizontal foundation for a future falling-note view without coupling layout to pixels.
+- A soundless timed Play mode follows embedded MusicXML tempo changes (with a configurable fallback BPM), supports full-score or selection playback, and drives the score cursor plus duration-aware piano expectations through rests and tempo changes.
+- Play mode has a configurable countdown, Play/Stop controls, and loop-end restart waiting. The final countdown number remains until the exact playback onset, when a compact Go cue and first-event pulse identify the intended first-note moment. Any computer key or MIDI note restarts a loop through a fresh countdown; the restart input is not scored, and the waiting prompt leaves score/results fully visible without fading.
+- MIDI note-on attempts are timestamped at the browser input boundary. Each written event/pitch accepts one deduplicated green in-tolerance result centered over the expected note. Wrong-pitch and mistimed attempts remain individual red markers at the played pitch and interpolated score-time position. Results can be shown live via a persisted option but default to appearing after Stop/completion; expected pitches without a valid green result receive a compact red X at natural completion.
 - A simulation button can advance events without hardware.
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, ignored carried notes, expected event, event index, selected-hand playability, next playable index, parser warnings, import diagnostics, comparison results, and practice-attempt diagnostics.
 
@@ -39,6 +42,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Fixed rest-over-pitched-note parsing so rests in another voice at the same timestamp do not hide playable notes.
 - Added green correct-note feedback, red wrong-note feedback, independent note-name toggles, and carry-over suppression for notes still held after a correct advancement.
 - Added the read-only bottom piano panel and reusable piano settings/geometry/state module.
+- Added the first timed playback and performance-marking foundation without sound generation.
 
 ## Work In Progress
 - Current baseline is usable for `Samples/Mad_world_Piano.mxl` per user feedback. Wrong/correct note reporting is improved but still needs more real-keyboard refinement.
@@ -52,6 +56,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Real MIDI hardware has been partially validated by the user: device detection, keypress display, Mad World score rendering, score selection, and basic progression are working well. Feedback behavior still needs follow-up polish.
 - No `.mid` playback/comparison path is implemented; the `.mxl` score remains the source of truth.
 - Piano pointer interaction, sound generation, recording, and falling-note lanes are intentionally deferred.
+- Timed performance marking currently scores note-on pitch/onset only; velocity, held duration, note-off timing, sustain quality, export, and audio remain deferred.
 
 ## Important Assumptions
 - Desktop Chromium is the initial supported browser target.

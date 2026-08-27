@@ -24,6 +24,12 @@ export interface ScoreEvent {
   isRest?: boolean;
 }
 
+export interface TempoChange {
+  quarter: number;
+  bpm: number;
+  source: "sound" | "metronome";
+}
+
 export interface ScoreMeasureDiagnostic {
   measureNumber: number;
   pitchedByStaff: Record<string, number>;
@@ -42,6 +48,7 @@ export interface ScoreDiagnostics {
 
 export interface ParsedScore {
   events: ScoreEvent[];
+  tempoChanges: TempoChange[];
   warnings: string[];
   diagnostics?: ScoreDiagnostics;
 }

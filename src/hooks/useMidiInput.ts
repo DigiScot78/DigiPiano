@@ -19,6 +19,7 @@ interface MidiHookState {
   inputs: MidiInputSummary[];
   selectedInputId?: string;
   lastMessage?: DecodedMidiMessage;
+  lastMessageAtMs?: number;
   heldState: HeldNoteState;
   messageCounter: number;
 }
@@ -121,9 +122,11 @@ export function useMidiInput() {
         return;
       }
       const message = decodeMidiMessage(event.data);
+      const receivedAtMs = performance.now();
       setState((current) => ({
         ...current,
         lastMessage: message,
+        lastMessageAtMs: receivedAtMs,
         heldState: applyMidiToHeldNotes(current.heldState, message),
         messageCounter: current.messageCounter + 1,
       }));
