@@ -1256,9 +1256,8 @@ function markerForNoteFeedback(feedback: NoteFeedbackMarker, currentPosition: Ev
   const staffNumber = feedback.staffNumber ?? staffForFeedbackNote(note, currentEvent);
   const spelling = spellingForFeedbackNote(note, staffNumber, currentEvent);
   const staffAnchor = position.staffAnchors?.find((anchor) => anchor.staffNumber === staffNumber);
-  const middleC = { step: "C", alter: 0, octave: 4 };
-  const { middleCTop, halfLineSpacing } = feedbackPitchGeometry(position, staffNumber);
-  const y = middleCTop - diatonicStepDistance(middleC, spelling) * halfLineSpacing;
+  const { referenceTop, referencePitch, halfLineSpacing } = feedbackPitchGeometry(position, staffNumber, currentEvent);
+  const y = referenceTop - diatonicStepDistance(referencePitch, spelling) * halfLineSpacing;
 
   return {
     note,
@@ -1292,21 +1291,30 @@ function scoreTimeAnchorX(scoreQuarter: number, events: ScoreEvent[], positions:
   return before.position.anchorX + (after.position.anchorX - before.position.anchorX) * progress;
 }
 
-function feedbackPitchGeometry(position: EventPosition, staffNumber: number): { middleCTop: number; halfLineSpacing: number } {
+function feedbackPitchGeometry(position: EventPosition, staffNumber: number, currentEvent: ScoreEvent | undefined): { referenceTop: number; referencePitch: PitchSpelling; halfLineSpacing: number } {
   const staffLines = position.staffLineTops?.[staffNumber];
   if (staffLines && staffLines.length >= 5) {
     const lineSpacings = staffLines.slice(1).map((top, index) => top - staffLines[index]);
     const staffSpace = lineSpacings.reduce((total, spacing) => total + spacing, 0) / lineSpacings.length;
-    return {
-      middleCTop: staffNumber === 2 ? staffLines[0] - staffSpace : staffLines[staffLines.length - 1] + staffSpace,
-      halfLineSpacing: staffSpace / 2,
-    };
+    const clef = currentEvent?.noteDetails.find((detail) => detail.staffNumber === staffNumber && detail.clef)?.clef;
+    const referencePitch = clefReferencePitch(clef?.sign, clef?.octaveChange ?? 0);
+    if (clef && referencePitch && Number.isInteger(clef.line) && clef.line >= 1 && clef.line <= 5) return { referenceTop: staffLines[5 - clef.line], referencePitch, halfLineSpacing: staffSpace / 2 };
+    const middleC = { step: "C", alter: 0, octave: 4 };
+    return { referenceTop: staffNumber === 2 ? staffLines[0] - staffSpace : staffLines[staffLines.length - 1] + staffSpace, referencePitch: middleC, halfLineSpacing: staffSpace / 2 };
   }
 
   return {
-    middleCTop: systemTopForPosition(position) + FALLBACK_FEEDBACK_MIDDLE_C_OFFSET,
+    referenceTop: systemTopForPosition(position) + FALLBACK_FEEDBACK_MIDDLE_C_OFFSET,
+    referencePitch: { step: "C", alter: 0, octave: 4 },
     halfLineSpacing: FALLBACK_FEEDBACK_HALF_LINE_SPACING,
   };
+}
+
+function clefReferencePitch(sign: string | undefined, octaveChange: number): PitchSpelling | undefined {
+  if (sign === "G") return { step: "G", alter: 0, octave: 4 + octaveChange };
+  if (sign === "F") return { step: "F", alter: 0, octave: 3 + octaveChange };
+  if (sign === "C") return { step: "C", alter: 0, octave: 4 + octaveChange };
+  return undefined;
 }
 
 function currentMarkerRect(position: EventPosition): OverlayRect {

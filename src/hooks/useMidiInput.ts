@@ -10,6 +10,14 @@ export interface MidiInputSummary {
   connection?: string;
 }
 
+export interface CapturedMidiMessage {
+  id: number;
+  message: DecodedMidiMessage;
+  receivedAtMs: number;
+  heldNotesBefore: number[];
+  heldNotesAfter: number[];
+}
+
 interface MidiHookState {
   supported: boolean;
   secureContext: boolean;
@@ -22,6 +30,7 @@ interface MidiHookState {
   lastMessageAtMs?: number;
   heldState: HeldNoteState;
   messageCounter: number;
+  messageEvents: CapturedMidiMessage[];
 }
 
 type NavigatorWithMidi = Navigator & {
@@ -42,6 +51,7 @@ export function useMidiInput() {
     selectedInputId: storedInputId(),
     heldState: createHeldNoteState(),
     messageCounter: 0,
+    messageEvents: [],
   });
 
   const refreshInputs = useCallback((access: MIDIAccess) => {
@@ -123,13 +133,18 @@ export function useMidiInput() {
       }
       const message = decodeMidiMessage(event.data);
       const receivedAtMs = performance.now();
-      setState((current) => ({
-        ...current,
-        lastMessage: message,
-        lastMessageAtMs: receivedAtMs,
-        heldState: applyMidiToHeldNotes(current.heldState, message),
-        messageCounter: current.messageCounter + 1,
-      }));
+      setState((current) => {
+        const id = current.messageCounter + 1;
+        const { heldState, captured } = captureMidiMessage(current.heldState, message, receivedAtMs, id);
+        return {
+          ...current,
+          lastMessage: message,
+          lastMessageAtMs: receivedAtMs,
+          heldState,
+          messageCounter: id,
+          messageEvents: [...current.messageEvents, captured].slice(-128),
+        };
+      });
     };
 
     selected.onmidimessage = handler;
@@ -146,6 +161,18 @@ export function useMidiInput() {
     requestAccess,
     selectInput,
   };
+}
+
+export function captureMidiMessage(heldStateBefore: HeldNoteState, message: DecodedMidiMessage, receivedAtMs: number, id: number): { heldState: HeldNoteState; captured: CapturedMidiMessage } {
+  const heldState = applyMidiToHeldNotes(heldStateBefore, message);
+  return {
+    heldState,
+    captured: { id, message, receivedAtMs, heldNotesBefore: sortedNotes(heldStateBefore.heldNotes), heldNotesAfter: sortedNotes(heldState.heldNotes) },
+  };
+}
+
+function sortedNotes(notes: Iterable<number>): number[] {
+  return Array.from(notes).sort((a, b) => a - b);
 }
 
 function storedInputId(): string | undefined {

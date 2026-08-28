@@ -76,6 +76,28 @@ describe("parseMusicXmlTimeline", () => {
     });
   });
 
+  it("tracks independent clefs and mid-score clef changes on each note", () => {
+    const parsed = parseMusicXmlTimeline(`<?xml version="1.0"?><score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1">
+      <attributes><divisions>1</divisions><staves>2</staves><clef number="1"><sign>C</sign><line>3</line></clef><clef number="2"><sign>G</sign><line>2</line><clef-octave-change>1</clef-octave-change></clef></attributes>
+      <note><pitch><step>D</step><octave>5</octave></pitch><duration>1</duration><voice>2</voice><staff>2</staff></note>
+      <attributes><clef number="2"><sign>F</sign><line>4</line></clef></attributes>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><voice>2</voice><staff>2</staff></note>
+    </measure></part></score-partwise>`);
+    expect(parsed.events[0].noteDetails[0].clef).toEqual({ sign: "G", line: 2, octaveChange: 1 });
+    expect(parsed.events[1].noteDetails[0].clef).toEqual({ sign: "F", line: 4, octaveChange: 0 });
+  });
+
+  it("retains arpeggio direction on each marked chord note", () => {
+    const parsed = parseMusicXmlTimeline(`<?xml version="1.0"?><score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate direction="down" number="2"/></notations></note>
+      <note><chord/><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate direction="down" number="2"/></notations></note>
+      <note><chord/><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice><notations><arpeggiate direction="down" number="2"/></notations></note>
+    </measure></part></score-partwise>`);
+    expect(parsed.events[0].noteDetails.map((detail) => detail.arpeggio)).toEqual([
+      { direction: "down", number: 2 }, { direction: "down", number: 2 }, { direction: "down", number: 2 },
+    ]);
+  });
+
   it("keeps pitched notes playable when another voice has rests at the same timestamp", () => {
     const parsed = parseMusicXmlTimeline(`<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="4.0">

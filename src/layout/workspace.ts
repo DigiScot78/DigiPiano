@@ -1,9 +1,12 @@
 export interface WorkspaceLayoutSettings {
   sidebarOpen: boolean;
   sidebarWidth: number;
+  sidebarTab: WorkspaceSidebarTab;
   panelOpenScoreMargin: number;
   panelDockedScoreMargin: number;
 }
+
+export type WorkspaceSidebarTab = "practice" | "debug";
 
 export const WORKSPACE_LAYOUT_SETTINGS_KEY = "piano.workspace-layout";
 export const SIDEBAR_MIN_WIDTH = 240;
@@ -13,6 +16,7 @@ export const SCORE_MARGIN_MAX = 300;
 export const DEFAULT_WORKSPACE_LAYOUT_SETTINGS: WorkspaceLayoutSettings = {
   sidebarOpen: true,
   sidebarWidth: 320,
+  sidebarTab: "practice",
   panelOpenScoreMargin: 50,
   panelDockedScoreMargin: 50,
 };
@@ -26,6 +30,7 @@ export function readWorkspaceLayoutSettings(storage: Pick<Storage, "getItem"> | 
   return {
     sidebarOpen: typeof candidate.sidebarOpen === "boolean" ? candidate.sidebarOpen : true,
     sidebarWidth: integerInRange(candidate.sidebarWidth, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH, DEFAULT_WORKSPACE_LAYOUT_SETTINGS.sidebarWidth),
+    sidebarTab: candidate.sidebarTab === "debug" ? "debug" : "practice",
     panelOpenScoreMargin: integerInRange(candidate.panelOpenScoreMargin, SCORE_MARGIN_MIN, SCORE_MARGIN_MAX, legacyMargin),
     panelDockedScoreMargin: integerInRange(candidate.panelDockedScoreMargin, SCORE_MARGIN_MIN, SCORE_MARGIN_MAX, legacyMargin),
   };

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceWhenSatisfied,
+  advanceArpeggioProgress,
+  arpeggioSequenceForEvent,
   compareHeldNotesToEvent,
   feedbackMarkersForHeldNotes,
   filterEventForHand,
@@ -35,6 +37,11 @@ const chord: ScoreEvent = {
     { midiNote: 64, staffNumber: 1, voiceNumber: "1", sourceNoteId: "chord-64" },
     { midiNote: 67, staffNumber: 1, voiceNumber: "1", sourceNoteId: "chord-67" },
   ],
+};
+const arpeggio: ScoreEvent = {
+  ...chord,
+  id: "arpeggio",
+  noteDetails: chord.noteDetails.map((detail) => ({ ...detail, arpeggio: { direction: "up" as const } })),
 };
 
 
@@ -95,6 +102,14 @@ describe("score event matching", () => {
       satisfied: false,
       missingNotes: [67],
     });
+  });
+
+  it("recognizes an arpeggio in pitch order within the allowed gap", () => {
+    expect(arpeggioSequenceForEvent(arpeggio)).toEqual([60, 64, 67]);
+    const first = advanceArpeggioProgress(arpeggio, 60, 1000);
+    const second = advanceArpeggioProgress(arpeggio, 64, 1400, first.progress);
+    expect(advanceArpeggioProgress(arpeggio, 67, 1800, second.progress).complete).toBe(true);
+    expect(advanceArpeggioProgress(arpeggio, 67, 2200, first.progress).complete).toBe(false);
   });
 
   it("allows extra notes while reporting them", () => {

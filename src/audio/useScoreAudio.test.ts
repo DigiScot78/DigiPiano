@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlaybackPlan } from "../playback/playback";
-import { audioNotesForPlan, audioNotesInWindow } from "./useScoreAudio";
+import { ARPEGGIO_NOTE_SPREAD_MS, audioNotesForPlan, audioNotesInWindow } from "./useScoreAudio";
 
 const plan: PlaybackPlan = {
   startQuarter: 0, endQuarter: 2, durationMs: 1000,
@@ -23,8 +23,19 @@ describe("score audio scheduling", () => {
     expect(audioNotesInWindow(notes, 450, undefined, new Set()).map((note) => note.midiNote)).toEqual([67]);
   });
 
+  it("keeps the authoritative pending gate closed even if transport time reaches it", () => {
+    const notes = audioNotesForPlan(plan);
+    expect(audioNotesInWindow(notes, 500.75, 500, new Set()).map((note) => note.midiNote)).toEqual([]);
+  });
+
   it("does not schedule notes before a resume or seek origin", () => {
     const notes = audioNotesForPlan(plan);
     expect(audioNotesInWindow(notes, 0, undefined, new Set(), 600, 500).map((note) => note.midiNote)).toEqual([67]);
+  });
+
+  it("rolls marked arpeggio notes in written direction", () => {
+    const rolled = structuredClone(plan);
+    rolled.events[1].event.noteDetails = rolled.events[1].event.noteDetails.map((detail) => ({ ...detail, arpeggio: { direction: "up" as const } }));
+    expect(audioNotesForPlan(rolled).filter((note) => note.midiNote === 60 || note.midiNote === 64).map((note) => [note.midiNote, note.onsetMs])).toEqual([[60, 0], [64, ARPEGGIO_NOTE_SPREAD_MS]]);
   });
 });

@@ -32,6 +32,34 @@ export interface PracticeOptions {
   range?: ScoreSelectionRange;
 }
 
+export interface ArpeggioProgress {
+  eventId: string;
+  playedNotes: number[];
+  lastPlayedAtMs: number;
+}
+
+export const ARPEGGIO_MAX_GAP_MS = 750;
+
+export function arpeggioSequenceForEvent(event: ScoreEvent | undefined): number[] | undefined {
+  const marked = event?.noteDetails.filter((detail) => detail.arpeggio) ?? [];
+  if (marked.length < 2) return undefined;
+  const direction = marked[0].arpeggio?.direction ?? "up";
+  return Array.from(new Set(marked.map((detail) => detail.midiNote))).sort((a, b) => direction === "down" ? b - a : a - b);
+}
+
+export function advanceArpeggioProgress(event: ScoreEvent, note: number, playedAtMs: number, current?: ArpeggioProgress): { progress?: ArpeggioProgress; complete: boolean } {
+  const sequence = arpeggioSequenceForEvent(event);
+  if (!sequence) return { complete: false };
+  const active = current?.eventId === event.id && playedAtMs - current.lastPlayedAtMs <= ARPEGGIO_MAX_GAP_MS ? current.playedNotes : [];
+  const expected = sequence[active.length];
+  let playedNotes = active;
+  if (note === expected) playedNotes = [...active, note];
+  else if (note === sequence[0]) playedNotes = [note];
+  else if (sequence.includes(note)) playedNotes = [];
+  if (playedNotes.length === sequence.length) return { complete: true };
+  return { complete: false, progress: { eventId: event.id, playedNotes, lastPlayedAtMs: playedAtMs } };
+}
+
 export function feedbackMarkersForHeldNotes(
   heldNotes: Iterable<number>,
   event: ScoreEvent | undefined,

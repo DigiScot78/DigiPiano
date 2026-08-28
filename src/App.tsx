@@ -3,6 +3,8 @@ import { ScoreRenderer, type CompletedNoteFeedback } from "./components/ScoreRen
 import { PianoPanel } from "./components/PianoPanel";
 import {
   advanceWhenSatisfied,
+  advanceArpeggioProgress,
+  arpeggioSequenceForEvent,
   compareHeldNotesToEvent,
   filterEventForHand,
   feedbackMarkersForHeldNotes,
@@ -12,6 +14,7 @@ import {
   nextPlayableIndex,
   resolvePracticeIndex,
   type HandMode,
+  type ArpeggioProgress,
   type LearningState,
   type PracticeRunMode,
   type ScoreSelectionRange,
@@ -82,16 +85,15 @@ function App() {
   const [midiSettingsOpen, setMidiSettingsOpen] = useState(false);
   const completedFeedbackTimerRef = useRef<number | undefined>(undefined);
   const completedFeedbackIdRef = useRef(0);
-  const previousHeldNotesRef = useRef<number[]>([]);
   const processedMidiCounterRef = useRef(0);
+  const arpeggioProgressRef = useRef<ArpeggioProgress | undefined>(undefined);
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | undefined>(undefined);
   const [draftSidebarWidth, setDraftSidebarWidth] = useState<number | undefined>();
   const [sidebarHiddenForPlayback, setSidebarHiddenForPlayback] = useState(false);
-  const [pianoPanelHeight, setPianoPanelHeight] = useState(0);
 
   const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, handMode, range: selectedRange, runMode, pauseOnNotes, settings: play.settings });
-  const scoreAudio = useScoreAudio({ plan: playback.plan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, audioStartElapsedMs: playback.audioStartElapsedMs, runId: playback.runId, pauseOnNotes, settings: audioSettings.settings });
-  const { phase: playbackPhase, handleMidiNoteOn } = playback;
+  const scoreAudio = useScoreAudio({ plan: playback.plan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, audioStartElapsedMs: playback.audioStartElapsedMs, runId: playback.runId, pauseOnNotes, nextPendingGateOnsetMs: playback.nextPendingGateOnsetMs, settings: audioSettings.settings });
+  const { phase: playbackPhase, handleHeldNotesChange, handleMidiNoteOn } = playback;
   const clearCompletedFeedback = useCallback(() => {
     if (completedFeedbackTimerRef.current !== undefined) {
       window.clearTimeout(completedFeedbackTimerRef.current);
@@ -136,13 +138,6 @@ function App() {
 
   const currentEvent = parsedScore.events[learningState.currentIndex];
   const expectedEvent = useMemo(() => filterEventForHand(currentEvent, handMode), [currentEvent, handMode]);
-  const currentEventPlayable = isEventPlayableForHand(currentEvent, handMode);
-  const nextPlayableEventIndex = useMemo(() => nextPlayableIndex(
-    parsedScore.events,
-    learningState.currentIndex + 1,
-    selectedRange?.endIndex ?? parsedScore.events.length - 1,
-    handMode,
-  ), [handMode, learningState.currentIndex, parsedScore.events, selectedRange]);
   const combinedHeldNotes = useMemo(
     () => Array.from(new Set([...midi.heldNotes, ...simulatedHeldNotes])).sort((a, b) => a - b),
     [midi.heldNotes, simulatedHeldNotes],
@@ -151,9 +146,30 @@ function App() {
     () => feedbackMarkersForHeldNotes(combinedHeldNotes, currentEvent, handMode, carriedCompletedNotes),
     [carriedCompletedNotes, combinedHeldNotes, currentEvent, handMode],
   );
+  const gateFeedbackEvent = useMemo(() => {
+    const gate = playback.gate;
+    const gatedEvents = gate ? playback.plan?.events.filter((item) => gate.eventIndices.includes(item.eventIndex)).map((item) => item.event) ?? [] : [];
+    const first = gatedEvents[0];
+    if (!gate || !first) return undefined;
+    const noteDetails = gatedEvents.flatMap((event) => event.noteDetails).filter((detail) => gate.expectedNotes.includes(detail.midiNote));
+    return { ...first, id: `gate:${gate.onsetMs}`, midiNotes: gate.expectedNotes, noteDetails, staffNumbers: [...new Set(noteDetails.map((detail) => detail.staffNumber))], voiceNumbers: [...new Set(noteDetails.map((detail) => detail.voiceNumber))], sourceNoteIds: noteDetails.map((detail) => detail.sourceNoteId) };
+  }, [playback.gate, playback.plan]);
+  const gateFeedbackMarkers = useMemo(() => feedbackMarkersForHeldNotes(combinedHeldNotes, gateFeedbackEvent, handMode), [combinedHeldNotes, gateFeedbackEvent, handMode]);
+  const waitingForGateNotes = useMemo(() => {
+    const gate = playback.gate;
+    if (!gate) return [];
+    const unsatisfied = (notes: number[]) => notes.filter((note) => !gate.satisfiedNotes.includes(note));
+    if (!gate.arpeggioNotes) return unsatisfied(gate.expectedNotes);
+    const chordNotes = unsatisfied(gate.expectedNotes.filter((note) => !gate.arpeggioNotes?.includes(note)));
+    return [...chordNotes, ...unsatisfied(gate.arpeggioNotes).slice(0, 1)];
+  }, [playback.gate]);
   const playbackCursorIndex = playback.currentEventIndex;
   const displayedEventIndex = playback.phase === "idle" ? learningState.currentIndex : (playbackCursorIndex ?? learningState.currentIndex);
   const displayedEvent = playback.phase === "idle" ? expectedEvent : filterEventForHand(parsedScore.events[displayedEventIndex], handMode);
+  const sidebarCurrentEvent = parsedScore.events[displayedEventIndex];
+  const sidebarExpectedEvent = filterEventForHand(sidebarCurrentEvent, handMode);
+  const sidebarEventPlayable = isEventPlayableForHand(sidebarCurrentEvent, handMode);
+  const sidebarNextPlayableEventIndex = nextPlayableIndex(parsedScore.events, displayedEventIndex + 1, selectedRange?.endIndex ?? parsedScore.events.length - 1, handMode);
 
   const practiceOptions = useMemo(() => ({ handMode, runMode, range: selectedRange }), [handMode, runMode, selectedRange]);
 
@@ -208,6 +224,7 @@ function App() {
     diagnosticContext?: {
       source: PracticeAttemptDiagnostic["source"];
       triggeringMidiNote?: number;
+      receivedAtMs?: number;
       heldNotesBefore: number[];
       heldNotesAfter: number[];
     },
@@ -215,9 +232,17 @@ function App() {
     const current = learningStateRef.current;
     const resolvedIndexBeforeAdvance = resolvePracticeIndex(current.currentIndex, parsedScore.events, handMode, selectedRange);
     const activeEventBeforeAdvance = parsedScore.events[resolvedIndexBeforeAdvance];
-    const expectedNotesBeforeAdvance = filterEventForHand(activeEventBeforeAdvance, handMode)?.midiNotes ?? [];
-    const next = advanceWhenSatisfied(current, parsedScore.events, notes, practiceOptions);
-    learningStateRef.current = next;
+    const filteredEventBeforeAdvance = filterEventForHand(activeEventBeforeAdvance, handMode);
+    const expectedNotesBeforeAdvance = filteredEventBeforeAdvance?.midiNotes ?? [];
+    let notesForAdvancement = notes;
+    if (filteredEventBeforeAdvance && arpeggioSequenceForEvent(filteredEventBeforeAdvance) && diagnosticContext?.triggeringMidiNote !== undefined) {
+      const arpeggio = advanceArpeggioProgress(filteredEventBeforeAdvance, diagnosticContext.triggeringMidiNote, diagnosticContext.receivedAtMs ?? performance.now(), arpeggioProgressRef.current);
+      arpeggioProgressRef.current = arpeggio.progress;
+      notesForAdvancement = arpeggio.complete ? expectedNotesBeforeAdvance : [];
+    }
+    const next = advanceWhenSatisfied(current, parsedScore.events, notesForAdvancement, practiceOptions);
+      learningStateRef.current = next;
+      arpeggioProgressRef.current = undefined;
     setLearningState(next);
 
     const advanced = next.currentIndex !== resolvedIndexBeforeAdvance || next.completedEventIds.length > current.completedEventIds.length || next.isComplete !== current.isComplete;
@@ -274,29 +299,27 @@ function App() {
     setCarriedCompletedNotes((current) => current.filter((note) => combinedHeldNotes.includes(note)));
   }, [combinedHeldNotes]);
 
+  useEffect(() => handleHeldNotesChange(combinedHeldNotes), [combinedHeldNotes, handleHeldNotesChange]);
+
   useEffect(() => {
-    if (midi.messageCounter === 0 || processedMidiCounterRef.current === midi.messageCounter) {
-      return;
-    }
-    processedMidiCounterRef.current = midi.messageCounter;
-
-    const heldNotesBefore = previousHeldNotesRef.current;
-    previousHeldNotesRef.current = combinedHeldNotes;
-    if (midi.lastMessage?.kind !== "note-on" || midi.lastMessage.noteNumber === undefined) {
-      return;
-    }
-
-    if (playbackPhase !== "idle") {
-      handleMidiNoteOn(midi.lastMessage.noteNumber, midi.lastMessageAtMs ?? performance.now());
-    } else {
-      advanceWithNotes(combinedHeldNotes, {
+    const pending = midi.messageEvents.filter((event) => event.id > processedMidiCounterRef.current);
+    for (const event of pending) {
+      processedMidiCounterRef.current = event.id;
+      if (playbackPhase !== "idle") handleHeldNotesChange(event.heldNotesAfter);
+      if (event.message.kind !== "note-on" || event.message.noteNumber === undefined) continue;
+      if (playbackPhase !== "idle") {
+        handleMidiNoteOn(event.message.noteNumber, event.receivedAtMs, event.heldNotesAfter, playbackPhase === "waiting-note");
+      } else {
+        advanceWithNotes(event.heldNotesAfter, {
         source: "midi",
-        triggeringMidiNote: midi.lastMessage.noteNumber,
-        heldNotesBefore,
-        heldNotesAfter: combinedHeldNotes,
-      });
+          triggeringMidiNote: event.message.noteNumber,
+          receivedAtMs: event.receivedAtMs,
+          heldNotesBefore: event.heldNotesBefore,
+          heldNotesAfter: event.heldNotesAfter,
+        });
+      }
     }
-  }, [advanceWithNotes, combinedHeldNotes, handleMidiNoteOn, midi.lastMessage, midi.lastMessageAtMs, midi.messageCounter, playbackPhase]);
+  }, [advanceWithNotes, handleHeldNotesChange, handleMidiNoteOn, midi.messageEvents, playbackPhase]);
 
   const handleSelectionChange = useCallback((range: ScoreSelectionRange | undefined) => {
     setSelectedRange(range);
@@ -403,10 +426,16 @@ function App() {
   const sidebarWidth = draftSidebarWidth ?? workspace.settings.sidebarWidth;
   const sidebarVisible = isSidebarVisible(workspace.settings, sidebarHiddenForPlayback);
   const scoreMargin = scoreMarginForLayout(workspace.settings, sidebarVisible);
-  const reportPianoPanelHeight = useCallback((height: number) => setPianoPanelHeight((current) => current === height ? current : height), []);
+  const selectSidebarTabFromKey = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const nextTab = event.key === "ArrowLeft" || event.key === "Home" ? "practice" : "debug";
+    workspace.setSettings({ sidebarTab: nextTab });
+    document.getElementById(`sidebar-tab-${nextTab}`)?.focus();
+  };
 
   return (
-    <main className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px`, "--score-margin": `${scoreMargin}px`, "--bottom-panel-height": `${pianoPanelHeight}px` } as React.CSSProperties}>
+    <main className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px`, "--score-margin": `${scoreMargin}px` } as React.CSSProperties}>
       <header className="app-header">
         <h1>Piano Learning</h1>
       </header>
@@ -422,7 +451,7 @@ function App() {
             eventCount={parsedScore.events.length}
             events={parsedScore.events}
             selectedRange={selectedRange}
-            feedbackMarkers={playback.phase === "idle" ? scoreFeedbackMarkers : []}
+            feedbackMarkers={playback.phase === "idle" ? scoreFeedbackMarkers : playback.phase === "waiting-note" ? gateFeedbackMarkers : []}
             completedFeedback={completedFeedback}
             performanceResults={shouldShowPerformanceResults(playback.phase, play.settings.showHitsWhilePlaying) ? playback.results : []}
             missedPerformanceNotes={playback.missedNotes}
@@ -433,7 +462,7 @@ function App() {
             handMode={handMode}
             runMode={runMode}
             pauseOnNotes={pauseOnNotes}
-            waitingForNotes={playback.gate?.expectedNotes.filter((note) => !playback.gate?.satisfiedNotes.includes(note))}
+            waitingForNotes={waitingForGateNotes}
             audioSettings={audioSettings.settings}
             audioError={scoreAudio.error}
             scoreTheme={appearance.scoreTheme}
@@ -456,46 +485,50 @@ function App() {
         </div>
         {sidebarVisible ? <aside className="right-sidebar" aria-label="Side panel">
           <button type="button" className="sidebar-resize-handle" aria-label="Resize side panel" title="Drag to resize side panel" onPointerDown={beginSidebarResize} onPointerMove={resizeSidebar} onPointerUp={finishSidebarResize} onPointerCancel={finishSidebarResize}><span /></button>
-          <button type="button" className="sidebar-collapse-button" aria-label="Collapse side panel" title="Collapse side panel" onClick={() => workspace.setSettings({ sidebarOpen: false })}><SidebarCollapseIcon /></button>
-          <div className="sidebar-scroll-content">
-          <section className="panel file-panel">
+          <header className="sidebar-header">
+            <section className="file-panel">
             <div className="file-panel-actions">
               <label className="file-picker-button">
                 Open score
                 <input type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />
               </label>
               <button type="button" className="settings-button" aria-label="Open settings" title="Settings" onClick={() => setMidiSettingsOpen(true)}><SettingsIcon /></button>
+              <button type="button" className="sidebar-collapse-button" aria-label="Collapse side panel" title="Collapse side panel" onClick={() => workspace.setSettings({ sidebarOpen: false })}><SidebarCollapseIcon /></button>
             </div>
             {scoreError ? <p className="error compact-message">{scoreError}</p> : null}
             {renderError ? <p className="error compact-message">Renderer: {renderError}</p> : null}
-          </section>
-          <section className="panel practice-panel">
-            <h2>Practice</h2>
+            </section>
+            <div className="sidebar-tabs" role="tablist" aria-label="Workspace">
+              <button type="button" id="sidebar-tab-practice" role="tab" aria-selected={workspace.settings.sidebarTab === "practice"} aria-controls="sidebar-panel-practice" tabIndex={workspace.settings.sidebarTab === "practice" ? 0 : -1} onClick={() => workspace.setSettings({ sidebarTab: "practice" })} onKeyDown={selectSidebarTabFromKey}>Practice</button>
+              <button type="button" id="sidebar-tab-debug" role="tab" aria-selected={workspace.settings.sidebarTab === "debug"} aria-controls="sidebar-panel-debug" tabIndex={workspace.settings.sidebarTab === "debug" ? 0 : -1} onClick={() => workspace.setSettings({ sidebarTab: "debug" })} onKeyDown={selectSidebarTabFromKey}>Debug</button>
+            </div>
+          </header>
+          <div className="sidebar-tab-content">
+          {workspace.settings.sidebarTab === "practice" ? <section id="sidebar-panel-practice" className="practice-panel" role="tabpanel" aria-labelledby="sidebar-tab-practice">
             <div className="feedback-controls">
               <label><input type="checkbox" checked={showCorrectNoteNames} onChange={(event) => setShowCorrectNoteNames(event.target.checked)} /> Correct names</label>
               <label><input type="checkbox" checked={showWrongNoteNames} onChange={(event) => setShowWrongNoteNames(event.target.checked)} /> Wrong names</label>
             </div>
             <SelectionSummary range={selectedRange} events={parsedScore.events} />
-            {expectedEvent ? <ExpectedEvent event={expectedEvent} index={learningState.currentIndex} total={parsedScore.events.length} isComplete={learningState.isComplete} /> : <p className="muted">Load a score to begin.</p>}
+            {sidebarExpectedEvent ? <ExpectedEvent event={sidebarExpectedEvent} index={displayedEventIndex} total={parsedScore.events.length} isComplete={playback.phase === "idle" && learningState.isComplete} /> : <p className="muted">Load a score to begin.</p>}
             <div className="button-row compact-actions">
               <button type="button" onClick={simulateCurrentEvent} disabled={playback.phase !== "idle" || !expectedEvent || expectedEvent.midiNotes.length === 0 || learningState.isComplete}>Simulate</button>
               <button type="button" onClick={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); }} disabled={playback.phase !== "idle"}>Release</button>
               <button type="button" onClick={clearSelection} disabled={playback.phase !== "idle" || !selectedRange}>Clear range</button>
             </div>
             <ComparisonSummary state={learningState} />
-          </section>
-          <DebugPanel
+          </section> : <div id="sidebar-panel-debug" role="tabpanel" aria-labelledby="sidebar-tab-debug"><DebugPanel
           loadedScore={loadedScore}
           parsedScore={parsedScore}
-          currentEvent={currentEvent}
-          expectedEvent={expectedEvent}
-          currentIndex={learningState.currentIndex}
+          currentEvent={sidebarCurrentEvent}
+          expectedEvent={sidebarExpectedEvent}
+          currentIndex={displayedEventIndex}
           selectedRange={selectedRange}
           handMode={handMode}
           runMode={runMode}
           isComplete={learningState.isComplete}
-          currentEventPlayable={currentEventPlayable}
-          nextPlayableEventIndex={nextPlayableEventIndex}
+          currentEventPlayable={sidebarEventPlayable}
+          nextPlayableEventIndex={sidebarNextPlayableEventIndex}
           selectedMidiDevice={midi.inputs.find((input) => input.id === midi.selectedInputId)?.name}
           lastMessage={midi.lastMessage}
           heldNotes={combinedHeldNotes}
@@ -506,7 +539,7 @@ function App() {
           carriedCompletedNotes={carriedCompletedNotes}
           playbackPhase={playback.phase}
           performanceResults={playback.results}
-          />
+          /></div>}
           </div>
         </aside> : null}
       </section>
@@ -527,7 +560,6 @@ function App() {
         canClearPerformance={playback.results.length > 0 || playback.missedNotes.length > 0}
         audioSettings={audioSettings.settings}
         audioError={scoreAudio.error}
-        onPanelHeightChange={reportPianoPanelHeight}
         onSettingsChange={piano.setSettings}
         onTogglePlayback={togglePlaybackWithAudio}
         onReset={resetAllProgress}
@@ -727,10 +759,13 @@ function SelectionSummary({ range, events }: { range?: ScoreSelectionRange; even
 }
 
 function ExpectedEvent({ event, index, total, isComplete }: { event: ScoreEvent; index: number; total: number; isComplete: boolean }) {
+  const arpeggio = arpeggioSequenceForEvent(event);
+  const chordNotes = arpeggio ? event.midiNotes.filter((note) => !arpeggio.includes(note)) : [];
+  const arpeggioLabel = arpeggio ? `Arpeggio ${event.noteDetails.find((note) => note.arpeggio)?.arpeggio?.direction === "down" ? "↓" : "↑"}: ${formatNotes(arpeggio)}` : undefined;
   return (
     <div className="expected-event">
       <p className="event-count">Event {index + 1} of {total}{isComplete ? " complete" : ""}</p>
-      <p className="note-set">{formatNotes(event.midiNotes)}</p>
+      <p className="note-set">{arpeggioLabel ? `${chordNotes.length ? `Chord ${formatNotes(chordNotes)} + ` : ""}${arpeggioLabel}` : formatNotes(event.midiNotes)}</p>
       <p className="muted">Measure {event.measureNumber}; start {event.startQuarter.toFixed(2)} quarters; duration {event.durationQuarters.toFixed(2)} quarters.</p>
     </div>
   );
@@ -778,7 +813,7 @@ function DebugPanel(props: {
   performanceResults: unknown[];
 }) {
   return (
-    <aside className="debug-panel">
+    <div className="debug-panel">
       <h2>Debug</h2>
       <dl className="info-list compact">
         <div><dt>Loaded file</dt><dd>{props.loadedScore?.fileName ?? "None"}</dd></div>
@@ -813,7 +848,7 @@ function DebugPanel(props: {
       {props.parsedScore.warnings.length === 0 ? <p className="muted">None</p> : <ul>{props.parsedScore.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul>}
       <h3>Import Diagnostics</h3>
       <pre>{JSON.stringify(importDiagnosticsForDebug(props.parsedScore), null, 2)}</pre>
-    </aside>
+    </div>
   );
 }
 

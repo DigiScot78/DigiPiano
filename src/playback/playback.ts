@@ -16,6 +16,8 @@ export interface PlaybackGate {
   eventIndices: number[];
   expectedNotes: number[];
   satisfiedNotes: number[];
+  arpeggioNotes?: number[];
+  lastArpeggioAtMs?: number;
 }
 export interface PerformanceResult {
   id: number;
@@ -32,6 +34,7 @@ export interface PerformanceResult {
 export interface MissedPerformanceNote { id: string; note: number; eventIndex: number; staffNumber?: number }
 
 export function shouldShowPerformanceResults(phase: PlaybackPhase, showHitsWhilePlaying: boolean): boolean {
+  if (phase === "waiting-note") return false;
   return phase !== "playing" || showHitsWhilePlaying;
 }
 
@@ -102,12 +105,18 @@ export function playbackGates(plan: PlaybackPlan): PlaybackGate[] {
     existing.push(event);
     grouped.set(event.onsetMs, existing);
   }
-  return Array.from(grouped, ([onsetMs, events]) => ({
-    onsetMs,
-    eventIndices: events.map((item) => item.eventIndex),
-    expectedNotes: Array.from(new Set(events.flatMap((item) => item.event.midiNotes))).sort((a, b) => a - b),
-    satisfiedNotes: [],
-  })).sort((a, b) => a.onsetMs - b.onsetMs);
+  return Array.from(grouped, ([onsetMs, events]) => {
+    const marked = events.flatMap((item) => item.event.noteDetails).filter((detail) => detail.arpeggio);
+    const direction = marked[0]?.arpeggio?.direction ?? "up";
+    const arpeggioNotes = Array.from(new Set(marked.map((detail) => detail.midiNote))).sort((a, b) => direction === "down" ? b - a : a - b);
+    return {
+      onsetMs,
+      eventIndices: events.map((item) => item.eventIndex),
+      expectedNotes: Array.from(new Set(events.flatMap((item) => item.event.midiNotes))).sort((a, b) => a - b),
+      satisfiedNotes: [],
+      ...(arpeggioNotes.length < 2 ? {} : { arpeggioNotes }),
+    };
+  }).sort((a, b) => a.onsetMs - b.onsetMs);
 }
 
 export function scorePerformanceAttempt(playedNote: number, elapsedMs: number, playedAtMs: number, id: number, plan: PlaybackPlan, tempoChanges: TempoChange[], fallbackBpm: number, toleranceMs: number, existingResults: PerformanceResult[] = []): PerformanceResult | undefined {
@@ -135,29 +144,6 @@ export function scorePerformanceAttempt(playedNote: number, elapsedMs: number, p
     staffNumber: detail?.staffNumber,
     result: isCorrect ? "correct" : "wrong",
   };
-}
-
-export function scoreGatedPerformanceAttempt(playedNote: number, gate: PlaybackGate, playedAtMs: number, firstId: number, plan: PlaybackPlan, tempoChanges: TempoChange[], fallbackBpm: number, existingResults: PerformanceResult[] = []): PerformanceResult[] {
-  const matchingEvents = plan.events.filter((item) => Math.abs(item.onsetMs - gate.onsetMs) < 0.001 && item.event.midiNotes.includes(playedNote));
-  if (matchingEvents.length === 0) {
-    const mistake = scorePerformanceAttempt(playedNote, gate.onsetMs, playedAtMs, firstId, plan, tempoChanges, fallbackBpm, 0, existingResults);
-    return mistake ? [mistake] : [];
-  }
-  const scoreQuarter = scoreQuarterAtElapsed(plan, gate.onsetMs, tempoChanges, fallbackBpm);
-  return matchingEvents
-    .filter((item) => !existingResults.some((result) => result.result === "correct" && result.slotId === slotId(item.eventIndex, playedNote)))
-    .map((item, index) => ({
-      id: firstId + index,
-      slotId: slotId(item.eventIndex, playedNote),
-      expectedNote: playedNote,
-      playedNote,
-      playedAtMs,
-      scoreQuarter,
-      eventIndex: item.eventIndex,
-      timingErrorMs: 0,
-      staffNumber: item.event.noteDetails.find((detail) => detail.midiNote === playedNote)?.staffNumber,
-      result: "correct" as const,
-    }));
 }
 
 function slotId(eventIndex: number, note: number): string { return `${eventIndex}:${note}`; }

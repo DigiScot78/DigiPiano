@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { playbackGates, type PlaybackPhase, type PlaybackPlan } from "../playback/playback";
+import type { PlaybackPhase, PlaybackPlan } from "../playback/playback";
 import type { AudioSettings } from "./settings";
 import { PianoSynthEngine, type ScoreAudioEngine } from "./pianoSynth";
+import { arpeggioSequenceForEvent } from "../learning/matcher";
 
 export interface AudioPlanNote { id: string; midiNote: number; onsetMs: number; durationMs: number }
 
 const LOOKAHEAD_MS = 120;
+export const ARPEGGIO_NOTE_SPREAD_MS = 70;
 
 export function audioNotesForPlan(plan: PlaybackPlan | undefined): AudioPlanNote[] {
   if (!plan) return [];
   const grouped = new Map<string, AudioPlanNote>();
   for (const item of plan.events) {
+    const arpeggio = arpeggioSequenceForEvent(item.event);
     for (const midiNote of item.event.midiNotes) {
-      const key = `${item.onsetMs}:${midiNote}`;
-      const durationMs = Math.max(0, item.endMs - item.onsetMs);
+      const arpeggioIndex = arpeggio?.indexOf(midiNote) ?? -1;
+      const onsetMs = item.onsetMs + Math.max(0, arpeggioIndex) * ARPEGGIO_NOTE_SPREAD_MS;
+      const key = `${onsetMs}:${midiNote}`;
+      const durationMs = Math.max(0, item.endMs - onsetMs);
       const current = grouped.get(key);
-      if (!current || durationMs > current.durationMs) grouped.set(key, { id: key, midiNote, onsetMs: item.onsetMs, durationMs });
+      if (!current || durationMs > current.durationMs) grouped.set(key, { id: key, midiNote, onsetMs, durationMs });
     }
   }
   return [...grouped.values()].sort((a, b) => a.onsetMs - b.onsetMs || a.midiNote - b.midiNote);
@@ -30,13 +35,12 @@ export function audioNotesInWindow(notes: AudioPlanNote[], elapsedMs: number, ne
     && !scheduled.has(note.id));
 }
 
-export function useScoreAudio(options: { plan?: PlaybackPlan; phase: PlaybackPhase; rollElapsedMs: number; audioStartElapsedMs?: number; runId: number; pauseOnNotes: boolean; settings: AudioSettings; engine?: ScoreAudioEngine }) {
-  const { plan, phase, rollElapsedMs, audioStartElapsedMs = 0, runId, pauseOnNotes, settings } = options;
+export function useScoreAudio(options: { plan?: PlaybackPlan; phase: PlaybackPhase; rollElapsedMs: number; audioStartElapsedMs?: number; runId: number; pauseOnNotes: boolean; nextPendingGateOnsetMs?: number; settings: AudioSettings; engine?: ScoreAudioEngine }) {
+  const { plan, phase, rollElapsedMs, audioStartElapsedMs = 0, runId, pauseOnNotes, nextPendingGateOnsetMs, settings } = options;
   const [engine] = useState<ScoreAudioEngine>(() => options.engine ?? new PianoSynthEngine());
   const scheduledRef = useRef(new Set<string>());
   const [error, setError] = useState<string | undefined>();
   const notes = useMemo(() => audioNotesForPlan(plan), [plan]);
-  const gates = useMemo(() => plan ? playbackGates(plan) : [], [plan]);
 
   const prepare = useCallback(async () => {
     try {
@@ -64,12 +68,12 @@ export function useScoreAudio(options: { plan?: PlaybackPlan; phase: PlaybackPha
       engine.stopAll();
       return;
     }
-    const nextGate = pauseOnNotes ? gates.find((gate) => gate.onsetMs > rollElapsedMs + 0.5)?.onsetMs : undefined;
+    const nextGate = pauseOnNotes ? nextPendingGateOnsetMs : undefined;
     for (const note of audioNotesInWindow(notes, rollElapsedMs, nextGate, scheduledRef.current, LOOKAHEAD_MS, audioStartElapsedMs)) {
       engine.scheduleNote(`${runId}:${note.id}`, note.midiNote, note.onsetMs - rollElapsedMs, note.durationMs);
       scheduledRef.current.add(note.id);
     }
-  }, [audioStartElapsedMs, engine, gates, notes, pauseOnNotes, phase, rollElapsedMs, runId]);
+  }, [audioStartElapsedMs, engine, nextPendingGateOnsetMs, notes, pauseOnNotes, phase, rollElapsedMs, runId]);
 
   useEffect(() => {
     engine.cancelFuture();

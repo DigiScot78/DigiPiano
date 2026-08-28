@@ -68,7 +68,7 @@ describe("usePlaybackSession", () => {
     expect(session.results).toHaveLength(0);
   });
 
-  it("waits at an onset for fresh correct notes and records mistakes", async () => {
+  it("waits at an onset without recording gated correct or wrong notes", async () => {
     await render(0, "once", true);
     await act(async () => session.start());
     expect(session.phase).toBe("waiting-note");
@@ -78,12 +78,41 @@ describe("usePlaybackSession", () => {
 
     await act(async () => session.handleMidiNoteOn(61, 1400));
     expect(session.phase).toBe("waiting-note");
-    expect(session.results[0]).toMatchObject({ result: "wrong", playedNote: 61 });
-    expect(session.results[0].scoreQuarter).toBeCloseTo(0);
+    expect(session.results).toHaveLength(0);
 
     await act(async () => session.handleMidiNoteOn(60, 1500));
     expect(session.phase).toBe("playing");
-    expect(session.results[1]).toMatchObject({ result: "correct", playedNote: 60, timingErrorMs: 0 });
+    expect(session.results).toHaveLength(0);
+  });
+
+  it("requires every chord note to be held concurrently at a gate", async () => {
+    const chord = { ...scoreEvent, midiNotes: [60, 64], sourceNoteIds: ["60", "64"], noteDetails: [{ ...scoreEvent.noteDetails[0], midiNote: 60, sourceNoteId: "60" }, { ...scoreEvent.noteDetails[0], midiNote: 64, sourceNoteId: "64" }] };
+    await render(0, "once", true, [chord]);
+    await act(async () => session.start());
+
+    await act(async () => session.handleMidiNoteOn(60, 1200, [60]));
+    expect(session.gate?.satisfiedNotes).toEqual([60]);
+    await act(async () => session.handleHeldNotesChange([]));
+    expect(session.gate?.satisfiedNotes).toEqual([]);
+    await act(async () => session.handleMidiNoteOn(64, 1300, [64]));
+    expect(session.phase).toBe("waiting-note");
+    await act(async () => session.handleMidiNoteOn(60, 1400, [60, 64]));
+    expect(session.phase).toBe("playing");
+    expect(session.results).toHaveLength(0);
+  });
+
+  it("accepts a released arpeggio in order instead of requiring a held chord", async () => {
+    const rolled = { ...scoreEvent, midiNotes: [60, 64, 67], sourceNoteIds: ["60", "64", "67"], noteDetails: [60, 64, 67].map((midiNote) => ({ ...scoreEvent.noteDetails[0], midiNote, sourceNoteId: String(midiNote), arpeggio: { direction: "up" as const } })) };
+    await render(0, "once", true, [rolled]);
+    await act(async () => session.start());
+    await act(async () => session.handleMidiNoteOn(60, 1100, [60]));
+    await act(async () => session.handleHeldNotesChange([]));
+    await act(async () => session.handleMidiNoteOn(64, 1300, [64]));
+    await act(async () => session.handleHeldNotesChange([]));
+    expect(session.phase).toBe("waiting-note");
+    await act(async () => session.handleMidiNoteOn(67, 1500, [67]));
+    expect(session.phase).toBe("playing");
+    expect(session.results).toHaveLength(0);
   });
 
   it("rebases playback after a gate and waits again at a repeated pitch", async () => {
@@ -99,6 +128,20 @@ describe("usePlaybackSession", () => {
     expect(session.phase).toBe("waiting-note");
     expect(session.elapsedMs).toBe(500);
     expect(session.gate?.expectedNotes).toEqual([60]);
+  });
+
+  it("previews only the next unopened gate after completing a sustained note", async () => {
+    const sustained = { ...scoreEvent, durationQuarters: 4 };
+    const next = { ...scoreEvent, id: "b", startQuarter: 1, midiNotes: [67], sourceNoteIds: ["67"], noteDetails: [{ ...scoreEvent.noteDetails[0], midiNote: 67, sourceNoteId: "67" }] };
+    await render(0, "once", true, [sustained, next]);
+    await act(async () => session.start());
+    expect(session.nextPendingGateOnsetMs).toBe(0);
+
+    await act(async () => session.handleMidiNoteOn(60, 1100, [60]));
+
+    expect(session.phase).toBe("playing");
+    expect(session.nextPendingGateOnsetMs).toBe(500);
+    expect(session.expectedNotes).toEqual([67]);
   });
 
   it("can enable for the next onset and disable an active gate", async () => {

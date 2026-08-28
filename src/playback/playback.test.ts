@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScoreEvent } from "../music/scoreTypes";
-import { activeExpectedNotes, activePlaybackEvent, createPlaybackPlan, millisecondsBetweenQuarters, missedPerformanceNotes, playbackGates, scoreGatedPerformanceAttempt, scorePerformanceAttempt, scoreQuarterAtElapsed, shouldShowPerformanceResults } from "./playback";
+import { activeExpectedNotes, activePlaybackEvent, createPlaybackPlan, millisecondsBetweenQuarters, missedPerformanceNotes, playbackGates, scorePerformanceAttempt, scoreQuarterAtElapsed, shouldShowPerformanceResults } from "./playback";
 
 const events: ScoreEvent[] = [
   event("a", 0, 1, [60], 1),
@@ -25,6 +25,12 @@ describe("playback timing", () => {
   it("groups simultaneous events into one unique-pitch gate", () => {
     const plan = createPlaybackPlan([event("a", 0, 1, [60, 64], 1), event("b", 0, 1, [48, 60], 2)], [], 120, "both")!;
     expect(playbackGates(plan)).toEqual([{ onsetMs: 0, eventIndices: [0, 1], expectedNotes: [48, 60, 64], satisfiedNotes: [] }]);
+  });
+  it("orders an arpeggiated gate from its notation direction", () => {
+    const rolled = event("rolled", 0, 1, [60, 64, 67], 1);
+    rolled.noteDetails = rolled.noteDetails.map((detail) => ({ ...detail, arpeggio: { direction: "down" } }));
+    const gate = playbackGates(createPlaybackPlan([rolled], [], 120, "both")!)[0];
+    expect(gate.arpeggioNotes).toEqual([67, 64, 60]);
   });
 });
 
@@ -60,13 +66,6 @@ describe("performance scoring", () => {
     const second = scorePerformanceAttempt(62, 1100, 5000, 2, plan, [], 120, 250, [first])!;
     expect(missedPerformanceNotes(plan, [first, second]).map((item) => [item.eventIndex, item.note])).toEqual([[1, 65], [2, 48]]);
   });
-  it("credits every simultaneous written slot for one gated pitch", () => {
-    const unisonPlan = createPlaybackPlan([event("u1", 0, 1, [60], 1), event("u2", 0, 1, [60], 2)], [], 120, "both")!;
-    const gate = playbackGates(unisonPlan)[0];
-    const results = scoreGatedPerformanceAttempt(60, gate, 5000, 1, unisonPlan, [], 120);
-    expect(results.map((result) => [result.eventIndex, result.staffNumber, result.result])).toEqual([[0, 1, "correct"], [1, 2, "correct"]]);
-    expect(missedPerformanceNotes(unisonPlan, results)).toEqual([]);
-  });
 });
 
 describe("performance result visibility", () => {
@@ -75,7 +74,8 @@ describe("performance result visibility", () => {
     expect(shouldShowPerformanceResults("playing", true)).toBe(true);
     expect(shouldShowPerformanceResults("idle", false)).toBe(true);
     expect(shouldShowPerformanceResults("waiting-restart", false)).toBe(true);
-    expect(shouldShowPerformanceResults("waiting-note", false)).toBe(true);
+    expect(shouldShowPerformanceResults("waiting-note", false)).toBe(false);
+    expect(shouldShowPerformanceResults("waiting-note", true)).toBe(false);
   });
 });
 

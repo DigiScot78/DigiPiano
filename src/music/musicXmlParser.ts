@@ -1,5 +1,5 @@
 import { pitchToMidi } from "./note";
-import type { ParsedScore, ScoreDiagnostics, ScoreEvent, ScoreEventNote, ScoreMeasureDiagnostic, TempoChange } from "./scoreTypes";
+import type { ParsedScore, ScoreClef, ScoreDiagnostics, ScoreEvent, ScoreEventNote, ScoreMeasureDiagnostic, TempoChange } from "./scoreTypes";
 import { parseXml } from "./musicXmlLoader";
 
 interface PartCursorState {
@@ -7,6 +7,7 @@ interface PartCursorState {
   lastStartByVoice: Map<string, number>;
   measureStartQuarter: number;
   keyFifths: number;
+  clefsByStaff: Map<number, ScoreClef>;
 }
 
 interface ParsedPitch {
@@ -46,6 +47,7 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
       lastStartByVoice: new Map(),
       measureStartQuarter: 0,
       keyFifths: 0,
+      clefsByStaff: new Map(),
     };
     let divisions = 1;
     let measureIndex = 0;
@@ -72,6 +74,10 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
             const nextKeyFifths = numberText(child.querySelector("key > fifths"));
             if (nextKeyFifths !== undefined) {
               state.keyFifths = nextKeyFifths;
+            }
+            for (const clef of Array.from(child.querySelectorAll(":scope > clef"))) {
+              const staff = numberAttribute(clef, "number") ?? 1;
+              state.clefsByStaff.set(staff, clefFromElement(clef, staff));
             }
             break;
           }
@@ -286,6 +292,8 @@ function handleNote(
       pitchStep: pitch.step,
       pitchAlter: pitch.alter,
       pitchOctave: pitch.octave,
+      clef: { ...(context.state.clefsByStaff.get(staff) ?? defaultClefForStaff(staff)) },
+      ...arpeggioFromNote(note),
     });
   } else if (event.noteDetails.length === 0) {
     event.staffNumbers.add(staff);
@@ -297,6 +305,30 @@ function handleNote(
   if (!isChordMember) {
     context.state.currentQuarter += durationQuarters;
   }
+}
+
+function arpeggioFromNote(note: Element): { arpeggio?: ScoreEventNote["arpeggio"] } {
+  const arpeggiate = note.querySelector(":scope > notations > arpeggiate");
+  if (!arpeggiate) return {};
+  const direction = arpeggiate.getAttribute("direction") === "down" ? "down" : "up";
+  const number = numberAttribute(arpeggiate, "number");
+  return { arpeggio: { direction, ...(number === undefined ? {} : { number }) } };
+}
+
+function clefFromElement(clef: Element, staff: number): ScoreClef {
+  const sign = text(clef.querySelector(":scope > sign"))?.toUpperCase() ?? defaultClefForStaff(staff).sign;
+  const defaultLine = sign === "F" ? 4 : sign === "C" ? 3 : 2;
+  const line = numberText(clef.querySelector(":scope > line")) ?? defaultLine;
+  const octaveChange = numberText(clef.querySelector(":scope > clef-octave-change")) ?? 0;
+  return {
+    sign,
+    line: Number.isInteger(line) && line >= 1 && line <= 5 ? line : defaultLine,
+    octaveChange: Number.isInteger(octaveChange) ? octaveChange : 0,
+  };
+}
+
+function defaultClefForStaff(staff: number): ScoreClef {
+  return staff === 2 ? { sign: "F", line: 4, octaveChange: 0 } : { sign: "G", line: 2, octaveChange: 0 };
 }
 
 function pitchFromNote(note: Element, warnings: string[], measureNumber: number): ParsedPitch | null {

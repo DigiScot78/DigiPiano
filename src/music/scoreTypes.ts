@@ -6,6 +6,19 @@ export interface ScoreEventNote {
   pitchStep?: string;
   pitchAlter?: number;
   pitchOctave?: number;
+  clef?: ScoreClef;
+  arpeggio?: ScoreArpeggio;
+}
+
+export interface ScoreArpeggio {
+  direction: "up" | "down";
+  number?: number;
+}
+
+export interface ScoreClef {
+  sign: string;
+  line: number;
+  octaveChange: number;
 }
 
 export interface ScoreEvent {

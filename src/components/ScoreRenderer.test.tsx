@@ -369,6 +369,35 @@ describe("ScoreRenderer", () => {
     expect(d4).toBeCloseTo(134);
     expect(e4).toBeCloseTo(128);
   });
+  it("places lower-staff notes from that staff's active treble clef", async () => {
+    const event: ScoreEvent = {
+      ...currentEvent,
+      midiNotes: [74, 76, 78],
+      staffNumbers: [1, 2],
+      noteDetails: [
+        { midiNote: 74, staffNumber: 2, voiceNumber: "2", sourceNoteId: "d5", pitchStep: "D", pitchOctave: 5, clef: { sign: "G", line: 2, octaveChange: 0 } },
+        { midiNote: 76, staffNumber: 1, voiceNumber: "1", sourceNoteId: "e5", pitchStep: "E", pitchOctave: 5, clef: { sign: "G", line: 2, octaveChange: 0 } },
+        { midiNote: 78, staffNumber: 1, voiceNumber: "1", sourceNoteId: "fs5", pitchStep: "F", pitchAlter: 1, pitchOctave: 5, clef: { sign: "G", line: 2, octaveChange: 0 } },
+      ],
+    };
+    const staffEntry = { relInMeasureTimestamp: { RealValue: 0 }, PositionAndShape: { AbsolutePosition: { x: 10, y: 12 } } };
+    osmdState.graphicSheet = {
+      findGraphicalMeasureByMeasureNumber: vi.fn((_measureNumber: number, staffIndex: number) => ({
+        staffEntries: [staffEntry],
+        ParentStaffLine: {
+          PositionAndShape: { AbsolutePosition: { x: 0, y: staffIndex === 0 ? 8 : 24 } },
+          StaffLines: [0, 1.2, 2.4, 3.6, 4.8].map((y) => ({ Start: { x: 0, y }, End: { x: 20, y } })),
+        },
+      })),
+    };
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => { root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={event} eventCount={1} events={[event]} feedbackMarkers={[{ note: 74, kind: "correct", staffNumber: 2 }, { note: 76, kind: "correct", staffNumber: 1 }]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />); await Promise.resolve(); });
+    const [lowerD5, upperE5] = Array.from(container.querySelectorAll<HTMLElement>(".note-feedback")).map((marker) => parseFloat(marker.style.top));
+    expect(lowerD5).toBeCloseTo(252);
+    expect(upperE5).toBeCloseTo(86);
+  });
   it("uses flat-key spelling for black-key wrong-note ghosts", async () => {
     container = document.createElement("div");
     document.body.append(container);
