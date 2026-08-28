@@ -19,7 +19,7 @@ Acceptance criteria:
 - Run mode supports play once and loop selection.
 - Hand mode supports both hands, right hand staff 1, and left hand staff 2, skipping events without notes for the selected hand.
 - Staff-aligned RH/LH score toggles control hand mode without allowing both hands to be disabled, and an extensible floating score toolbar exposes loop mode.
-- The score-first layout keeps temporary file/practice/debug controls in a compact sidebar, while MIDI setup is isolated in a modal and reuses previously granted access.
+- The score-first layout keeps temporary controls in a full-height tabbed right workspace, while MIDI setup is isolated in a modal and reuses previously granted access.
 - Appearance settings independently control System/Light/Dark application chrome and extensible score-page presets, initially Paper and Night.
 - A smooth freeform outline guides selection and resizing while neighbour-midpoint fading previews the exact committed range; event inclusion changes when the moving boundary crosses an event's true anchor.
 - Correct and wrong note feedback works against filtered expected notes and appears as green/red score markers near the current score event, with independent note-name label toggles.
@@ -59,7 +59,7 @@ Acceptance criteria:
 - Both toolbars and Space share Play/Pause/countdown-Resume behavior, with Reset returning to the active plan start.
 - Timed and untimed cursor movement auto-follows notation systems, and Synthesia exposes a selection-relative event-snapped timeline below the keyboard.
 - The timeline remains available without Synthesia and with the keyboard collapsed; score clicks provide the same event-snapped navigation while preserving active selection bounds.
-- The right workspace panel persists collapse and drag-resized width, can auto-hide for an active Play run, ends above the measured bottom instrument surface, and uses independent open/docked score margins; OSMD overlays remain aligned through every live layout/display resize.
+- The right workspace panel persists collapse, active Practice/Debug tab, and drag-resized width; it can auto-hide for an active Play run, reserves score width while layering above bottom instruments in its own column, and uses independent open/docked score margins. OSMD overlays remain aligned through every live layout/display resize.
 
 ## Milestone 4: Feedback Quality
 Status: in progress.
