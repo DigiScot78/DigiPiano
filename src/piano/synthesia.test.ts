@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlaybackPlan } from "../playback/playback";
 import { generatePianoLayout } from "./piano";
-import { createSynthesiaBlocks, isSynthesiaBlockVisible, synthesiaVerticalGeometry } from "./synthesia";
+import { createSynthesiaBlocks, isSynthesiaBlockStriking, isSynthesiaBlockVisible, synthesiaVerticalGeometry } from "./synthesia";
 
 const plan: PlaybackPlan = {
   startQuarter: 0,
@@ -36,5 +36,13 @@ describe("Synthesia geometry", () => {
     expect(geometry).toEqual({ bottom: 150, height: 50 });
     expect(isSynthesiaBlockVisible(geometry, 320)).toBe(true);
     expect(isSynthesiaBlockVisible({ bottom: 400, height: 50 }, 320)).toBe(false);
+  });
+
+  it("supports readable speed choices and briefly holds short strike highlights", () => {
+    const fastGeometry = synthesiaVerticalGeometry({ onsetMs: 2000, durationMs: 500 }, 500, 140);
+    expect(fastGeometry.bottom).toBeCloseTo(210);
+    expect(fastGeometry.height).toBeCloseTo(70);
+    expect(isSynthesiaBlockStriking({ onsetMs: 1000, durationMs: 40 }, 1100)).toBe(true);
+    expect(isSynthesiaBlockStriking({ onsetMs: 1000, durationMs: 40 }, 1140)).toBe(false);
   });
 });

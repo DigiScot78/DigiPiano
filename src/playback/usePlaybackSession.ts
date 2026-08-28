@@ -16,6 +16,7 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
   const [showMissedNotes, setShowMissedNotes] = useState(false);
   const [gate, setGate] = useState<PlaybackGate | undefined>();
   const [showStartCue, setShowStartCue] = useState(false);
+  const [runId, setRunId] = useState(0);
   const countdownStartedAtRef = useRef(0);
   const playbackStartedAtRef = useRef(0);
   const attemptIdRef = useRef(0);
@@ -65,6 +66,7 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
 
   const start = useCallback(() => {
     if (!plan) return;
+    setRunId((current) => current + 1);
     setResults([]);
     setShowMissedNotes(false);
     setShowStartCue(false);
@@ -205,5 +207,5 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
   const expectedNotes = phase === "waiting-note" ? gate?.expectedNotes ?? [] : phase === "playing" && plan ? activeExpectedNotes(plan, elapsedMs) : [];
   const missedNotes = showMissedNotes ? missedPerformanceNotes(plan, results) : [];
   const clearResults = useCallback(() => { setResults([]); setShowMissedNotes(false); }, []);
-  return { phase, plan, elapsedMs, rollElapsedMs, countdownValue, showStartCue, gate, results, missedNotes, currentEventIndex: current?.eventIndex, currentEvent: current?.event, expectedNotes, start, stop, clearResults, handleMidiNoteOn };
+  return { phase, plan, elapsedMs, rollElapsedMs, runId, countdownValue, showStartCue, gate, results, missedNotes, currentEventIndex: current?.eventIndex, currentEvent: current?.event, expectedNotes, start, stop, clearResults, handleMidiNoteOn };
 }

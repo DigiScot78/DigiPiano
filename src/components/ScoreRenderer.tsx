@@ -6,6 +6,8 @@ import { normalizeSelectionRange } from "../learning/matcher";
 import type { ScoreEvent } from "../music/scoreTypes";
 import type { MissedPerformanceNote, PerformanceResult, PlaybackPhase } from "../playback/playback";
 import { SCORE_THEME_PRESETS, type ScoreTheme } from "../theme/appearance";
+import type { AudioSettings } from "../audio/settings";
+import { AudioControls } from "./AudioControls";
 
 type CursorLike = {
   show: () => void;
@@ -34,6 +36,8 @@ interface ScoreRendererProps {
   runMode?: PracticeRunMode;
   pauseOnNotes?: boolean;
   waitingForNotes?: number[];
+  audioSettings?: AudioSettings;
+  audioError?: string;
   scoreTheme?: ScoreTheme;
   showCorrectNoteNames: boolean;
   showWrongNoteNames: boolean;
@@ -44,6 +48,7 @@ interface ScoreRendererProps {
   onPlay?: () => void;
   onStop?: () => void;
   onClearPerformance?: () => void;
+  onAudioSettingsChange?: (update: Partial<AudioSettings>) => void;
   onRenderStateChange: (state: { status: "empty" | "loading" | "ready" | "error"; error?: string }) => void;
 }
 
@@ -118,6 +123,8 @@ export function ScoreRenderer({
   runMode = "once",
   pauseOnNotes = false,
   waitingForNotes = [],
+  audioSettings,
+  audioError,
   scoreTheme = "paper",
   showCorrectNoteNames,
   showWrongNoteNames,
@@ -128,6 +135,7 @@ export function ScoreRenderer({
   onPlay,
   onStop,
   onClearPerformance,
+  onAudioSettingsChange,
   onRenderStateChange,
 }: ScoreRendererProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -586,6 +594,7 @@ export function ScoreRenderer({
               <PauseOnNoteIcon />
             </button>
             <button type="button" aria-label="Clear performance markers" title="Clear performance" disabled={performanceResults.length === 0 && missedPerformanceNotes.length === 0} onClick={onClearPerformance}><ClearIcon /></button>
+            {audioSettings && onAudioSettingsChange ? <AudioControls settings={audioSettings} error={audioError} onSettingsChange={onAudioSettingsChange} compact /> : null}
           </div>
         </div>
       ) : null}

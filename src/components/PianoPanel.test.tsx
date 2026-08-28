@@ -74,6 +74,10 @@ describe("PianoPanel", () => {
     });
     expect(onChange).toHaveBeenCalledWith({ synthesiaOpaque: true });
     expect(onChange).toHaveBeenCalledWith({ synthesiaShowNoteLabels: true });
+    const speed = container.querySelector<HTMLSelectElement>('[aria-label="Piano roll speed"]');
+    expect(speed?.value).toBe("100");
+    await act(async () => { if (speed) { speed.value = "140"; speed.dispatchEvent(new Event("change", { bubbles: true })); } });
+    expect(onChange).toHaveBeenCalledWith({ synthesiaSpeed: 140 });
   });
 
   it("routes the duplicated transport controls to shared callbacks", async () => {

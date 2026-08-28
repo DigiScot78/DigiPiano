@@ -55,6 +55,7 @@ Acceptance criteria:
 - Pause-at-each-note can be changed live and freezes timed playback at each hand-filtered onset until fresh MIDI input completes the note or chord without compressing later rhythm.
 - The fixed piano toolbar mirrors Play/Stop, Loop, Pause, and Clear controls from the score toolbar.
 - A persisted, resizable Synthesia overlay shares piano geometry and playback time, supports transparent/opaque and note-label modes, and aligns staff-coloured duration blocks plus strike-time key fills with the keyboard.
+- Score and Synthesia Play controls produce synchronized piano-like browser audio, with shared persisted mute/volume controls and Pause-gate-aware scheduling.
 
 ## Milestone 4: Feedback Quality
 Status: in progress.
@@ -96,5 +97,6 @@ Deferred decisions:
 - Score diagnostics: debug output reports staff counts, system breaks, first parsed events, and practice attempts to troubleshoot file/parser/renderer mismatches.
 - Looping: practice loop waits for correct MIDI input and jumps back to selection start.
 - Timed transport: MusicXML tempo-aware monotonic playback with countdown, performance marking, note gates, and loop-restart waiting.
-- Synthesia: fixed 100px/second visual speed; cyan staff-1/right-hand blocks, violet staff-2/left-hand blocks; duration is visual only and does not yet assess release timing.
+- Score audio: dependency-free synthesized piano voice driven by the active hand-filtered playback plan; sampled piano quality, score dynamics, sustain interpretation, and output-device selection remain future work.
+- Synthesia: persisted Slow/Normal/Fast visual speeds (70/100/140px per second); cyan staff-1/right-hand blocks, violet staff-2/left-hand blocks; short notes receive a 140ms minimum strike-key highlight while written block duration remains unchanged; duration is visual only and does not yet assess release timing.
 - Preferences: appearance, piano layout, Synthesia presentation, and Play settings persist locally; reusable training-list persistence remains deferred.

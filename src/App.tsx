@@ -29,6 +29,8 @@ import { usePlaySettings } from "./playback/usePlaySettings";
 import { usePlaybackSession } from "./playback/usePlaybackSession";
 import type { PlaySettings } from "./playback/settings";
 import { shouldShowPerformanceResults } from "./playback/playback";
+import { useAudioSettings } from "./audio/useAudioSettings";
+import { useScoreAudio } from "./audio/useScoreAudio";
 import "./styles.css";
 
 interface PracticeAttemptDiagnostic {
@@ -56,6 +58,7 @@ function App() {
   const appearance = useAppearanceSettings();
   const piano = usePianoSettings();
   const play = usePlaySettings();
+  const audioSettings = useAudioSettings();
   const [loadedScore, setLoadedScore] = useState<LoadedScore | null>(null);
   const [parsedScore, setParsedScore] = useState<ParsedScore>({ events: [], tempoChanges: [], warnings: [] });
   const [learningState, setLearningState] = useState<LearningState>(initialLearningState());
@@ -80,8 +83,8 @@ function App() {
   const processedMidiCounterRef = useRef(0);
 
   const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, handMode, range: selectedRange, runMode, pauseOnNotes, settings: play.settings });
+  const scoreAudio = useScoreAudio({ plan: playback.plan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, runId: playback.runId, pauseOnNotes, settings: audioSettings.settings });
   const { phase: playbackPhase, handleMidiNoteOn, start: startPlayback } = playback;
-
   const clearCompletedFeedback = useCallback(() => {
     if (completedFeedbackTimerRef.current !== undefined) {
       window.clearTimeout(completedFeedbackTimerRef.current);
@@ -89,6 +92,13 @@ function App() {
     }
     setCompletedFeedback(undefined);
   }, []);
+
+  const startPlaybackWithAudio = useCallback(() => {
+    setSimulatedHeldNotes([]);
+    setCarriedCompletedNotes([]);
+    clearCompletedFeedback();
+    void scoreAudio.prepare().finally(startPlayback);
+  }, [clearCompletedFeedback, scoreAudio, startPlayback]);
 
   useEffect(() => clearCompletedFeedback, [clearCompletedFeedback]);
 
@@ -353,6 +363,8 @@ function App() {
             runMode={runMode}
             pauseOnNotes={pauseOnNotes}
             waitingForNotes={playback.gate?.expectedNotes.filter((note) => !playback.gate?.satisfiedNotes.includes(note))}
+            audioSettings={audioSettings.settings}
+            audioError={scoreAudio.error}
             scoreTheme={appearance.scoreTheme}
             showCorrectNoteNames={showCorrectNoteNames}
             showWrongNoteNames={showWrongNoteNames}
@@ -360,9 +372,10 @@ function App() {
             onHandModeChange={handleHandModeChange}
             onRunModeChange={setRunMode}
             onPauseOnNotesChange={setPauseOnNotes}
-            onPlay={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); clearCompletedFeedback(); playback.start(); }}
+            onPlay={startPlaybackWithAudio}
             onStop={playback.stop}
             onClearPerformance={playback.clearResults}
+            onAudioSettingsChange={audioSettings.setSettings}
             onRenderStateChange={(next) => {
               setScoreStatus(next.status);
               setRenderError(next.error);
@@ -431,12 +444,15 @@ function App() {
         runMode={runMode}
         pauseOnNotes={pauseOnNotes}
         canClearPerformance={playback.results.length > 0 || playback.missedNotes.length > 0}
+        audioSettings={audioSettings.settings}
+        audioError={scoreAudio.error}
         onSettingsChange={piano.setSettings}
-        onPlay={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); clearCompletedFeedback(); playback.start(); }}
+        onPlay={startPlaybackWithAudio}
         onStop={playback.stop}
         onRunModeChange={setRunMode}
         onPauseOnNotesChange={setPauseOnNotes}
         onClearPerformance={playback.clearResults}
+        onAudioSettingsChange={audioSettings.setSettings}
       />
       {midiSettingsOpen ? (
         <SettingsDialog

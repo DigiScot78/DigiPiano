@@ -1,6 +1,7 @@
 export type PianoRangePreset = "88" | "76" | "61" | "49" | "custom";
 export type PianoHeight = "small" | "medium" | "large";
 export type PianoWidthMode = "auto" | "fit" | "scroll";
+export type SynthesiaSpeed = 70 | 100 | 140;
 export type PianoKeyState = "neutral" | "expected" | "correct" | "wrong" | "carried";
 
 export interface PianoSettings {
@@ -9,6 +10,7 @@ export interface PianoSettings {
   synthesiaHeight: number;
   synthesiaOpaque: boolean;
   synthesiaShowNoteLabels: boolean;
+  synthesiaSpeed: SynthesiaSpeed;
   showLabels: boolean;
   rangePreset: PianoRangePreset;
   customLow: number;
@@ -43,6 +45,7 @@ export const DEFAULT_PIANO_SETTINGS: PianoSettings = {
   synthesiaHeight: SYNTHESIA_DEFAULT_HEIGHT,
   synthesiaOpaque: false,
   synthesiaShowNoteLabels: false,
+  synthesiaSpeed: 100,
   showLabels: false,
   rangePreset: "88",
   customLow: PIANO_MIN_NOTE,
@@ -118,6 +121,7 @@ export function readPianoSettings(storage: Pick<Storage, "getItem"> | undefined)
     synthesiaHeight: integerInRange(candidate.synthesiaHeight, SYNTHESIA_MIN_HEIGHT, SYNTHESIA_MAX_STORED_HEIGHT, SYNTHESIA_DEFAULT_HEIGHT),
     synthesiaOpaque: typeof candidate.synthesiaOpaque === "boolean" ? candidate.synthesiaOpaque : false,
     synthesiaShowNoteLabels: typeof candidate.synthesiaShowNoteLabels === "boolean" ? candidate.synthesiaShowNoteLabels : false,
+    synthesiaSpeed: isOneOf(candidate.synthesiaSpeed, [70, 100, 140]) ? candidate.synthesiaSpeed : 100,
     showLabels: typeof candidate.showLabels === "boolean" ? candidate.showLabels : false,
     rangePreset: isOneOf(candidate.rangePreset, ["88", "76", "61", "49", "custom"]) ? candidate.rangePreset : "88",
     customLow: range.low,
@@ -142,7 +146,7 @@ function validateBounds(low: number, high: number): PianoRange {
 function clampInteger(value: number, min: number, max: number, fallback: number): number {
   return Number.isInteger(value) ? Math.min(Math.max(value, min), max) : fallback;
 }
-function isOneOf<T extends string>(value: unknown, values: readonly T[]): value is T { return typeof value === "string" && values.includes(value as T); }
+function isOneOf<T extends string | number>(value: unknown, values: readonly T[]): value is T { return values.includes(value as T); }
 function validColor(value: unknown, fallback: string): string { return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback; }
 function integerInRange(value: unknown, min: number, max: number, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : fallback;

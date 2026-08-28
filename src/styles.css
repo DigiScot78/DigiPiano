@@ -976,6 +976,31 @@ pre {
 .piano-transport-controls button.active { background: var(--piano-expected); color: #07171b; }
 .piano-transport-controls svg { width: 19px; height: 19px; fill: currentColor; }
 
+.audio-controls { position: relative; }
+.audio-controls > button { display: grid; place-items: center; }
+.audio-controls > button svg { width: 19px; height: 19px; fill: currentColor; }
+.audio-controls .speaker-wave { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.audio-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: 220px;
+  padding: 0.7rem;
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  background: var(--app-surface-raised);
+  color: var(--app-text);
+  box-shadow: 0 8px 24px var(--app-shadow);
+}
+.score-practice-toolbar .audio-popover { top: calc(100% + 8px); bottom: auto; }
+.audio-popover-heading { display: flex; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.55rem; font-size: 0.78rem; }
+.audio-popover-heading span { color: var(--app-muted); }
+.audio-popover label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0.55rem; color: var(--app-muted); font-size: 0.76rem; }
+.audio-popover input[type="range"] { width: 100%; margin: 0; accent-color: var(--piano-expected); }
+.audio-popover .audio-mute-button { width: 100%; height: auto; margin-top: 0.55rem; padding: 0.35rem 0.5rem; border: 1px solid var(--app-border); background: var(--app-surface-muted); }
+.audio-error { margin: 0.5rem 0 0; color: var(--app-error, #b32727); font-size: 0.72rem; line-height: 1.3; }
+
 .piano-warning {
   display: flex;
   justify-content: center;

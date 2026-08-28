@@ -18,6 +18,7 @@ export interface SynthesiaVerticalGeometry { bottom: number; height: number }
 
 export const SYNTHESIA_PIXELS_PER_SECOND = 100;
 export const SYNTHESIA_MIN_BLOCK_HEIGHT = 6;
+export const SYNTHESIA_MIN_STRIKE_HIGHLIGHT_MS = 140;
 
 export function createSynthesiaBlocks(plan: PlaybackPlan | undefined, keys: PianoKeyLayout[]): SynthesiaNoteBlock[] {
   if (!plan) return [];
@@ -49,4 +50,8 @@ export function synthesiaVerticalGeometry(block: Pick<SynthesiaNoteBlock, "onset
 
 export function isSynthesiaBlockVisible(geometry: SynthesiaVerticalGeometry, panelHeight: number): boolean {
   return geometry.bottom < panelHeight && geometry.bottom + geometry.height > 0;
+}
+
+export function isSynthesiaBlockStriking(block: Pick<SynthesiaNoteBlock, "onsetMs" | "durationMs">, elapsedMs: number): boolean {
+  return block.onsetMs <= elapsedMs && elapsedMs < block.onsetMs + Math.max(block.durationMs, SYNTHESIA_MIN_STRIKE_HIGHLIGHT_MS);
 }
