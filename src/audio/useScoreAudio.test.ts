@@ -22,4 +22,9 @@ describe("score audio scheduling", () => {
     expect(audioNotesInWindow(notes, 0, 500, new Set()).map((note) => note.midiNote)).toEqual([60, 64]);
     expect(audioNotesInWindow(notes, 450, undefined, new Set()).map((note) => note.midiNote)).toEqual([67]);
   });
+
+  it("does not schedule notes before a resume or seek origin", () => {
+    const notes = audioNotesForPlan(plan);
+    expect(audioNotesInWindow(notes, 0, undefined, new Set(), 600, 500).map((note) => note.midiNote)).toEqual([67]);
+  });
 });

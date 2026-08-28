@@ -44,3 +44,11 @@ The initial falling-note view uses the existing normalized piano-key x coordinat
 
 ## 15. Treat Score Audio As A Playback Consumer
 Score sound uses the existing hand-filtered `PlaybackPlan` and transport clock instead of reacting to raw MIDI input or creating an independent timeline. The first engine is a dependency-free Web Audio synth for quick local playback, isolated behind an engine contract so a sampled piano can replace it later. Pause gates remain silent until correct fresh MIDI input completes the onset, after which the written chord sounds and transport resumes. Mute and volume are shared persisted output settings and do not alter musical time.
+
+## 16. Make Pause And Seeking Transport States
+Manual Pause freezes elapsed musical time, audio, Synthesia, scoring, and any active note gate without discarding the run. Resume always approaches that frozen origin through the configured countdown, and audio ignores events earlier than the origin. Timeline seeking snaps to a playable event and creates a clean paused attempt; Reset remains the explicit action that returns timed and untimed practice to the active plan start.
+
+## 17. Treat Workspace Geometry As Persisted Responsive State
+The timeline is a general navigation surface rather than a Synthesia-only control. Sidebar visibility/width and score margins are persisted workspace preferences, while narrow-window margin clamping is presentation-only and does not overwrite the chosen value. OSMD is rerendered from its existing loaded model after observed size changes, then app-owned anchors are rebuilt; this keeps future docked tools independent from score parsing and transport state.
+
+Playback auto-hide is transient state layered over the persisted sidebar preference, so stopping restores only a panel that the run itself hid. Open and docked layouts own separate persisted score margins, with the legacy margin copied to both during loading. Sidebar height follows measured bottom-panel geometry rather than duplicating piano, timeline, or Synthesia height rules. Settings use accessible category tabs so future controls can grow without returning to one long modal column.

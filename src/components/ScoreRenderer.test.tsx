@@ -651,6 +651,56 @@ describe("ScoreRenderer", () => {
     expect(onSelectedRangeChange).toHaveBeenLastCalledWith({ startIndex: 0, endIndex: 2 });
   });
 
+  it("uses a click to seek while preserving and respecting an existing selection", async () => {
+    const onEventSeek = vi.fn();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={1} eventCount={3} selectedRange={{ startIndex: 1, endIndex: 2 }} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onEventSeek={onEventSeek} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+    const layer = container.querySelector<HTMLElement>(".score-selection-layer");
+    await act(async () => {
+      layer?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 90, clientY: 140 }));
+      layer?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0, clientX: 90, clientY: 140 }));
+    });
+    expect(onEventSeek).not.toHaveBeenCalled();
+    await act(async () => {
+      layer?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 140, clientY: 140 }));
+      layer?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0, clientX: 140, clientY: 140 }));
+    });
+    expect(onEventSeek).toHaveBeenCalledWith(1);
+  });
+
+  it("rerenders OSMD and refreshes anchors when the score width changes", async () => {
+    let resizeCallback: ResizeObserverCallback | undefined;
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { resizeCallback = callback; }
+      observe() { /* driven explicitly by this test */ }
+      disconnect() { /* no-op */ }
+      unobserve() { /* no-op */ }
+    });
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={2} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+    const resizeEntry = (width: number) => ({ contentRect: { width } }) as ResizeObserverEntry;
+    await act(async () => {
+      resizeCallback?.([resizeEntry(800)], {} as ResizeObserver);
+      resizeCallback?.([resizeEntry(1000)], {} as ResizeObserver);
+      await vi.advanceTimersByTimeAsync(80);
+      await Promise.resolve();
+    });
+    expect(osmdMocks.load).toHaveBeenCalledTimes(1);
+    expect(osmdMocks.render).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it("renders score practice controls and keeps at least one hand enabled", async () => {
     const onHandModeChange = vi.fn();
     const onRunModeChange = vi.fn();

@@ -42,11 +42,12 @@ interface ScoreRendererProps {
   showCorrectNoteNames: boolean;
   showWrongNoteNames: boolean;
   onSelectedRangeChange: (range: ScoreSelectionRange | undefined) => void;
+  onEventSeek?: (eventIndex: number) => void;
   onHandModeChange?: (mode: HandMode) => void;
   onRunModeChange?: (mode: PracticeRunMode) => void;
   onPauseOnNotesChange?: (enabled: boolean) => void;
-  onPlay?: () => void;
-  onStop?: () => void;
+  onTogglePlayback?: () => void;
+  onReset?: () => void;
   onClearPerformance?: () => void;
   onAudioSettingsChange?: (update: Partial<AudioSettings>) => void;
   onRenderStateChange: (state: { status: "empty" | "loading" | "ready" | "error"; error?: string }) => void;
@@ -92,7 +93,7 @@ interface DragPoint extends OverlayPosition {
 }
 
 type ResizeEdge = "start" | "end";
-type InteractionMode = "idle" | "selecting" | "resizing-start" | "resizing-end";
+type InteractionMode = "idle" | "pending" | "selecting" | "resizing-start" | "resizing-end";
 
 const SYSTEM_WRAP_LEFT_TOLERANCE = 48;
 const SYSTEM_WRAP_TOP_TOLERANCE = 28;
@@ -102,6 +103,7 @@ const FALLBACK_FEEDBACK_HALF_LINE_SPACING = 4.5;
 const FALLBACK_FEEDBACK_MIDDLE_C_OFFSET = 96;
 const FEEDBACK_HORIZONTAL_OFFSET = 32;
 const TREBLE_TO_BASS_ANCHOR_OFFSET = 96;
+const SELECTION_DRAG_THRESHOLD = 6;
 const EMPTY_SCORE_EVENTS: ScoreEvent[] = [];
 
 export function ScoreRenderer({
@@ -129,11 +131,12 @@ export function ScoreRenderer({
   showCorrectNoteNames,
   showWrongNoteNames,
   onSelectedRangeChange,
+  onEventSeek,
   onHandModeChange,
   onRunModeChange,
   onPauseOnNotesChange,
-  onPlay,
-  onStop,
+  onTogglePlayback,
+  onReset,
   onClearPerformance,
   onAudioSettingsChange,
   onRenderStateChange,
@@ -143,6 +146,11 @@ export function ScoreRenderer({
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const dragStartRef = useRef<DragPoint | null>(null);
   const resizeEdgeRef = useRef<ResizeEdge | null>(null);
+  const interactionModeRef = useRef<InteractionMode>("idle");
+  const currentMarkerRef = useRef<HTMLDivElement | null>(null);
+  const followedSystemRef = useRef<string | undefined>(undefined);
+  const resizeRefreshTimerRef = useRef<number | undefined>(undefined);
+  const observedScoreWidthRef = useRef<number | undefined>(undefined);
   const currentEventIndexRef = useRef(currentEventIndex);
   const onRenderStateChangeRef = useRef(onRenderStateChange);
   const [eventPositions, setEventPositions] = useState<EventPosition[]>([]);
@@ -312,9 +320,40 @@ export function ScoreRenderer({
   }, [eventCount, refreshEventPositions]);
 
   useEffect(() => {
+    const target = containerRef.current;
+    if (!target || typeof ResizeObserver === "undefined") return;
+    const refreshAfterResize = (width: number, force = false) => {
+      if (width <= 0) return;
+      const previous = observedScoreWidthRef.current;
+      observedScoreWidthRef.current = width;
+      if (previous === undefined || (!force && Math.abs(previous - width) < 1)) return;
+      if (resizeRefreshTimerRef.current !== undefined) window.clearTimeout(resizeRefreshTimerRef.current);
+      resizeRefreshTimerRef.current = window.setTimeout(() => {
+        resizeRefreshTimerRef.current = undefined;
+        const osmd = osmdRef.current;
+        if (!osmd) return;
+        void Promise.resolve(osmd.render()).then(() => {
+          hideNativeCursor();
+          window.requestAnimationFrame(() => window.requestAnimationFrame(refreshEventPositions));
+        });
+      }, 80);
+    };
+    const observer = new ResizeObserver((entries) => refreshAfterResize(entries[0]?.contentRect.width ?? target.clientWidth));
+    observer.observe(target);
+    const refreshForWindow = () => refreshAfterResize(target.getBoundingClientRect().width, true);
+    window.addEventListener("resize", refreshForWindow);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", refreshForWindow);
+      if (resizeRefreshTimerRef.current !== undefined) window.clearTimeout(resizeRefreshTimerRef.current);
+    };
+  }, [hideNativeCursor, refreshEventPositions, xmlText]);
+
+  useEffect(() => {
     const finishPointerAction = () => {
       dragStartRef.current = null;
       resizeEdgeRef.current = null;
+      interactionModeRef.current = "idle";
       setDraftRange(undefined);
       setDragStartPoint(undefined);
       setDragEndPoint(undefined);
@@ -343,6 +382,16 @@ export function ScoreRenderer({
   );
   const isDragging = isPointerPreview;
   const currentPosition = eventPositions.find((position) => position.index === currentEventIndex);
+  useEffect(() => {
+    if (!currentPosition) return;
+    const rowIndex = nearestRowIndexForPoint(currentPosition, systemRows);
+    const row = systemRows[rowIndex];
+    if (!row) return;
+    const systemKey = `${Math.round(row.top)}:${Math.round(row.left)}`;
+    if (followedSystemRef.current === systemKey) return;
+    followedSystemRef.current = systemKey;
+    currentMarkerRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start", inline: "nearest" });
+  }, [currentPosition, systemRows]);
   const noteFeedbackMarkers = useMemo(
     () => feedbackMarkers.map((feedback) => markerForNoteFeedback(feedback, currentPosition, currentEvent)),
     [currentEvent, currentPosition, feedbackMarkers],
@@ -351,7 +400,10 @@ export function ScoreRenderer({
     ? eventPositions.find((position) => position.index === completedFeedback.eventIndex)
     : undefined;
   const completedNoteFeedbackMarkers = useMemo(
-    () => completedFeedback?.markers.map((feedback) => markerForNoteFeedback(feedback, completedPosition, completedFeedback.event)) ?? [],
+    () => completedFeedback?.markers.map((feedback) => {
+      const marker = markerForNoteFeedback(feedback, completedPosition, completedFeedback.event);
+      return { ...marker, left: expectedNoteAnchorX(completedPosition, marker.staffNumber, marker.left) };
+    }) ?? [],
     [completedFeedback, completedPosition],
   );
   const recordedNoteFeedbackMarkers = useMemo(() => performanceResults.map((result) => {
@@ -414,12 +466,12 @@ export function ScoreRenderer({
     event.preventDefault();
     capturePointer(event.currentTarget, event.pointerId);
     resizeEdgeRef.current = null;
+    interactionModeRef.current = "pending";
     dragStartRef.current = point;
     setDragStartPoint(point);
     setDragEndPoint(point);
-    const index = nearestEventIndexForPoint(point, systemRows);
-    setDraftRange(index === undefined ? undefined : normalizeSelectionRange(index, index, eventCount));
-    setInteractionMode("selecting");
+    setDraftRange(undefined);
+    setInteractionMode("pending");
   };
 
   const updatePointerSelection = (event: React.PointerEvent<HTMLElement>) => {
@@ -428,13 +480,20 @@ export function ScoreRenderer({
       return;
     }
 
-    if (interactionMode === "selecting" && dragStartRef.current) {
+    if (interactionModeRef.current === "pending" && dragStartRef.current) {
+      const distance = Math.hypot(point.left - dragStartRef.current.left, point.top - dragStartRef.current.top);
+      if (distance < SELECTION_DRAG_THRESHOLD || playbackPhase !== "idle") return;
+      interactionModeRef.current = "selecting";
+      setInteractionMode("selecting");
+    }
+
+    if (interactionModeRef.current === "selecting" && dragStartRef.current) {
       setDragEndPoint(point);
       setDraftRange(rangeForPoint(point));
       return;
     }
 
-    if ((interactionMode === "resizing-start" || interactionMode === "resizing-end") && selectedRange) {
+    if ((interactionModeRef.current === "resizing-start" || interactionModeRef.current === "resizing-end") && selectedRange) {
       setDragEndPoint(point);
       setDraftRange(rangeForPoint(point));
     }
@@ -442,10 +501,14 @@ export function ScoreRenderer({
 
   const finishPointerSelection = (event: React.PointerEvent<HTMLElement>) => {
     const point = pointFromPointerEvent(event);
-    const nextRange = point ? rangeForPoint(point) : draftRange;
+    const completedMode = interactionModeRef.current;
+    const completedRangeGesture = completedMode === "selecting" || completedMode === "resizing-start" || completedMode === "resizing-end";
+    const nextRange = completedRangeGesture ? (point ? rangeForPoint(point) : draftRange) : undefined;
+    const clickedIndex = completedMode === "pending" && point ? nearestEventIndexForPoint(point, systemRows) : undefined;
 
     dragStartRef.current = null;
     resizeEdgeRef.current = null;
+    interactionModeRef.current = "idle";
     setDragStartPoint(undefined);
     setDragEndPoint(undefined);
     setDraftRange(undefined);
@@ -455,6 +518,8 @@ export function ScoreRenderer({
 
     if (nextRange) {
       onSelectedRangeChange(nextRange);
+    } else if (clickedIndex !== undefined && (!selectedRange || (clickedIndex >= selectedRange.startIndex && clickedIndex <= selectedRange.endIndex))) {
+      onEventSeek?.(clickedIndex);
     }
   };
 
@@ -469,6 +534,7 @@ export function ScoreRenderer({
     event.stopPropagation();
     capturePointer(event.currentTarget, event.pointerId);
     resizeEdgeRef.current = edge;
+    interactionModeRef.current = edge === "start" ? "resizing-start" : "resizing-end";
     setInteractionMode(edge === "start" ? "resizing-start" : "resizing-end");
     dragStartRef.current = fixedPoint;
     setDragStartPoint(fixedPoint);
@@ -511,7 +577,7 @@ export function ScoreRenderer({
             style={rectStyle(rect)}
           />
         ))}
-        {currentPosition ? <div className={`score-current-event-marker${showStartCue ? " playback-onset" : ""}`} style={rectStyle(currentMarkerRect(currentPosition))} /> : null}
+        {currentPosition ? <div ref={currentMarkerRef} className={`score-current-event-marker${showStartCue ? " playback-onset" : ""}`} style={rectStyle(currentMarkerRect(currentPosition))} /> : null}
       </div>
       <div
         className={`score-selection-layer${playbackPhase === "idle" ? "" : " playback-active"}`}
@@ -521,7 +587,7 @@ export function ScoreRenderer({
         onPointerUp={finishPointerSelection}
         onPointerCancel={finishPointerSelection}
       >
-        {startHandleRect && endHandleRect && selectedRange && interactionMode === "idle" ? (
+        {startHandleRect && endHandleRect && selectedRange && interactionMode === "idle" && playbackPhase === "idle" ? (
           <>
             <button
               type="button"
@@ -571,7 +637,8 @@ export function ScoreRenderer({
             onClick={() => toggleHand("left")}
           >LH</button>
           <div className="score-practice-toolbar" style={{ left: Math.max(8, controlBoundaryLeft), top: toolbarTop }} role="toolbar" aria-label="Practice toolbar">
-            {playbackPhase === "idle" ? <button type="button" aria-label="Play score" title="Play" disabled={!canPlay} onClick={onPlay}><PlayIcon /></button> : <button type="button" aria-label="Stop playback" title="Stop" onClick={onStop}><StopIcon /></button>}
+            <button type="button" aria-label={playbackPhase === "idle" ? "Play score" : playbackPhase === "paused" ? "Resume score" : "Pause playback"} title={playbackPhase === "idle" ? "Play" : playbackPhase === "paused" ? "Resume" : "Pause"} disabled={!canPlay} onClick={onTogglePlayback}>{playbackPhase === "idle" || playbackPhase === "paused" ? <PlayIcon /> : <TransportPauseIcon />}</button>
+            <button type="button" aria-label="Reset score progress" title="Reset" disabled={!canPlay} onClick={onReset}><ResetIcon /></button>
             <button
               type="button"
               className={runMode === "loop" ? "active" : ""}
@@ -621,6 +688,7 @@ export function ScoreRenderer({
       {playbackPhase === "countdown" ? <div className="playback-overlay countdown" role="status" aria-live="assertive"><div className="playback-message"><strong>{countdownValue ?? ""}</strong></div></div> : null}
       {showStartCue ? <div className="playback-overlay start-cue" role="status" aria-live="assertive"><div className="playback-message"><strong>Go</strong></div></div> : null}
       {playbackPhase === "waiting-note" && !showStartCue ? <div className="playback-overlay note-wait" role="status" aria-live="polite"><div className="playback-message"><span>Waiting for</span><strong>{waitingForNotes.map(midiNoteToName).join(" + ")}</strong></div></div> : null}
+      {playbackPhase === "paused" ? <div className="playback-overlay paused" role="status" aria-live="polite"><div className="playback-message"><span>Playback</span><strong>Paused</strong></div></div> : null}
       {playbackPhase === "waiting-restart" ? <div className="playback-overlay restart" role="status" aria-live="polite"><div className="playback-message"><span>Loop complete</span><strong>Press any key to start again</strong></div></div> : null}
     </div>
   );
@@ -643,7 +711,8 @@ function PauseOnNoteIcon() {
 }
 
 function PlayIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8L7 4Z" /></svg>; }
-function StopIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z" /></svg>; }
+function TransportPauseIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6V4Zm8 0h4v16h-4V4Z" /></svg>; }
+function ResetIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.1 7.2A8 8 0 1 1 4 14h2.1a6 6 0 1 0 .8-5.2L10 12H2V4l3.1 3.2Z" /></svg>; }
 function ClearIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 6 1-2h8l1 2h4v2H3V6h4Zm1 4h8l-1 10H9L8 10Z" /></svg>; }
 
 function handModeAfterToggle(mode: HandMode, hand: "right" | "left"): HandMode {

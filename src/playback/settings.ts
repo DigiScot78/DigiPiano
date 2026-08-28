@@ -3,10 +3,11 @@ export interface PlaySettings {
   fallbackBpm: number;
   hitToleranceMs: number;
   showHitsWhilePlaying: boolean;
+  autoHideSidebarOnPlay: boolean;
 }
 
 export const PLAY_SETTINGS_KEY = "piano.play-settings";
-export const DEFAULT_PLAY_SETTINGS: PlaySettings = { countdownSeconds: 3, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false };
+export const DEFAULT_PLAY_SETTINGS: PlaySettings = { countdownSeconds: 3, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, autoHideSidebarOnPlay: false };
 
 export function readPlaySettings(storage: Pick<Storage, "getItem"> | undefined): PlaySettings {
   let value: unknown;
@@ -18,6 +19,7 @@ export function readPlaySettings(storage: Pick<Storage, "getItem"> | undefined):
     fallbackBpm: integerInRange(candidate.fallbackBpm, 30, 300, 120),
     hitToleranceMs: integerInRange(candidate.hitToleranceMs, 0, 1000, 250),
     showHitsWhilePlaying: typeof candidate.showHitsWhilePlaying === "boolean" ? candidate.showHitsWhilePlaying : false,
+    autoHideSidebarOnPlay: typeof candidate.autoHideSidebarOnPlay === "boolean" ? candidate.autoHideSidebarOnPlay : false,
   };
 }
 

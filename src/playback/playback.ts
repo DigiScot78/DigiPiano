@@ -1,7 +1,7 @@
 import { filterEventForHand, type HandMode, type ScoreSelectionRange } from "../learning/matcher";
 import type { ScoreEvent, TempoChange } from "../music/scoreTypes";
 
-export type PlaybackPhase = "idle" | "countdown" | "playing" | "waiting-note" | "waiting-restart";
+export type PlaybackPhase = "idle" | "countdown" | "playing" | "paused" | "waiting-note" | "waiting-restart";
 export type AttemptResult = "correct" | "wrong";
 
 export interface PlaybackEvent {

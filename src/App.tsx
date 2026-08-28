@@ -31,6 +31,8 @@ import type { PlaySettings } from "./playback/settings";
 import { shouldShowPerformanceResults } from "./playback/playback";
 import { useAudioSettings } from "./audio/useAudioSettings";
 import { useScoreAudio } from "./audio/useScoreAudio";
+import { useWorkspaceLayoutSettings } from "./layout/useWorkspaceLayoutSettings";
+import { isSidebarVisible, scoreMarginForLayout, SCORE_MARGIN_MAX, SCORE_MARGIN_MIN, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, type WorkspaceLayoutSettings } from "./layout/workspace";
 import "./styles.css";
 
 interface PracticeAttemptDiagnostic {
@@ -59,6 +61,7 @@ function App() {
   const piano = usePianoSettings();
   const play = usePlaySettings();
   const audioSettings = useAudioSettings();
+  const workspace = useWorkspaceLayoutSettings();
   const [loadedScore, setLoadedScore] = useState<LoadedScore | null>(null);
   const [parsedScore, setParsedScore] = useState<ParsedScore>({ events: [], tempoChanges: [], warnings: [] });
   const [learningState, setLearningState] = useState<LearningState>(initialLearningState());
@@ -81,10 +84,14 @@ function App() {
   const completedFeedbackIdRef = useRef(0);
   const previousHeldNotesRef = useRef<number[]>([]);
   const processedMidiCounterRef = useRef(0);
+  const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | undefined>(undefined);
+  const [draftSidebarWidth, setDraftSidebarWidth] = useState<number | undefined>();
+  const [sidebarHiddenForPlayback, setSidebarHiddenForPlayback] = useState(false);
+  const [pianoPanelHeight, setPianoPanelHeight] = useState(0);
 
   const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, handMode, range: selectedRange, runMode, pauseOnNotes, settings: play.settings });
-  const scoreAudio = useScoreAudio({ plan: playback.plan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, runId: playback.runId, pauseOnNotes, settings: audioSettings.settings });
-  const { phase: playbackPhase, handleMidiNoteOn, start: startPlayback } = playback;
+  const scoreAudio = useScoreAudio({ plan: playback.plan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, audioStartElapsedMs: playback.audioStartElapsedMs, runId: playback.runId, pauseOnNotes, settings: audioSettings.settings });
+  const { phase: playbackPhase, handleMidiNoteOn } = playback;
   const clearCompletedFeedback = useCallback(() => {
     if (completedFeedbackTimerRef.current !== undefined) {
       window.clearTimeout(completedFeedbackTimerRef.current);
@@ -93,12 +100,24 @@ function App() {
     setCompletedFeedback(undefined);
   }, []);
 
-  const startPlaybackWithAudio = useCallback(() => {
+  const togglePlaybackWithAudio = useCallback(() => {
+    if (playback.phase === "countdown" || playback.phase === "playing" || playback.phase === "waiting-note") {
+      playback.pause();
+      return;
+    }
     setSimulatedHeldNotes([]);
     setCarriedCompletedNotes([]);
     clearCompletedFeedback();
-    void scoreAudio.prepare().finally(startPlayback);
-  }, [clearCompletedFeedback, scoreAudio, startPlayback]);
+    if (playback.phase === "idle" && play.settings.autoHideSidebarOnPlay && workspace.settings.sidebarOpen) setSidebarHiddenForPlayback(true);
+    const continuePlayback = playback.phase === "idle"
+      ? () => playback.startAtEvent(learningState.currentIndex)
+      : playback.togglePlayback;
+    void scoreAudio.prepare().finally(continuePlayback);
+  }, [clearCompletedFeedback, learningState.currentIndex, play.settings.autoHideSidebarOnPlay, playback, scoreAudio, workspace.settings.sidebarOpen]);
+
+  useEffect(() => {
+    if (playbackPhase === "idle") setSidebarHiddenForPlayback(false);
+  }, [playbackPhase]);
 
   useEffect(() => clearCompletedFeedback, [clearCompletedFeedback]);
 
@@ -132,9 +151,7 @@ function App() {
     () => feedbackMarkersForHeldNotes(combinedHeldNotes, currentEvent, handMode, carriedCompletedNotes),
     [carriedCompletedNotes, combinedHeldNotes, currentEvent, handMode],
   );
-  const playbackCursorIndex = playback.phase === "countdown" ? playback.plan?.events[0]?.eventIndex
-    : playback.phase === "waiting-restart" ? playback.plan?.events.at(-1)?.eventIndex
-      : playback.currentEventIndex;
+  const playbackCursorIndex = playback.currentEventIndex;
   const displayedEventIndex = playback.phase === "idle" ? learningState.currentIndex : (playbackCursorIndex ?? learningState.currentIndex);
   const displayedEvent = playback.phase === "idle" ? expectedEvent : filterEventForHand(parsedScore.events[displayedEventIndex], handMode);
 
@@ -281,16 +298,6 @@ function App() {
     }
   }, [advanceWithNotes, combinedHeldNotes, handleMidiNoteOn, midi.lastMessage, midi.lastMessageAtMs, midi.messageCounter, playbackPhase]);
 
-  useEffect(() => {
-    if (playbackPhase !== "waiting-restart") return;
-    const restart = (event: KeyboardEvent) => {
-      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
-      startPlayback();
-    };
-    window.addEventListener("keydown", restart);
-    return () => window.removeEventListener("keydown", restart);
-  }, [playbackPhase, startPlayback]);
-
   const handleSelectionChange = useCallback((range: ScoreSelectionRange | undefined) => {
     setSelectedRange(range);
     const nextState = initialLearningState(firstPlayableIndex(parsedScore.events, handMode, range) ?? range?.startIndex ?? 0);
@@ -317,14 +324,55 @@ function App() {
     handleSelectionChange(undefined);
   };
 
-  const resetProgress = () => {
+  const resetAllProgress = useCallback(() => {
+    playback.reset();
     const nextState = initialLearningState(firstPlayableIndex(parsedScore.events, handMode, selectedRange) ?? selectedRange?.startIndex ?? 0);
     learningStateRef.current = nextState;
     setLearningState(nextState);
     setSimulatedHeldNotes([]);
     setCarriedCompletedNotes([]);
     clearCompletedFeedback();
-  };
+  }, [clearCompletedFeedback, handMode, parsedScore.events, playback, selectedRange]);
+
+  const seekToEvent = useCallback((eventIndex: number) => {
+    const playable = playback.plan?.events;
+    const destination = playable?.find((item) => item.eventIndex === eventIndex)
+      ?? (playable?.length ? playable.reduce((nearest, item) => Math.abs(item.eventIndex - eventIndex) < Math.abs(nearest.eventIndex - eventIndex) ? item : nearest) : undefined);
+    if (!destination) return;
+    if (playback.phase !== "idle") {
+      playback.seekToEvent(destination.eventIndex);
+    } else {
+      const nextState = initialLearningState(destination.eventIndex);
+      learningStateRef.current = nextState;
+      setLearningState(nextState);
+      playback.clearResults();
+    }
+    setSimulatedHeldNotes([]);
+    setCarriedCompletedNotes([]);
+    clearCompletedFeedback();
+  }, [clearCompletedFeedback, playback]);
+
+  useEffect(() => {
+    const handleSpace = (event: KeyboardEvent) => {
+      if (event.code !== "Space") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey || !playback.plan) return;
+      togglePlaybackWithAudio();
+    };
+    window.addEventListener("keydown", handleSpace, { capture: true });
+    return () => window.removeEventListener("keydown", handleSpace, { capture: true });
+  }, [playback.plan, togglePlaybackWithAudio]);
+
+  useEffect(() => {
+    if (playback.phase !== "waiting-restart") return;
+    const restartLoop = (event: KeyboardEvent) => {
+      if (event.code === "Space" || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+      playback.start();
+    };
+    window.addEventListener("keydown", restartLoop);
+    return () => window.removeEventListener("keydown", restartLoop);
+  }, [playback]);
 
   const handleHandModeChange = (nextHandMode: HandMode) => {
     setHandMode(nextHandMode);
@@ -333,14 +381,37 @@ function App() {
     clearCompletedFeedback();
   };
 
+  const beginSidebarResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    sidebarResizeRef.current = { startX: event.clientX, startWidth: draftSidebarWidth ?? workspace.settings.sidebarWidth };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDraftSidebarWidth(draftSidebarWidth ?? workspace.settings.sidebarWidth);
+  };
+  const resizeSidebar = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!sidebarResizeRef.current) return;
+    const next = Math.round(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, sidebarResizeRef.current.startWidth + sidebarResizeRef.current.startX - event.clientX)));
+    setDraftSidebarWidth(next);
+  };
+  const finishSidebarResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!sidebarResizeRef.current) return;
+    const next = Math.round(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, sidebarResizeRef.current.startWidth + sidebarResizeRef.current.startX - event.clientX)));
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    sidebarResizeRef.current = undefined;
+    setDraftSidebarWidth(undefined);
+    workspace.setSettings({ sidebarWidth: next });
+  };
+
+  const sidebarWidth = draftSidebarWidth ?? workspace.settings.sidebarWidth;
+  const sidebarVisible = isSidebarVisible(workspace.settings, sidebarHiddenForPlayback);
+  const scoreMargin = scoreMarginForLayout(workspace.settings, sidebarVisible);
+  const reportPianoPanelHeight = useCallback((height: number) => setPianoPanelHeight((current) => current === height ? current : height), []);
+
   return (
-    <main className="app-shell">
+    <main className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px`, "--score-margin": `${scoreMargin}px`, "--bottom-panel-height": `${pianoPanelHeight}px` } as React.CSSProperties}>
       <header className="app-header">
         <h1>Piano Learning</h1>
-        <button type="button" className="settings-button" aria-label="Open settings" title="Settings" onClick={() => setMidiSettingsOpen(true)}><SettingsIcon /></button>
       </header>
 
-      <section className="score-layout">
+      <section className={`score-layout${sidebarVisible ? "" : " sidebar-collapsed"}`}>
         <div className="score-frame">
           {scoreStatus === "empty" ? <div className="score-placeholder">No score loaded.</div> : null}
           {scoreStatus === "loading" ? <div className="score-placeholder">Loading score...</div> : null}
@@ -369,11 +440,12 @@ function App() {
             showCorrectNoteNames={showCorrectNoteNames}
             showWrongNoteNames={showWrongNoteNames}
             onSelectedRangeChange={handleSelectionChange}
+            onEventSeek={seekToEvent}
             onHandModeChange={handleHandModeChange}
             onRunModeChange={setRunMode}
             onPauseOnNotesChange={setPauseOnNotes}
-            onPlay={startPlaybackWithAudio}
-            onStop={playback.stop}
+            onTogglePlayback={togglePlaybackWithAudio}
+            onReset={resetAllProgress}
             onClearPerformance={playback.clearResults}
             onAudioSettingsChange={audioSettings.setSettings}
             onRenderStateChange={(next) => {
@@ -382,12 +454,18 @@ function App() {
             }}
           />
         </div>
-        <div className="right-sidebar">
+        {sidebarVisible ? <aside className="right-sidebar" aria-label="Side panel">
+          <button type="button" className="sidebar-resize-handle" aria-label="Resize side panel" title="Drag to resize side panel" onPointerDown={beginSidebarResize} onPointerMove={resizeSidebar} onPointerUp={finishSidebarResize} onPointerCancel={finishSidebarResize}><span /></button>
+          <button type="button" className="sidebar-collapse-button" aria-label="Collapse side panel" title="Collapse side panel" onClick={() => workspace.setSettings({ sidebarOpen: false })}><SidebarCollapseIcon /></button>
+          <div className="sidebar-scroll-content">
           <section className="panel file-panel">
-            <label className="file-picker-button">
-              Open score
-              <input type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />
-            </label>
+            <div className="file-panel-actions">
+              <label className="file-picker-button">
+                Open score
+                <input type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />
+              </label>
+              <button type="button" className="settings-button" aria-label="Open settings" title="Settings" onClick={() => setMidiSettingsOpen(true)}><SettingsIcon /></button>
+            </div>
             {scoreError ? <p className="error compact-message">{scoreError}</p> : null}
             {renderError ? <p className="error compact-message">Renderer: {renderError}</p> : null}
           </section>
@@ -402,7 +480,6 @@ function App() {
             <div className="button-row compact-actions">
               <button type="button" onClick={simulateCurrentEvent} disabled={playback.phase !== "idle" || !expectedEvent || expectedEvent.midiNotes.length === 0 || learningState.isComplete}>Simulate</button>
               <button type="button" onClick={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); }} disabled={playback.phase !== "idle"}>Release</button>
-              <button type="button" onClick={resetProgress} disabled={playback.phase !== "idle"}>Reset</button>
               <button type="button" onClick={clearSelection} disabled={playback.phase !== "idle" || !selectedRange}>Clear range</button>
             </div>
             <ComparisonSummary state={learningState} />
@@ -430,8 +507,10 @@ function App() {
           playbackPhase={playback.phase}
           performanceResults={playback.results}
           />
-        </div>
+          </div>
+        </aside> : null}
       </section>
+      {!sidebarVisible ? <button type="button" className="sidebar-restore-button" aria-label="Restore side panel" title="Restore side panel" onClick={() => { setSidebarHiddenForPlayback(false); workspace.setSettings({ sidebarOpen: true }); }}><SidebarRestoreIcon /><span>Panel</span></button> : null}
       <PianoPanel
         expectedNotes={playback.phase === "playing" || playback.phase === "waiting-note" ? playback.expectedNotes : playback.phase === "idle" ? expectedEvent?.midiNotes ?? [] : []}
         heldNotes={combinedHeldNotes}
@@ -440,15 +519,19 @@ function App() {
         playbackPlan={playback.plan}
         playbackPhase={playback.phase}
         rollElapsedMs={playback.rollElapsedMs}
+        playbackElapsedMs={playback.elapsedMs}
+        displayedEventIndex={displayedEventIndex}
         canPlay={Boolean(playback.plan)}
         runMode={runMode}
         pauseOnNotes={pauseOnNotes}
         canClearPerformance={playback.results.length > 0 || playback.missedNotes.length > 0}
         audioSettings={audioSettings.settings}
         audioError={scoreAudio.error}
+        onPanelHeightChange={reportPianoPanelHeight}
         onSettingsChange={piano.setSettings}
-        onPlay={startPlaybackWithAudio}
-        onStop={playback.stop}
+        onTogglePlayback={togglePlaybackWithAudio}
+        onReset={resetAllProgress}
+        onSeek={seekToEvent}
         onRunModeChange={setRunMode}
         onPauseOnNotesChange={setPauseOnNotes}
         onClearPerformance={playback.clearResults}
@@ -461,11 +544,13 @@ function App() {
           scoreTheme={appearance.scoreTheme}
           pianoSettings={piano.settings}
           playSettings={play.settings}
+          workspaceSettings={workspace.settings}
           onAppThemeChange={appearance.setAppTheme}
           onScoreThemeChange={appearance.setScoreTheme}
           onPianoSettingsChange={piano.setSettings}
           onResetPianoColors={piano.resetColors}
           onPlaySettingsChange={play.setSettings}
+          onWorkspaceSettingsChange={workspace.setSettings}
           onClose={() => setMidiSettingsOpen(false)}
         />
       ) : null}
@@ -481,17 +566,22 @@ function SettingsIcon() {
   );
 }
 
+function SidebarCollapseIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15.5 5-7 7 7 7 1.5-1.5-5.5-5.5L17 6.5 15.5 5Z" /></svg>; }
+function SidebarRestoreIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 5 7 7-7 7L7 17.5l5.5-5.5L7 6.5 8.5 5Z" /></svg>; }
+
 function SettingsDialog({
   midi,
   appTheme,
   scoreTheme,
   pianoSettings,
   playSettings,
+  workspaceSettings,
   onAppThemeChange,
   onScoreThemeChange,
   onPianoSettingsChange,
   onResetPianoColors,
   onPlaySettingsChange,
+  onWorkspaceSettingsChange,
   onClose,
 }: {
   midi: ReturnType<typeof useMidiInput>;
@@ -499,13 +589,30 @@ function SettingsDialog({
   scoreTheme: ScoreTheme;
   pianoSettings: PianoSettings;
   playSettings: PlaySettings;
+  workspaceSettings: WorkspaceLayoutSettings;
   onAppThemeChange: (theme: AppTheme) => void;
   onScoreThemeChange: (theme: ScoreTheme) => void;
   onPianoSettingsChange: (update: Partial<PianoSettings>) => void;
   onResetPianoColors: () => void;
   onPlaySettingsChange: (update: Partial<PlaySettings>) => void;
+  onWorkspaceSettingsChange: (update: Partial<WorkspaceLayoutSettings>) => void;
   onClose: () => void;
 }) {
+  type SettingsTab = "general" | "appearance" | "piano" | "play";
+  const tabs: { id: SettingsTab; label: string; description: string }[] = [
+    { id: "general", label: "General", description: "Devices and essentials" },
+    { id: "appearance", label: "Appearance", description: "Themes and score layout" },
+    { id: "piano", label: "Piano", description: "Keyboard feedback" },
+    { id: "play", label: "Play", description: "Timing and focus" },
+  ];
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    setActiveTab(tabs[nextIndex].id);
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
+  };
   return (
     <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
@@ -516,8 +623,14 @@ function SettingsDialog({
           </div>
           <button type="button" className="dialog-close" aria-label="Close settings" onClick={onClose}>×</button>
         </header>
-        <section className="settings-section" aria-labelledby="appearance-settings-title">
+        <div className="settings-workspace">
+        <nav className="settings-tabs" role="tablist" aria-label="Settings categories">
+          {tabs.map((tab, index) => <button key={tab.id} id={`settings-tab-${tab.id}`} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={`settings-panel-${tab.id}`} tabIndex={activeTab === tab.id ? 0 : -1} className={activeTab === tab.id ? "selected" : ""} onClick={() => setActiveTab(tab.id)} onKeyDown={(event) => handleTabKeyDown(event, index)}><strong>{tab.label}</strong><small>{tab.description}</small></button>)}
+        </nav>
+        <div className="settings-tab-content">
+        {activeTab === "appearance" ? <section id="settings-panel-appearance" className="settings-section" role="tabpanel" aria-labelledby="settings-tab-appearance">
           <h3 id="appearance-settings-title">Appearance</h3>
+          <div className="settings-card-grid"><div className="settings-card">
           <span className="settings-label">Application</span>
           <div className="theme-choice-row" aria-label="Application theme">
             {(["system", "light", "dark"] as const).map((theme) => (
@@ -537,28 +650,38 @@ function SettingsDialog({
               <span><strong>Night</strong><small>Dark page, pale notation</small></span>
             </button>
           </div>
-        </section>
-        <section className="settings-section" aria-labelledby="piano-settings-title">
+          </div><div className="settings-card"><span className="settings-label">Score width</span><p className="settings-card-copy">Use independent paper spacing for an open panel and focused play.</p>
+          <label className="score-margin-setting">Panel open margins <strong>{workspaceSettings.panelOpenScoreMargin}px</strong><input aria-label="Score paper margins with panel open" type="range" min={SCORE_MARGIN_MIN} max={SCORE_MARGIN_MAX} step="1" value={workspaceSettings.panelOpenScoreMargin} onChange={(event) => onWorkspaceSettingsChange({ panelOpenScoreMargin: Number(event.target.value) })} /></label>
+          <label className="score-margin-setting">Panel docked margins <strong>{workspaceSettings.panelDockedScoreMargin}px</strong><input aria-label="Score paper margins with panel docked" type="range" min={SCORE_MARGIN_MIN} max={SCORE_MARGIN_MAX} step="1" value={workspaceSettings.panelDockedScoreMargin} onChange={(event) => onWorkspaceSettingsChange({ panelDockedScoreMargin: Number(event.target.value) })} /></label>
+          </div></div>
+        </section> : null}
+        {activeTab === "piano" ? <section id="settings-panel-piano" className="settings-section" role="tabpanel" aria-labelledby="settings-tab-piano">
           <h3 id="piano-settings-title">Piano</h3>
+          <div className="settings-card">
           <div className="piano-color-settings">
             <label>Expected <input type="color" value={pianoSettings.expectedColor} onChange={(event) => onPianoSettingsChange({ expectedColor: event.target.value })} /></label>
             <label>Correct <input type="color" value={pianoSettings.correctColor} onChange={(event) => onPianoSettingsChange({ correctColor: event.target.value })} /></label>
             <label>Wrong <input type="color" value={pianoSettings.wrongColor} onChange={(event) => onPianoSettingsChange({ wrongColor: event.target.value })} /></label>
           </div>
           <button type="button" className="secondary-button" onClick={onResetPianoColors}>Reset colours</button>
-        </section>
-        <section className="settings-section" aria-labelledby="play-settings-title">
+          </div>
+        </section> : null}
+        {activeTab === "play" ? <section id="settings-panel-play" className="settings-section" role="tabpanel" aria-labelledby="settings-tab-play">
           <h3 id="play-settings-title">Play</h3>
+          <div className="settings-card">
           <div className="play-settings-grid">
             <label>Countdown (seconds)<input type="number" min="0" max="10" step="1" value={playSettings.countdownSeconds} onChange={(event) => onPlaySettingsChange({ countdownSeconds: clampSetting(event.target.value, 0, 10) })} /></label>
             <label>Fallback tempo (BPM)<input type="number" min="30" max="300" step="1" value={playSettings.fallbackBpm} onChange={(event) => onPlaySettingsChange({ fallbackBpm: clampSetting(event.target.value, 30, 300) })} /></label>
             <label>Hit tolerance (ms)<input type="number" min="0" max="1000" step="25" value={playSettings.hitToleranceMs} onChange={(event) => onPlaySettingsChange({ hitToleranceMs: clampSetting(event.target.value, 0, 1000) })} /></label>
             <label className="play-checkbox-setting">Show hits while playing<input type="checkbox" checked={playSettings.showHitsWhilePlaying} onChange={(event) => onPlaySettingsChange({ showHitsWhilePlaying: event.target.checked })} /></label>
+            <label className="play-checkbox-setting">Auto-hide side panel on Play<input type="checkbox" checked={playSettings.autoHideSidebarOnPlay} onChange={(event) => onPlaySettingsChange({ autoHideSidebarOnPlay: event.target.checked })} /></label>
           </div>
           <p className="settings-hint">Embedded score tempo is used when available. The fallback applies before the first tempo marking or when none is supplied.</p>
-        </section>
-        <section className="settings-section midi-settings-section" aria-labelledby="midi-settings-title">
+          </div>
+        </section> : null}
+        {activeTab === "general" ? <section id="settings-panel-general" className="settings-section midi-settings-section" role="tabpanel" aria-labelledby="settings-tab-general">
           <h3 id="midi-settings-title">MIDI input</h3>
+        <div className="settings-card">
         <div className="midi-status-row">
           <span className={`status-dot ${midi.accessStatus === "ready" ? "ready" : ""}`} aria-hidden="true" />
           <span>{midi.accessStatus === "ready" ? "MIDI connected" : midi.accessStatus === "requesting" ? "Connecting…" : "MIDI not connected"}</span>
@@ -579,7 +702,10 @@ function SettingsDialog({
           </select>
         </label>
         <p className="settings-hint">A previously authorised keyboard reconnects automatically when the browser retains MIDI permission.</p>
-        </section>
+        </div>
+        </section> : null}
+        </div>
+        </div>
       </section>
     </div>
   );

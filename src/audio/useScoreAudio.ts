@@ -21,16 +21,17 @@ export function audioNotesForPlan(plan: PlaybackPlan | undefined): AudioPlanNote
   return [...grouped.values()].sort((a, b) => a.onsetMs - b.onsetMs || a.midiNote - b.midiNote);
 }
 
-export function audioNotesInWindow(notes: AudioPlanNote[], elapsedMs: number, nextGateOnsetMs: number | undefined, scheduled: ReadonlySet<string>, lookaheadMs = LOOKAHEAD_MS): AudioPlanNote[] {
+export function audioNotesInWindow(notes: AudioPlanNote[], elapsedMs: number, nextGateOnsetMs: number | undefined, scheduled: ReadonlySet<string>, lookaheadMs = LOOKAHEAD_MS, minimumOnsetMs = 0): AudioPlanNote[] {
   const horizon = Math.min(elapsedMs + lookaheadMs, nextGateOnsetMs ?? Number.POSITIVE_INFINITY);
-  return notes.filter((note) => note.onsetMs >= elapsedMs - 1
+  return notes.filter((note) => note.onsetMs >= minimumOnsetMs - 0.001
+    && note.onsetMs >= elapsedMs - 1
     && note.onsetMs <= horizon
     && (nextGateOnsetMs === undefined || note.onsetMs < nextGateOnsetMs - 0.001)
     && !scheduled.has(note.id));
 }
 
-export function useScoreAudio(options: { plan?: PlaybackPlan; phase: PlaybackPhase; rollElapsedMs: number; runId: number; pauseOnNotes: boolean; settings: AudioSettings; engine?: ScoreAudioEngine }) {
-  const { plan, phase, rollElapsedMs, runId, pauseOnNotes, settings } = options;
+export function useScoreAudio(options: { plan?: PlaybackPlan; phase: PlaybackPhase; rollElapsedMs: number; audioStartElapsedMs?: number; runId: number; pauseOnNotes: boolean; settings: AudioSettings; engine?: ScoreAudioEngine }) {
+  const { plan, phase, rollElapsedMs, audioStartElapsedMs = 0, runId, pauseOnNotes, settings } = options;
   const [engine] = useState<ScoreAudioEngine>(() => options.engine ?? new PianoSynthEngine());
   const scheduledRef = useRef(new Set<string>());
   const [error, setError] = useState<string | undefined>();
@@ -64,11 +65,11 @@ export function useScoreAudio(options: { plan?: PlaybackPlan; phase: PlaybackPha
       return;
     }
     const nextGate = pauseOnNotes ? gates.find((gate) => gate.onsetMs > rollElapsedMs + 0.5)?.onsetMs : undefined;
-    for (const note of audioNotesInWindow(notes, rollElapsedMs, nextGate, scheduledRef.current)) {
+    for (const note of audioNotesInWindow(notes, rollElapsedMs, nextGate, scheduledRef.current, LOOKAHEAD_MS, audioStartElapsedMs)) {
       engine.scheduleNote(`${runId}:${note.id}`, note.midiNote, note.onsetMs - rollElapsedMs, note.durationMs);
       scheduledRef.current.add(note.id);
     }
-  }, [engine, gates, notes, pauseOnNotes, phase, rollElapsedMs, runId]);
+  }, [audioStartElapsedMs, engine, gates, notes, pauseOnNotes, phase, rollElapsedMs, runId]);
 
   useEffect(() => {
     engine.cancelFuture();

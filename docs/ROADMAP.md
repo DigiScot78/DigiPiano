@@ -53,9 +53,13 @@ Acceptance criteria:
 - Loop playback waits for keyboard or MIDI confirmation before beginning the next countdown.
 - Timestamped MIDI note-ons produce one deduplicated green completion per written note plus individual red mistake attempts at their played score-time positions; results default to appearing after playback and remain until cleared or a new run starts.
 - Pause-at-each-note can be changed live and freezes timed playback at each hand-filtered onset until fresh MIDI input completes the note or chord without compressing later rhythm.
-- The fixed piano toolbar mirrors Play/Stop, Loop, Pause, and Clear controls from the score toolbar.
+- The fixed piano toolbar mirrors Play/Pause/Resume, Reset, Loop, Pause-at-each-note, and Clear controls from the score toolbar.
 - A persisted, resizable Synthesia overlay shares piano geometry and playback time, supports transparent/opaque and note-label modes, and aligns staff-coloured duration blocks plus strike-time key fills with the keyboard.
 - Score and Synthesia Play controls produce synchronized piano-like browser audio, with shared persisted mute/volume controls and Pause-gate-aware scheduling.
+- Both toolbars and Space share Play/Pause/countdown-Resume behavior, with Reset returning to the active plan start.
+- Timed and untimed cursor movement auto-follows notation systems, and Synthesia exposes a selection-relative event-snapped timeline below the keyboard.
+- The timeline remains available without Synthesia and with the keyboard collapsed; score clicks provide the same event-snapped navigation while preserving active selection bounds.
+- The right workspace panel persists collapse and drag-resized width, can auto-hide for an active Play run, ends above the measured bottom instrument surface, and uses independent open/docked score margins; OSMD overlays remain aligned through every live layout/display resize.
 
 ## Milestone 4: Feedback Quality
 Status: in progress.
