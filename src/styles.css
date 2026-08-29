@@ -116,6 +116,21 @@ select {
   font-size: 1.2rem;
 }
 
+.playback-notice {
+  position: fixed;
+  z-index: 80;
+  top: 0.75rem;
+  left: 50%;
+  max-width: min(32rem, calc(100vw - 2rem));
+  transform: translateX(-50%);
+  border: 1px solid #b9852d;
+  border-radius: 8px;
+  padding: 0.65rem 0.9rem;
+  background: var(--app-surface-raised);
+  color: var(--app-text);
+  box-shadow: 0 4px 16px var(--app-shadow);
+}
+
 .app-header p,
 .muted {
   color: var(--app-muted);

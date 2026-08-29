@@ -27,7 +27,7 @@ describe("usePlaybackSession", () => {
 
   async function render(countdownSeconds = 0, runMode: "once" | "loop" = "once", pauseOnNotes = false, events = scoreEvents) {
     function Harness() {
-      session = usePlaybackSession({ events, tempoChanges: [], handMode: "both", runMode, pauseOnNotes, settings: { countdownSeconds, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, autoHideSidebarOnPlay: false } });
+      session = usePlaybackSession({ events, tempoChanges: [], handMode: "both", runMode, pauseOnNotes, settings: { countdownSeconds, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
       return null;
     }
     await act(async () => root.render(<Harness />));
@@ -150,7 +150,7 @@ describe("usePlaybackSession", () => {
     function Harness() {
       const [pauseOnNotes, setPause] = useState(false);
       setPauseOnNotes = setPause;
-      session = usePlaybackSession({ events: repeated, tempoChanges: [], handMode: "both", runMode: "once", pauseOnNotes, settings: { countdownSeconds: 0, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, autoHideSidebarOnPlay: false } });
+      session = usePlaybackSession({ events: repeated, tempoChanges: [], handMode: "both", runMode: "once", pauseOnNotes, settings: { countdownSeconds: 0, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
       return null;
     }
     await act(async () => root.render(<Harness />));

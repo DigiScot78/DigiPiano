@@ -31,6 +31,7 @@ import type { PianoSettings } from "./piano/piano";
 import { usePlaySettings } from "./playback/usePlaySettings";
 import { usePlaybackSession } from "./playback/usePlaybackSession";
 import type { PlaySettings } from "./playback/settings";
+import { PlaybackFullscreenController } from "./playback/fullscreen";
 import { shouldShowPerformanceResults } from "./playback/playback";
 import { useAudioSettings } from "./audio/useAudioSettings";
 import { useScoreAudio } from "./audio/useScoreAudio";
@@ -90,6 +91,9 @@ function App() {
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | undefined>(undefined);
   const [draftSidebarWidth, setDraftSidebarWidth] = useState<number | undefined>();
   const [sidebarHiddenForPlayback, setSidebarHiddenForPlayback] = useState(false);
+  const [fullscreenNotice, setFullscreenNotice] = useState<string | undefined>();
+  const fullscreenControllerRef = useRef(new PlaybackFullscreenController());
+  const fullscreenNoticeTimerRef = useRef<number | undefined>(undefined);
 
   const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, handMode, range: selectedRange, runMode, pauseOnNotes, settings: play.settings });
   const scoreAudio = useScoreAudio({ plan: playback.plan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, audioStartElapsedMs: playback.audioStartElapsedMs, runId: playback.runId, pauseOnNotes, nextPendingGateOnsetMs: playback.nextPendingGateOnsetMs, settings: audioSettings.settings });
@@ -102,6 +106,20 @@ function App() {
     setCompletedFeedback(undefined);
   }, []);
 
+  const showFullscreenNotice = useCallback(() => {
+    if (fullscreenNoticeTimerRef.current !== undefined) window.clearTimeout(fullscreenNoticeTimerRef.current);
+    setFullscreenNotice("Fullscreen was unavailable. Playback is continuing in the current window.");
+    fullscreenNoticeTimerRef.current = window.setTimeout(() => {
+      setFullscreenNotice(undefined);
+      fullscreenNoticeTimerRef.current = undefined;
+    }, 4500);
+  }, []);
+
+  const finishPlaybackPresentation = useCallback(() => {
+    setSidebarHiddenForPlayback(false);
+    void fullscreenControllerRef.current.exit(document);
+  }, []);
+
   const togglePlaybackWithAudio = useCallback(() => {
     if (playback.phase === "countdown" || playback.phase === "playing" || playback.phase === "waiting-note") {
       playback.pause();
@@ -110,18 +128,36 @@ function App() {
     setSimulatedHeldNotes([]);
     setCarriedCompletedNotes([]);
     clearCompletedFeedback();
-    if (playback.phase === "idle" && play.settings.autoHideSidebarOnPlay && workspace.settings.sidebarOpen) setSidebarHiddenForPlayback(true);
+    if (playback.phase === "idle") {
+      setSidebarHiddenForPlayback(true);
+      setFullscreenNotice(undefined);
+      if (play.settings.playFullscreen) {
+        void fullscreenControllerRef.current.enter(document).then((result) => {
+          if (result === "unavailable" || result === "failed") showFullscreenNotice();
+        });
+      }
+    }
     const continuePlayback = playback.phase === "idle"
       ? () => playback.startAtEvent(learningState.currentIndex)
       : playback.togglePlayback;
     void scoreAudio.prepare().finally(continuePlayback);
-  }, [clearCompletedFeedback, learningState.currentIndex, play.settings.autoHideSidebarOnPlay, playback, scoreAudio, workspace.settings.sidebarOpen]);
+  }, [clearCompletedFeedback, learningState.currentIndex, play.settings.playFullscreen, playback, scoreAudio, showFullscreenNotice]);
 
   useEffect(() => {
-    if (playbackPhase === "idle") setSidebarHiddenForPlayback(false);
-  }, [playbackPhase]);
+    if (playbackPhase === "idle") finishPlaybackPresentation();
+  }, [finishPlaybackPresentation, playbackPhase]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => fullscreenControllerRef.current.handleFullscreenChange(document);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
 
   useEffect(() => clearCompletedFeedback, [clearCompletedFeedback]);
+  useEffect(() => () => {
+    if (fullscreenNoticeTimerRef.current !== undefined) window.clearTimeout(fullscreenNoticeTimerRef.current);
+    void fullscreenControllerRef.current.exit(document);
+  }, []);
 
   useEffect(() => {
     if (!midiSettingsOpen) {
@@ -348,6 +384,7 @@ function App() {
   };
 
   const resetAllProgress = useCallback(() => {
+    finishPlaybackPresentation();
     playback.reset();
     const nextState = initialLearningState(firstPlayableIndex(parsedScore.events, handMode, selectedRange) ?? selectedRange?.startIndex ?? 0);
     learningStateRef.current = nextState;
@@ -355,7 +392,7 @@ function App() {
     setSimulatedHeldNotes([]);
     setCarriedCompletedNotes([]);
     clearCompletedFeedback();
-  }, [clearCompletedFeedback, handMode, parsedScore.events, playback, selectedRange]);
+  }, [clearCompletedFeedback, finishPlaybackPresentation, handMode, parsedScore.events, playback, selectedRange]);
 
   const seekToEvent = useCallback((eventIndex: number) => {
     const playable = playback.plan?.events;
@@ -439,6 +476,7 @@ function App() {
       <header className="app-header">
         <h1>Piano Learning</h1>
       </header>
+      {fullscreenNotice ? <div className="playback-notice" role="status">{fullscreenNotice}</div> : null}
 
       <section className={`score-layout${sidebarVisible ? "" : " sidebar-collapsed"}`}>
         <div className="score-frame">
@@ -706,9 +744,9 @@ function SettingsDialog({
             <label>Fallback tempo (BPM)<input type="number" min="30" max="300" step="1" value={playSettings.fallbackBpm} onChange={(event) => onPlaySettingsChange({ fallbackBpm: clampSetting(event.target.value, 30, 300) })} /></label>
             <label>Hit tolerance (ms)<input type="number" min="0" max="1000" step="25" value={playSettings.hitToleranceMs} onChange={(event) => onPlaySettingsChange({ hitToleranceMs: clampSetting(event.target.value, 0, 1000) })} /></label>
             <label className="play-checkbox-setting">Show hits while playing<input type="checkbox" checked={playSettings.showHitsWhilePlaying} onChange={(event) => onPlaySettingsChange({ showHitsWhilePlaying: event.target.checked })} /></label>
-            <label className="play-checkbox-setting">Auto-hide side panel on Play<input type="checkbox" checked={playSettings.autoHideSidebarOnPlay} onChange={(event) => onPlaySettingsChange({ autoHideSidebarOnPlay: event.target.checked })} /></label>
+            <label className="play-checkbox-setting">Play fullscreen<input type="checkbox" checked={playSettings.playFullscreen} onChange={(event) => onPlaySettingsChange({ playFullscreen: event.target.checked })} /></label>
           </div>
-          <p className="settings-hint">Embedded score tempo is used when available. The fallback applies before the first tempo marking or when none is supplied.</p>
+          <p className="settings-hint">Embedded score tempo is used when available. The fallback applies before the first tempo marking or when none is supplied. Play always hides the side panel; fullscreen uses the browser display and Escape leaves it without stopping playback.</p>
           </div>
         </section> : null}
         {activeTab === "general" ? <section id="settings-panel-general" className="settings-section midi-settings-section" role="tabpanel" aria-labelledby="settings-tab-general">
