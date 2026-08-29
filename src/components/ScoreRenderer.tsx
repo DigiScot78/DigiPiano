@@ -47,6 +47,7 @@ interface ScoreRendererProps {
   onRunModeChange?: (mode: PracticeRunMode) => void;
   onPauseOnNotesChange?: (enabled: boolean) => void;
   onTogglePlayback?: () => void;
+  onStop?: () => void;
   onReset?: () => void;
   onClearPerformance?: () => void;
   onAudioSettingsChange?: (update: Partial<AudioSettings>) => void;
@@ -136,6 +137,7 @@ export function ScoreRenderer({
   onRunModeChange,
   onPauseOnNotesChange,
   onTogglePlayback,
+  onStop,
   onReset,
   onClearPerformance,
   onAudioSettingsChange,
@@ -637,8 +639,8 @@ export function ScoreRenderer({
             onClick={() => toggleHand("left")}
           >LH</button>
           <div className="score-practice-toolbar" style={{ left: Math.max(8, controlBoundaryLeft), top: toolbarTop }} role="toolbar" aria-label="Practice toolbar">
-            <button type="button" aria-label={playbackPhase === "idle" ? "Play score" : playbackPhase === "paused" ? "Resume score" : "Pause playback"} title={playbackPhase === "idle" ? "Play" : playbackPhase === "paused" ? "Resume" : "Pause"} disabled={!canPlay} onClick={onTogglePlayback}>{playbackPhase === "idle" || playbackPhase === "paused" ? <PlayIcon /> : <TransportPauseIcon />}</button>
-            <button type="button" aria-label="Reset score progress" title="Reset" disabled={!canPlay} onClick={onReset}><ResetIcon /></button>
+            <button type="button" aria-label={playbackPhase === "idle" || playbackPhase === "stopped" ? "Play score" : playbackPhase === "paused" ? "Resume score" : "Pause playback"} title={playbackPhase === "idle" || playbackPhase === "stopped" ? "Play" : playbackPhase === "paused" ? "Resume" : "Pause"} disabled={!canPlay} onClick={onTogglePlayback}>{playbackPhase === "idle" || playbackPhase === "stopped" || playbackPhase === "paused" ? <PlayIcon /> : <TransportPauseIcon />}</button>
+            <button type="button" aria-label="Stop score playback" title="Stop" disabled={!canStop(playbackPhase)} onClick={onStop}><StopIcon /></button>
             <button
               type="button"
               className={runMode === "loop" ? "active" : ""}
@@ -661,6 +663,7 @@ export function ScoreRenderer({
               <PauseOnNoteIcon />
             </button>
             <button type="button" aria-label="Clear performance markers" title="Clear performance" disabled={performanceResults.length === 0 && missedPerformanceNotes.length === 0} onClick={onClearPerformance}><ClearIcon /></button>
+            <button type="button" aria-label="Reset score progress" title="Reset" disabled={!canPlay} onClick={onReset}><ResetIcon /></button>
             {audioSettings && onAudioSettingsChange ? <AudioControls settings={audioSettings} error={audioError} onSettingsChange={onAudioSettingsChange} compact /> : null}
           </div>
         </div>
@@ -712,8 +715,11 @@ function PauseOnNoteIcon() {
 
 function PlayIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8L7 4Z" /></svg>; }
 function TransportPauseIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6V4Zm8 0h4v16h-4V4Z" /></svg>; }
+function StopIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5V5Z" /></svg>; }
 function ResetIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.1 7.2A8 8 0 1 1 4 14h2.1a6 6 0 1 0 .8-5.2L10 12H2V4l3.1 3.2Z" /></svg>; }
 function ClearIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 6 1-2h8l1 2h4v2H3V6h4Zm1 4h8l-1 10H9L8 10Z" /></svg>; }
+
+function canStop(phase: PlaybackPhase | undefined): boolean { return phase === "countdown" || phase === "playing" || phase === "waiting-note" || phase === "paused"; }
 
 function handModeAfterToggle(mode: HandMode, hand: "right" | "left"): HandMode {
   if (hand === "right") {

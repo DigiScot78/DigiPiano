@@ -53,10 +53,11 @@ Acceptance criteria:
 - Loop playback waits for keyboard or MIDI confirmation before beginning the next countdown.
 - Timestamped MIDI note-ons produce one deduplicated green completion per written note plus individual red mistake attempts at their played score-time positions; results default to appearing after playback and remain until cleared or a new run starts.
 - Pause-at-each-note can be changed live and freezes timed playback at each hand-filtered onset until fresh MIDI input completes the note or chord without compressing later rhythm.
-- The permanent bottom toolbar groups Piano/Synthesia view controls and popovers at left, Play/Pause/Resume, Reset, Loop, Pause-at-each-note, and Clear centrally, and Score Audio at right.
+- Untimed practice and timed Play use the same full RH/LH key fills from exact event-backed expectations; Pause-at-each-note previews the complete next gate dimly one local quarter-note beat before arrival.
+- The permanent bottom toolbar groups Piano/Synthesia view controls and popovers at left, Play/Pause/Resume, Stop, Loop, Pause-at-each-note, Clear, and Reset centrally, and Score Audio at right.
 - A persisted, resizable Synthesia overlay shares piano geometry and playback time, remains independently visible without piano keys, clamps below the fixed header, and aligns staff-coloured duration blocks with its keyboard or toolbar strike edge.
 - Score and Synthesia Play controls produce synchronized piano-like browser audio, with shared persisted mute/volume controls and Pause-gate-aware scheduling.
-- Both toolbars and Space share Play/Pause/countdown-Resume behavior, with Reset returning to the active plan start.
+- Both toolbars and Space share Play/Pause/countdown-Resume behavior. Stop preserves the exact position/results for countdown-resume, while Reset returns to the active plan start.
 - Timed and untimed cursor movement auto-follows notation systems, and Synthesia exposes a selection-relative event-snapped timeline below the keyboard.
 - The timeline remains full width below the permanent toolbar without Synthesia or visible piano keys; score clicks provide the same event-snapped navigation while preserving active selection bounds.
 - A fixed application header keeps app identity, imported score title/subtitle, and Settings visible while the score scrolls. The right workspace panel persists collapse, active Practice/Debug tab, and drag-resized width; it remains viewport-fixed below that header, hides for every fresh Play run but can be restored mid-run, reserves score width while layering above bottom instruments in its own column, and uses independent open/docked score margins. Optional Play fullscreen owns only the fullscreen session it starts. OSMD overlays remain aligned through every live layout/display/fullscreen resize.
@@ -102,5 +103,5 @@ Deferred decisions:
 - Looping: practice loop waits for correct MIDI input and jumps back to selection start.
 - Timed transport: MusicXML tempo-aware monotonic playback with countdown, performance marking, note gates, and loop-restart waiting.
 - Score audio: dependency-free synthesized piano voice driven by the active hand-filtered playback plan; sampled piano quality, score dynamics, sustain interpretation, and output-device selection remain future work.
-- Synthesia: persisted Slow/Normal/Fast visual speeds (70/100/140px per second); cyan staff-1/right-hand blocks, violet staff-2/left-hand blocks; short notes receive a 140ms minimum strike-key highlight while written block duration remains unchanged; duration is visual only and does not yet assess release timing.
+- Synthesia: persisted Slow/Normal/Fast visual speeds (70/100/140px per second); configurable staff-1/right-hand and staff-2/left-hand colours separate from the timed Play expectation pair; short notes receive a 140ms minimum strike-key highlight while written block duration remains unchanged; duration is visual only and does not yet assess release timing.
 - Preferences: appearance, piano layout, Synthesia presentation, and Play settings persist locally; reusable training-list persistence remains deferred.

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HandMode, PracticeRunMode, ScoreSelectionRange } from "../learning/matcher";
 import type { ScoreEvent, TempoChange } from "../music/scoreTypes";
-import { activeExpectedNotes, activePlaybackEvent, createPlaybackPlan, missedPerformanceNotes, playbackGates, scorePerformanceAttempt, type PerformanceResult, type PlaybackGate, type PlaybackPhase } from "./playback";
+import { activeExpectedNotes, activePlaybackEvent, createPlaybackPlan, gatePreviewStartMs, missedPerformanceNotes, playbackGates, scorePerformanceAttempt, type PerformanceResult, type PlaybackGate, type PlaybackPhase } from "./playback";
 import type { PlaySettings } from "./settings";
 import { ARPEGGIO_MAX_GAP_MS } from "../learning/matcher";
 
@@ -158,12 +158,35 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
     setPhase("paused");
   }, [clearCue]);
 
+  const stopAtCurrentPosition = useCallback(() => {
+    const currentPhase = phaseRef.current;
+    if (currentPhase !== "playing" && currentPhase !== "countdown" && currentPhase !== "waiting-note" && currentPhase !== "paused") return;
+    const activeGate = currentPhase === "waiting-note" ? gateRef.current : suspendedGateRef.current;
+    const target = currentPhase === "countdown" ? countdownTargetElapsedRef.current : activeGate?.onsetMs ?? elapsedMsRef.current;
+    elapsedMsRef.current = target;
+    setElapsedMs(target);
+    setRollElapsedMs(target);
+    setAudioStartElapsedMs(target);
+    countdownTargetElapsedRef.current = target;
+    resumePhaseRef.current = activeGate ? "waiting-note" : "playing";
+    suspendedGateRef.current = activeGate ? { ...activeGate, satisfiedNotes: [], lastArpeggioAtMs: undefined } : undefined;
+    gateRef.current = undefined;
+    setGate(undefined);
+    setCountdownValue(undefined);
+    clearCue();
+    setRunId((current) => current + 1);
+    phaseRef.current = "stopped";
+    setPhase("stopped");
+  }, [clearCue]);
+
   const resume = useCallback(() => { if (phaseRef.current === "paused") beginCountdown(countdownTargetElapsedRef.current, resumePhaseRef.current, suspendedGateRef.current); }, [beginCountdown]);
+  const resumeStopped = useCallback(() => { if (phaseRef.current === "stopped") beginCountdown(countdownTargetElapsedRef.current, resumePhaseRef.current, suspendedGateRef.current); }, [beginCountdown]);
   const togglePlayback = useCallback(() => {
     if (phaseRef.current === "idle" || phaseRef.current === "waiting-restart") start();
+    else if (phaseRef.current === "stopped") resumeStopped();
     else if (phaseRef.current === "paused") resume();
     else pause();
-  }, [pause, resume, start]);
+  }, [pause, resume, resumeStopped, start]);
 
   const seekToEvent = useCallback((eventIndex: number) => {
     const destination = planRef.current?.events.find((item) => item.eventIndex === eventIndex);
@@ -316,14 +339,25 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
   }, []);
 
   const current = phase !== "idle" && plan ? activePlaybackEvent(plan, elapsedMs) ?? plan.events[0] : undefined;
+  const previewGate = phase === "playing" && pauseOnNotes && nextPendingGate && elapsedMs + 0.001 >= gatePreviewStartMs(plan!, nextPendingGate, tempoChanges, settings.fallbackBpm)
+    ? nextPendingGate
+    : undefined;
   const expectedNotes = phase === "waiting-note"
     ? gate?.expectedNotes ?? []
     : phase === "playing" && pauseOnNotes
-      ? nextPendingGate?.expectedNotes ?? []
+      ? previewGate?.expectedNotes ?? []
       : phase === "playing" && plan
         ? activeExpectedNotes(plan, elapsedMs)
         : [];
+  const expectedEventIndices = phase === "waiting-note"
+    ? gate?.eventIndices ?? []
+    : phase === "playing" && pauseOnNotes
+      ? previewGate?.eventIndices ?? []
+      : phase === "playing" && plan
+        ? plan.events.filter((item) => item.onsetMs <= elapsedMs && elapsedMs < item.endMs).map((item) => item.eventIndex)
+        : [];
+  const expectationStrength = phase === "waiting-note" ? "active" as const : previewGate ? "preview" as const : expectedNotes.length ? "active" as const : undefined;
   const missedNotes = showMissedNotes && !pauseOnNotes ? missedPerformanceNotes(plan, results) : [];
   const clearResults = useCallback(() => { setResults([]); setShowMissedNotes(false); }, []);
-  return { phase, plan, elapsedMs, rollElapsedMs, audioStartElapsedMs, runId, countdownValue, showStartCue, gate, nextPendingGateOnsetMs: nextPendingGate?.onsetMs, results, missedNotes, currentEventIndex: current?.eventIndex, currentEvent: current?.event, expectedNotes, start, startAtEvent, pause, resume, togglePlayback, seekToEvent, stop, reset, clearResults, handleMidiNoteOn, handleHeldNotesChange };
+  return { phase, plan, elapsedMs, rollElapsedMs, audioStartElapsedMs, runId, countdownValue, showStartCue, gate, nextPendingGateOnsetMs: nextPendingGate?.onsetMs, results, missedNotes, currentEventIndex: current?.eventIndex, currentEvent: current?.event, expectedNotes, expectedEventIndices, expectationStrength, start, startAtEvent, pause, resume, stopAtCurrentPosition, togglePlayback, seekToEvent, stop, reset, clearResults, handleMidiNoteOn, handleHeldNotesChange };
 }

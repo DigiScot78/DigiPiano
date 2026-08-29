@@ -1,7 +1,7 @@
 import { filterEventForHand, type HandMode, type ScoreSelectionRange } from "../learning/matcher";
 import type { ScoreEvent, TempoChange } from "../music/scoreTypes";
 
-export type PlaybackPhase = "idle" | "countdown" | "playing" | "paused" | "waiting-note" | "waiting-restart";
+export type PlaybackPhase = "idle" | "stopped" | "countdown" | "playing" | "paused" | "waiting-note" | "waiting-restart";
 export type AttemptResult = "correct" | "wrong";
 
 export interface PlaybackEvent {
@@ -96,6 +96,13 @@ export function activePlaybackEvent(plan: PlaybackPlan, elapsedMs: number): Play
 export function activeExpectedNotes(plan: PlaybackPlan, elapsedMs: number): number[] {
   const active = plan.events.filter((event) => event.onsetMs <= elapsedMs && elapsedMs < event.endMs);
   return Array.from(new Set(active.flatMap((item) => item.event.midiNotes))).sort((a, b) => a - b);
+}
+
+export function gatePreviewStartMs(plan: PlaybackPlan, gate: PlaybackGate, tempoChanges: TempoChange[], fallbackBpm: number): number {
+  const gateEvent = plan.events.find((item) => gate.eventIndices.includes(item.eventIndex));
+  if (!gateEvent) return gate.onsetMs;
+  const previewQuarter = Math.max(plan.startQuarter, gateEvent.event.startQuarter - 1);
+  return millisecondsBetweenQuarters(plan.startQuarter, previewQuarter, tempoChanges, fallbackBpm);
 }
 
 export function playbackGates(plan: PlaybackPlan): PlaybackGate[] {

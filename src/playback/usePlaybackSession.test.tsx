@@ -144,6 +144,30 @@ describe("usePlaybackSession", () => {
     expect(session.expectedNotes).toEqual([67]);
   });
 
+  it("reveals the complete next gate one quarter-note beat before its onset", async () => {
+    const first = scoreEvent;
+    const chord = { ...scoreEvent, id: "later", startQuarter: 4, midiNotes: [64, 67], sourceNoteIds: ["64", "67"], noteDetails: [64, 67].map((midiNote) => ({ ...scoreEvent.noteDetails[0], midiNote, sourceNoteId: String(midiNote) })) };
+    await render(0, "once", true, [first, chord]);
+    await act(async () => session.start());
+    await act(async () => session.handleMidiNoteOn(60, 1100, [60]));
+
+    await act(async () => nextFrame?.(2000));
+    expect(session.elapsedMs).toBe(900);
+    expect(session.expectedNotes).toEqual([]);
+    expect(session.expectationStrength).toBeUndefined();
+
+    await act(async () => nextFrame?.(2600));
+    expect(session.elapsedMs).toBe(1500);
+    expect(session.expectedNotes).toEqual([64, 67]);
+    expect(session.expectedEventIndices).toEqual([1]);
+    expect(session.expectationStrength).toBe("preview");
+
+    await act(async () => nextFrame?.(3100));
+    expect(session.phase).toBe("waiting-note");
+    expect(session.expectedNotes).toEqual([64, 67]);
+    expect(session.expectationStrength).toBe("active");
+  });
+
   it("can enable for the next onset and disable an active gate", async () => {
     const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 1 }];
     let setPauseOnNotes!: (enabled: boolean) => void;
@@ -186,6 +210,44 @@ describe("usePlaybackSession", () => {
     expect(session.phase).toBe("playing");
     await act(async () => nextFrame?.(4250));
     expect(session.elapsedMs).toBe(650);
+  });
+
+  it("stops at the exact position, preserves results, and resumes through a fresh countdown", async () => {
+    const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 2 }];
+    await render(1, "once", false, repeated);
+    await act(async () => session.start());
+    await act(async () => nextFrame?.(2000));
+    await act(async () => session.handleMidiNoteOn(60, 2050));
+    await act(async () => nextFrame?.(2400));
+    expect(session.elapsedMs).toBe(400);
+
+    await act(async () => session.stopAtCurrentPosition());
+    expect(session.phase).toBe("stopped");
+    expect(session.elapsedMs).toBe(400);
+    expect(session.results).toHaveLength(1);
+
+    vi.mocked(performance.now).mockReturnValue(3000);
+    await act(async () => session.togglePlayback());
+    expect(session.phase).toBe("countdown");
+    expect(session.rollElapsedMs).toBe(-600);
+    expect(session.results).toHaveLength(1);
+    await act(async () => nextFrame?.(4000));
+    expect(session.phase).toBe("playing");
+    await act(async () => nextFrame?.(4200));
+    expect(session.elapsedMs).toBe(600);
+  });
+
+  it("stops a gate and resumes it without partial satisfaction", async () => {
+    const chord = { ...scoreEvent, midiNotes: [60, 64], sourceNoteIds: ["60", "64"], noteDetails: [{ ...scoreEvent.noteDetails[0], midiNote: 60, sourceNoteId: "60" }, { ...scoreEvent.noteDetails[0], midiNote: 64, sourceNoteId: "64" }] };
+    await render(0, "once", true, [chord]);
+    await act(async () => session.start());
+    await act(async () => session.handleMidiNoteOn(60, 1100, [60]));
+    expect(session.gate?.satisfiedNotes).toEqual([60]);
+    await act(async () => session.stopAtCurrentPosition());
+    expect(session.phase).toBe("stopped");
+    await act(async () => session.togglePlayback());
+    expect(session.phase).toBe("waiting-note");
+    expect(session.gate?.satisfiedNotes).toEqual([]);
   });
 
   it("suspends a note gate while manually paused and restores it after the resume countdown", async () => {

@@ -1,8 +1,12 @@
+import type { ScoreEvent } from "../music/scoreTypes";
+
 export type PianoRangePreset = "88" | "76" | "61" | "49" | "custom";
 export type PianoHeight = "small" | "medium" | "large";
 export type PianoWidthMode = "auto" | "fit" | "scroll";
 export type SynthesiaSpeed = 70 | 100 | 140;
 export type PianoKeyState = "neutral" | "expected" | "correct" | "wrong" | "carried";
+export type PianoExpectationStrength = "preview" | "active";
+export interface PianoExpectation { midiNote: number; hand: "right" | "left" | "both"; strength: PianoExpectationStrength }
 
 export interface PianoSettings {
   pianoVisible: boolean;
@@ -20,6 +24,10 @@ export interface PianoSettings {
   expectedColor: string;
   correctColor: string;
   wrongColor: string;
+  playRightColor: string;
+  playLeftColor: string;
+  synthesiaRightColor: string;
+  synthesiaLeftColor: string;
 }
 
 export interface PianoKeyLayout {
@@ -38,7 +46,15 @@ export const PIANO_SETTINGS_KEY = "piano.keyboard-settings";
 export const SYNTHESIA_MIN_HEIGHT = 160;
 export const SYNTHESIA_DEFAULT_HEIGHT = 320;
 export const SYNTHESIA_MAX_STORED_HEIGHT = 2000;
-export const DEFAULT_PIANO_COLORS = { expected: "#28b8d7", correct: "#239b56", wrong: "#d64545" } as const;
+export const DEFAULT_PIANO_COLORS = {
+  expected: "#28b8d7",
+  correct: "#239b56",
+  wrong: "#d64545",
+  playRight: "#f0a63a",
+  playLeft: "#df62aa",
+  synthesiaRight: "#20d7f2",
+  synthesiaLeft: "#a875ff",
+} as const;
 export const DEFAULT_PIANO_SETTINGS: PianoSettings = {
   pianoVisible: true,
   synthesiaEnabled: false,
@@ -55,6 +71,10 @@ export const DEFAULT_PIANO_SETTINGS: PianoSettings = {
   expectedColor: DEFAULT_PIANO_COLORS.expected,
   correctColor: DEFAULT_PIANO_COLORS.correct,
   wrongColor: DEFAULT_PIANO_COLORS.wrong,
+  playRightColor: DEFAULT_PIANO_COLORS.playRight,
+  playLeftColor: DEFAULT_PIANO_COLORS.playLeft,
+  synthesiaRightColor: DEFAULT_PIANO_COLORS.synthesiaRight,
+  synthesiaLeftColor: DEFAULT_PIANO_COLORS.synthesiaLeft,
 };
 
 export const PIANO_RANGES: Record<Exclude<PianoRangePreset, "custom">, PianoRange> = {
@@ -109,6 +129,18 @@ export function resolvePianoKeyState(note: number, expectedNotes: Iterable<numbe
   return "neutral";
 }
 
+export function pianoExpectationsForEvents(events: readonly ScoreEvent[], expectedNotes: readonly number[], strength: PianoExpectationStrength): PianoExpectation[] {
+  const expected = new Set(expectedNotes);
+  const hands = new Map<number, PianoExpectation["hand"]>();
+  for (const detail of events.flatMap((event) => event.noteDetails)) {
+    if (!expected.has(detail.midiNote)) continue;
+    const hand = detail.staffNumber === 2 ? "left" : "right";
+    const current = hands.get(detail.midiNote);
+    hands.set(detail.midiNote, current && current !== hand ? "both" : hand);
+  }
+  return [...expected].sort((a, b) => a - b).map((midiNote) => ({ midiNote, hand: hands.get(midiNote) ?? "right", strength }));
+}
+
 export function readPianoSettings(storage: Pick<Storage, "getItem"> | undefined): PianoSettings {
   let value: unknown;
   try { value = JSON.parse(storage?.getItem(PIANO_SETTINGS_KEY) ?? "null"); } catch { return DEFAULT_PIANO_SETTINGS; }
@@ -133,6 +165,10 @@ export function readPianoSettings(storage: Pick<Storage, "getItem"> | undefined)
     expectedColor: validColor(candidate.expectedColor, DEFAULT_PIANO_COLORS.expected),
     correctColor: validColor(candidate.correctColor, DEFAULT_PIANO_COLORS.correct),
     wrongColor: validColor(candidate.wrongColor, DEFAULT_PIANO_COLORS.wrong),
+    playRightColor: validColor(candidate.playRightColor, DEFAULT_PIANO_COLORS.playRight),
+    playLeftColor: validColor(candidate.playLeftColor, DEFAULT_PIANO_COLORS.playLeft),
+    synthesiaRightColor: validColor(candidate.synthesiaRightColor, DEFAULT_PIANO_COLORS.synthesiaRight),
+    synthesiaLeftColor: validColor(candidate.synthesiaLeftColor, DEFAULT_PIANO_COLORS.synthesiaLeft),
   };
 }
 

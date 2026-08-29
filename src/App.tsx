@@ -27,7 +27,7 @@ import { useMidiInput } from "./hooks/useMidiInput";
 import type { AppTheme, ScoreTheme } from "./theme/appearance";
 import { useAppearanceSettings } from "./theme/useAppearanceSettings";
 import { usePianoSettings } from "./piano/usePianoSettings";
-import type { PianoSettings } from "./piano/piano";
+import { pianoExpectationsForEvents, type PianoSettings } from "./piano/piano";
 import { usePlaySettings } from "./playback/usePlaySettings";
 import { usePlaybackSession } from "./playback/usePlaybackSession";
 import type { PlaySettings } from "./playback/settings";
@@ -128,7 +128,7 @@ function App() {
     setSimulatedHeldNotes([]);
     setCarriedCompletedNotes([]);
     clearCompletedFeedback();
-    if (playback.phase === "idle") {
+    if (playback.phase === "idle" || playback.phase === "stopped") {
       setSidebarHiddenForPlayback(true);
       setFullscreenNotice(undefined);
       if (play.settings.playFullscreen) {
@@ -144,7 +144,7 @@ function App() {
   }, [clearCompletedFeedback, learningState.currentIndex, play.settings.playFullscreen, playback, scoreAudio, showFullscreenNotice]);
 
   useEffect(() => {
-    if (playbackPhase === "idle") finishPlaybackPresentation();
+    if (playbackPhase === "idle" || playbackPhase === "stopped") finishPlaybackPresentation();
   }, [finishPlaybackPresentation, playbackPhase]);
 
   useEffect(() => {
@@ -206,6 +206,14 @@ function App() {
   const sidebarExpectedEvent = filterEventForHand(sidebarCurrentEvent, handMode);
   const sidebarEventPlayable = isEventPlayableForHand(sidebarCurrentEvent, handMode);
   const sidebarNextPlayableEventIndex = nextPlayableIndex(parsedScore.events, displayedEventIndex + 1, selectedRange?.endIndex ?? parsedScore.events.length - 1, handMode);
+  const pianoExpectations = useMemo(() => {
+    if (playback.phase === "idle") {
+      return pianoExpectationsForEvents(expectedEvent ? [expectedEvent] : [], expectedEvent?.midiNotes ?? [], "active");
+    }
+    if (!playback.expectationStrength) return [];
+    const expectedEvents = playback.plan?.events.filter((item) => playback.expectedEventIndices.includes(item.eventIndex)).map((item) => item.event) ?? [];
+    return pianoExpectationsForEvents(expectedEvents, playback.expectedNotes, playback.expectationStrength);
+  }, [expectedEvent, playback.expectationStrength, playback.expectedEventIndices, playback.expectedNotes, playback.phase, playback.plan]);
 
   const practiceOptions = useMemo(() => ({ handMode, runMode, range: selectedRange }), [handMode, runMode, selectedRange]);
 
@@ -480,6 +488,10 @@ function App() {
           {loadedScore.info.subtitle ? <span title={loadedScore.info.subtitle}>{loadedScore.info.subtitle}</span> : null}
         </div> : <div />}
         <div className="app-header-actions">
+          <label className="settings-button header-open-score-button" aria-label="Open score" title="Open score">
+            <OpenScoreIcon />
+            <input type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />
+          </label>
           <button type="button" className="settings-button" aria-label="Open settings" title="Settings" onClick={() => setMidiSettingsOpen(true)}><SettingsIcon /></button>
         </div>
       </header>
@@ -519,6 +531,7 @@ function App() {
             onRunModeChange={setRunMode}
             onPauseOnNotesChange={setPauseOnNotes}
             onTogglePlayback={togglePlaybackWithAudio}
+            onStop={playback.stopAtCurrentPosition}
             onReset={resetAllProgress}
             onClearPerformance={playback.clearResults}
             onAudioSettingsChange={audioSettings.setSettings}
@@ -533,10 +546,6 @@ function App() {
           <header className="sidebar-header">
             <section className="file-panel">
             <div className="file-panel-actions">
-              <label className="file-picker-button">
-                Open score
-                <input type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />
-              </label>
               <button type="button" className="sidebar-collapse-button" aria-label="Collapse side panel" title="Collapse side panel" onClick={() => workspace.setSettings({ sidebarOpen: false })}><SidebarCollapseIcon /></button>
             </div>
             {scoreError ? <p className="error compact-message">{scoreError}</p> : null}
@@ -589,7 +598,7 @@ function App() {
       </section>
       {!sidebarVisible ? <button type="button" className="sidebar-restore-button" aria-label="Restore side panel" title="Restore side panel" onClick={() => { setSidebarHiddenForPlayback(false); workspace.setSettings({ sidebarOpen: true }); }}><SidebarRestoreIcon /><span>Panel</span></button> : null}
       <PianoPanel
-        expectedNotes={playback.phase === "playing" || playback.phase === "waiting-note" ? playback.expectedNotes : playback.phase === "idle" ? expectedEvent?.midiNotes ?? [] : []}
+        expectations={pianoExpectations}
         heldNotes={combinedHeldNotes}
         ignoredCarriedNotes={playback.phase === "idle" ? carriedCompletedNotes : []}
         settings={piano.settings}
@@ -606,6 +615,7 @@ function App() {
         audioError={scoreAudio.error}
         onSettingsChange={piano.setSettings}
         onTogglePlayback={togglePlaybackWithAudio}
+        onStop={playback.stopAtCurrentPosition}
         onReset={resetAllProgress}
         onSeek={seekToEvent}
         onRunModeChange={setRunMode}
@@ -640,6 +650,10 @@ function SettingsIcon() {
       <path d="M19.4 13a7.7 7.7 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a8 8 0 0 0-1.7-1L15 3.3h-4L10.6 6a8 8 0 0 0-1.7 1l-2.5-1-2 3.4L6.5 11a7.7 7.7 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1a8 8 0 0 0 1.7 1l.4 2.7h4l.4-2.7a8 8 0 0 0 1.7-1l2.5 1 2-3.4L19.4 13ZM13 15.5A3.5 3.5 0 1 1 13 8a3.5 3.5 0 0 1 0 7.5Z" />
     </svg>
   );
+}
+
+function OpenScoreIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3H10l2 2h6.5A2.5 2.5 0 0 1 21 7.5V9h-2V7.5a.5.5 0 0 0-.5-.5h-7.33l-2-2H5.5a.5.5 0 0 0-.5.5v13a.5.5 0 0 0 .5.5H11v2H5.5A2.5 2.5 0 0 1 3 18.5v-13Zm13 5h2v3h3v2h-3v3h-2v-3h-3v-2h3v-3Z" /></svg>;
 }
 
 function SidebarCollapseIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15.5 5-7 7 7 7 1.5-1.5-5.5-5.5L17 6.5 15.5 5Z" /></svg>; }
@@ -738,6 +752,16 @@ function SettingsDialog({
             <label>Expected <input type="color" value={pianoSettings.expectedColor} onChange={(event) => onPianoSettingsChange({ expectedColor: event.target.value })} /></label>
             <label>Correct <input type="color" value={pianoSettings.correctColor} onChange={(event) => onPianoSettingsChange({ correctColor: event.target.value })} /></label>
             <label>Wrong <input type="color" value={pianoSettings.wrongColor} onChange={(event) => onPianoSettingsChange({ wrongColor: event.target.value })} /></label>
+          </div>
+          <h4>Play expectations</h4>
+          <div className="piano-color-settings">
+            <label>Right hand <input type="color" value={pianoSettings.playRightColor} onChange={(event) => onPianoSettingsChange({ playRightColor: event.target.value })} /></label>
+            <label>Left hand <input type="color" value={pianoSettings.playLeftColor} onChange={(event) => onPianoSettingsChange({ playLeftColor: event.target.value })} /></label>
+          </div>
+          <h4>Synthesia</h4>
+          <div className="piano-color-settings">
+            <label>Right hand <input type="color" value={pianoSettings.synthesiaRightColor} onChange={(event) => onPianoSettingsChange({ synthesiaRightColor: event.target.value })} /></label>
+            <label>Left hand <input type="color" value={pianoSettings.synthesiaLeftColor} onChange={(event) => onPianoSettingsChange({ synthesiaLeftColor: event.target.value })} /></label>
           </div>
           <button type="button" className="secondary-button" onClick={onResetPianoColors}>Reset colours</button>
           </div>

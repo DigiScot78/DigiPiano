@@ -149,7 +149,7 @@ select {
 
 .score-heading strong { font-size: 1rem; }
 .score-heading span { margin-top: 0.15rem; color: var(--app-muted); font-size: 0.76rem; }
-.app-header-actions { display: flex; justify-content: flex-end; }
+.app-header-actions { display: flex; justify-content: flex-end; gap: 0.4rem; }
 
 .playback-notice {
   position: fixed;
@@ -331,7 +331,7 @@ dd {
 .file-panel {
   padding: 0.65rem;
 }
-.file-panel-actions { display: flex; align-items: stretch; gap: 0.45rem; }
+.file-panel-actions { display: flex; justify-content: flex-end; align-items: stretch; gap: 0.45rem; }
 .file-panel-actions .file-picker-button { flex: 1; }
 
 .file-picker-button {
@@ -390,6 +390,9 @@ dd {
   background: var(--app-surface);
   color: var(--app-text);
 }
+
+.header-open-score-button { cursor: pointer; }
+.header-open-score-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
 .settings-button:hover {
   background: var(--app-hover);
@@ -1231,8 +1234,8 @@ pre {
   text-shadow: 0 1px 2px #000;
   white-space: nowrap;
 }
-.synthesia-note.hand-right { --synthesia-note-colour: #20d7f2; }
-.synthesia-note.hand-left { --synthesia-note-colour: #a875ff; }
+.synthesia-note.hand-right { --synthesia-note-colour: var(--synthesia-right); }
+.synthesia-note.hand-left { --synthesia-note-colour: var(--synthesia-left); }
 .synthesia-strike-line { position: absolute; right: 0; bottom: 0; left: 0; z-index: 5; height: 3px; background: linear-gradient(90deg, transparent, var(--piano-expected) 10% 90%, transparent); box-shadow: 0 0 12px var(--piano-expected); }
 .synthesia-resize-handle {
   position: absolute;
@@ -1271,9 +1274,9 @@ pre {
 .score-timeline-progress { position: absolute; inset-block: 0; left: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--piano-expected) 45%, transparent), color-mix(in srgb, var(--piano-expected) 72%, transparent)); box-shadow: 0 0 12px color-mix(in srgb, var(--piano-expected) 52%, transparent); pointer-events: none; }
 .score-timeline-events { position: absolute; inset: 2px 7px; pointer-events: none; }
 .score-timeline-event { position: absolute; top: 1px; width: 2px; height: 10px; border-radius: 2px; opacity: 0.75; transform: translateX(-1px); }
-.score-timeline-event.hand-right { background: #20d7f2; }
-.score-timeline-event.hand-left { background: #a875ff; }
-.score-timeline-event.hand-both { background: linear-gradient(#20d7f2 50%, #a875ff 50%); }
+.score-timeline-event.hand-right { background: var(--synthesia-right); }
+.score-timeline-event.hand-left { background: var(--synthesia-left); }
+.score-timeline-event.hand-both { background: linear-gradient(var(--synthesia-right) 50%, var(--synthesia-left) 50%); }
 .score-timeline input[type="range"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .score-timeline-track::after { content: ""; position: absolute; top: 50%; left: calc(var(--timeline-progress, 0) * 1%); width: 8px; height: 20px; border: 2px solid white; border-radius: 6px; background: var(--piano-expected); box-shadow: 0 0 10px var(--piano-expected); transform: translate(-50%, -50%); pointer-events: none; }
 
@@ -1294,16 +1297,23 @@ pre {
 .piano-key.black span { text-shadow: 0 1px 2px #000; }
 .piano-key.state-expected { outline: 3px solid var(--piano-expected); outline-offset: -4px; box-shadow: inset 0 0 13px color-mix(in srgb, var(--piano-expected) var(--piano-glow-strength), transparent), 0 0 10px var(--piano-expected); }
 .piano-key.black.state-expected { box-shadow: inset 0 0 13px var(--piano-expected), 0 0 10px var(--piano-expected); }
+.piano-key.play-expected.hand-right { --play-key-colour: var(--play-right); }
+.piano-key.play-expected.hand-left { --play-key-colour: var(--play-left); }
+.piano-key.play-expected.hand-both { --play-key-colour: linear-gradient(90deg, var(--play-left) 50%, var(--play-right) 50%); }
+.piano-key.play-expected { background: var(--play-key-colour); color: #061116; outline: 2px solid white; outline-offset: -3px; box-shadow: inset 0 0 0 2px color-mix(in srgb, white 35%, transparent), 0 0 16px color-mix(in srgb, var(--play-right) 65%, var(--play-left)); }
+.piano-key.state-expected.expectation-preview { opacity: 0.58; box-shadow: inset 0 0 0 2px color-mix(in srgb, white 24%, transparent), 0 0 8px color-mix(in srgb, var(--play-right) 50%, var(--play-left)); }
 .piano-key.synthesia-active.hand-right,
-.piano-key.synthesia-active.hand-left { color: #061116; outline: 2px solid white; outline-offset: -3px; box-shadow: inset 0 0 0 2px color-mix(in srgb, white 35%, transparent), 0 0 16px var(--synthesia-key-colour); background: var(--synthesia-key-colour); }
-.piano-key.synthesia-active.hand-right { --synthesia-key-colour: #20d7f2; }
-.piano-key.synthesia-active.hand-left { --synthesia-key-colour: #a875ff; }
+.piano-key.synthesia-active.hand-left,
+.piano-key.synthesia-active.hand-both { color: #061116; outline: 2px solid white; outline-offset: -3px; box-shadow: inset 0 0 0 2px color-mix(in srgb, white 35%, transparent), 0 0 16px color-mix(in srgb, var(--synthesia-right) 65%, var(--synthesia-left)); background: var(--synthesia-key-colour); }
+.piano-key.synthesia-active.hand-right { --synthesia-key-colour: var(--synthesia-right); }
+.piano-key.synthesia-active.hand-left { --synthesia-key-colour: var(--synthesia-left); }
+.piano-key.synthesia-active.hand-both { --synthesia-key-colour: linear-gradient(90deg, var(--synthesia-left) 50%, var(--synthesia-right) 50%); }
 .piano-key.state-correct { background: var(--piano-correct); color: white; transform: translateY(2px); box-shadow: inset 0 0 0 3px color-mix(in srgb, white 38%, transparent); }
 .piano-key.state-wrong { background-color: var(--piano-wrong); background-image: repeating-linear-gradient(135deg, transparent 0 7px, rgba(255,255,255,.28) 7px 11px); color: white; transform: translateY(2px); box-shadow: inset 0 0 0 3px color-mix(in srgb, #580000 45%, transparent); }
 .piano-key.state-carried { filter: brightness(.82); transform: translateY(2px); box-shadow: inset 0 5px 9px rgba(0,0,0,.28); }
 .piano-key.auditioning { filter: brightness(.86); transform: translateY(3px); box-shadow: inset 0 5px 10px rgba(0,0,0,.3); }
 
-.piano-color-settings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; margin-bottom: 0.7rem; }
+.piano-color-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.6rem; margin-bottom: 0.7rem; }
 .piano-color-settings label { display: grid; gap: 0.3rem; color: var(--app-muted); font-size: 0.82rem; }
 .piano-color-settings input { width: 100%; height: 2rem; border: 1px solid var(--app-border); border-radius: 5px; background: transparent; }
 .secondary-button { border-color: var(--app-border); background: var(--app-surface-muted); color: var(--app-text); }

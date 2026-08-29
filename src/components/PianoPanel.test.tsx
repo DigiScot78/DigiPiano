@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_PIANO_SETTINGS, type PianoSettings } from "../piano/piano";
+import { DEFAULT_PIANO_SETTINGS, pianoExpectationsForEvents, type PianoSettings } from "../piano/piano";
 import type { PlaybackPlan } from "../playback/playback";
 import type { ScoreEvent } from "../music/scoreTypes";
 import type { ScoreAudioEngine } from "../audio/pianoSynth";
@@ -33,6 +33,33 @@ describe("PianoPanel", () => {
     expect(container.querySelector('[data-midi-note="61"]')?.className).toContain("state-wrong");
     expect(container.querySelector('[data-midi-note="62"]')?.className).toContain("state-carried");
     expect(container.querySelector('[data-midi-note="61"] span')?.textContent).toBe("C#4");
+  });
+
+  it("fills practice expectations by score hand independently of Synthesia", async () => {
+    const event: ScoreEvent = { id: "hands", partId: "P1", measureNumber: 1, startQuarter: 0, durationQuarters: 1, midiNotes: [48, 60], staffNumbers: [1, 2], voiceNumbers: ["1", "2"], sourceNoteIds: ["lh", "rh"], noteDetails: [{ midiNote: 48, staffNumber: 2, voiceNumber: "2", sourceNoteId: "lh" }, { midiNote: 60, staffNumber: 1, voiceNumber: "1", sourceNoteId: "rh" }] };
+    const plan: PlaybackPlan = { startQuarter: 0, endQuarter: 1, durationMs: 500, events: [{ eventIndex: 0, event, onsetMs: 0, endMs: 500 }] };
+    const settings = { ...DEFAULT_PIANO_SETTINGS, playRightColor: "#112233", playLeftColor: "#445566", synthesiaRightColor: "#778899", synthesiaLeftColor: "#aabbcc" };
+    await act(async () => root.render(<PianoPanel expectations={pianoExpectationsForEvents([event], [48, 60], "active")} heldNotes={[]} ignoredCarriedNotes={[]} settings={settings} playbackPlan={plan} playbackPhase="idle" rollElapsedMs={100} playbackElapsedMs={100} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onPauseOnNotesChange={vi.fn()} onClearPerformance={vi.fn()} />));
+    expect(container.querySelector('[data-midi-note="48"]')?.className).toContain("play-expected hand-left");
+    expect(container.querySelector('[data-midi-note="60"]')?.className).toContain("play-expected hand-right");
+    const panel = container.querySelector<HTMLElement>(".piano-panel");
+    expect(panel?.style.getPropertyValue("--play-right")).toBe("#112233");
+    expect(panel?.style.getPropertyValue("--synthesia-left")).toBe("#aabbcc");
+
+    await act(async () => root.render(<PianoPanel expectations={pianoExpectationsForEvents([event], [48, 60], "preview")} heldNotes={[]} ignoredCarriedNotes={[]} settings={settings} playbackPlan={plan} playbackPhase="playing" rollElapsedMs={100} playbackElapsedMs={100} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={true} canClearPerformance={false} onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onPauseOnNotesChange={vi.fn()} onClearPerformance={vi.fn()} />));
+    expect(container.querySelector('[data-midi-note="48"]')?.className).toContain("expectation-preview");
+    expect(container.querySelector('[data-midi-note="60"]')?.className).toContain("expectation-preview");
+  });
+
+  it("returns a correct held playback key to carried neutral after its written duration", async () => {
+    const event: ScoreEvent = { id: "held", partId: "P1", measureNumber: 1, startQuarter: 0, durationQuarters: 1, midiNotes: [60], staffNumbers: [1], voiceNumbers: ["1"], sourceNoteIds: ["held"], noteDetails: [{ midiNote: 60, staffNumber: 1, voiceNumber: "1", sourceNoteId: "held" }] };
+    const plan: PlaybackPlan = { startQuarter: 0, endQuarter: 1, durationMs: 500, events: [{ eventIndex: 0, event, onsetMs: 0, endMs: 500 }] };
+    const props = { expectedNotes: [60], heldNotes: [60], ignoredCarriedNotes: [], settings: DEFAULT_PIANO_SETTINGS, playbackPlan: plan, playbackPhase: "playing" as const, rollElapsedMs: 100, playbackElapsedMs: 100, displayedEventIndex: 0, canPlay: true, runMode: "once" as const, pauseOnNotes: false, canClearPerformance: false, onSettingsChange: vi.fn(), onTogglePlayback: vi.fn(), onReset: vi.fn(), onSeek: vi.fn(), onRunModeChange: vi.fn(), onPauseOnNotesChange: vi.fn(), onClearPerformance: vi.fn() };
+    await act(async () => root.render(<PianoPanel {...props} />));
+    expect(container.querySelector('[data-midi-note="60"]')?.className).toContain("state-correct");
+    await act(async () => root.render(<PianoPanel {...props} expectedNotes={[]} rollElapsedMs={600} playbackElapsedMs={600} />));
+    expect(container.querySelector('[data-midi-note="60"]')?.className).toContain("state-carried");
+    expect(container.querySelector('[data-midi-note="60"]')?.className).not.toContain("state-wrong");
   });
 
   it("auditions clicked keys through an isolated audio engine", async () => {
@@ -115,28 +142,31 @@ describe("PianoPanel", () => {
   it("routes the duplicated transport controls to shared callbacks", async () => {
     const onPlay = vi.fn();
     const onReset = vi.fn();
+    const onStop = vi.fn();
     const onRunModeChange = vi.fn();
     const onPauseOnNotesChange = vi.fn();
     const onClearPerformance = vi.fn();
-    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={true} audioSettings={{ muted: false, volume: 65 }} onSettingsChange={vi.fn()} onTogglePlayback={onPlay} onReset={onReset} onSeek={vi.fn()} onRunModeChange={onRunModeChange} onPauseOnNotesChange={onPauseOnNotesChange} onClearPerformance={onClearPerformance} onAudioSettingsChange={vi.fn()} />));
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="paused" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={true} audioSettings={{ muted: false, volume: 65 }} onSettingsChange={vi.fn()} onTogglePlayback={onPlay} onStop={onStop} onReset={onReset} onSeek={vi.fn()} onRunModeChange={onRunModeChange} onPauseOnNotesChange={onPauseOnNotesChange} onClearPerformance={onClearPerformance} onAudioSettingsChange={vi.fn()} />));
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('[aria-label="Play score from piano"]')?.click();
+      container.querySelector<HTMLButtonElement>('[aria-label="Resume score from piano"]')?.click();
+      container.querySelector<HTMLButtonElement>('[aria-label="Stop score playback from piano"]')?.click();
       container.querySelector<HTMLButtonElement>('[aria-label="Reset score progress from piano"]')?.click();
-      container.querySelector<HTMLButtonElement>('[aria-label="Loop from piano"]')?.click();
       container.querySelector<HTMLButtonElement>('[aria-label="Pause at each note from piano"]')?.click();
       container.querySelector<HTMLButtonElement>('[aria-label="Clear performance from piano"]')?.click();
     });
     expect(onPlay).toHaveBeenCalledOnce();
+    expect(onStop).toHaveBeenCalledOnce();
     expect(onReset).toHaveBeenCalledOnce();
-    expect(onRunModeChange).toHaveBeenCalledWith("loop");
+    expect(onRunModeChange).not.toHaveBeenCalled();
     expect(onPauseOnNotesChange).toHaveBeenCalledWith(true);
     expect(onClearPerformance).toHaveBeenCalledOnce();
     expect(Array.from(container.querySelectorAll<HTMLButtonElement>(".toolbar-centre button")).map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Play score from piano",
-      "Reset score progress from piano",
+      "Resume score from piano",
+      "Stop score playback from piano",
       "Loop from piano",
       "Pause at each note from piano",
       "Clear performance from piano",
+      "Reset score progress from piano",
     ]);
     expect(container.querySelector(".toolbar-left")).not.toBeNull();
     expect(container.querySelector(".toolbar-right .audio-controls")).not.toBeNull();

@@ -11,6 +11,14 @@ export function usePianoSettings() {
       return next;
     });
   }, [storage]);
-  const resetColors = useCallback(() => setSettings({ expectedColor: DEFAULT_PIANO_COLORS.expected, correctColor: DEFAULT_PIANO_COLORS.correct, wrongColor: DEFAULT_PIANO_COLORS.wrong }), [setSettings]);
+  const resetColors = useCallback(() => setSettings({
+    expectedColor: DEFAULT_PIANO_COLORS.expected,
+    correctColor: DEFAULT_PIANO_COLORS.correct,
+    wrongColor: DEFAULT_PIANO_COLORS.wrong,
+    playRightColor: DEFAULT_PIANO_COLORS.playRight,
+    playLeftColor: DEFAULT_PIANO_COLORS.playLeft,
+    synthesiaRightColor: DEFAULT_PIANO_COLORS.synthesiaRight,
+    synthesiaLeftColor: DEFAULT_PIANO_COLORS.synthesiaLeft,
+  }), [setSettings]);
   return { settings, setSettings, resetColors };
 }

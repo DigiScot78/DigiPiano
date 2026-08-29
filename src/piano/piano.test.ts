@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PIANO_SETTINGS, generatePianoLayout, PIANO_RANGES, PIANO_SETTINGS_KEY, rangeForSettings, readPianoSettings, resolvePianoKeyState, validateCustomRange } from "./piano";
+import { DEFAULT_PIANO_SETTINGS, generatePianoLayout, pianoExpectationsForEvents, PIANO_RANGES, PIANO_SETTINGS_KEY, rangeForSettings, readPianoSettings, resolvePianoKeyState, validateCustomRange } from "./piano";
 
 describe("piano geometry", () => {
   it.each([["88", 21, 108, 88], ["76", 28, 103, 76], ["61", 36, 96, 61], ["49", 36, 84, 49]] as const)("builds the %s-key range", (preset, low, high, count) => {
@@ -17,6 +17,13 @@ describe("piano geometry", () => {
 });
 
 describe("piano state and persistence", () => {
+  it("derives complete event-backed hand expectations including a shared pitch", () => {
+    const event = { id: "both", partId: "P1", measureNumber: 1, startQuarter: 0, durationQuarters: 1, midiNotes: [48, 60], staffNumbers: [1, 2], voiceNumbers: ["1", "2"], sourceNoteIds: ["lh", "rh", "shared-lh"], noteDetails: [{ midiNote: 48, staffNumber: 2, voiceNumber: "2", sourceNoteId: "lh" }, { midiNote: 60, staffNumber: 1, voiceNumber: "1", sourceNoteId: "rh" }, { midiNote: 60, staffNumber: 2, voiceNumber: "2", sourceNoteId: "shared-lh" }] };
+    expect(pianoExpectationsForEvents([event], [48, 60], "preview")).toEqual([
+      { midiNote: 48, hand: "left", strength: "preview" },
+      { midiNote: 60, hand: "both", strength: "preview" },
+    ]);
+  });
   it("prioritises carried, correct, wrong, then expected states", () => {
     expect(resolvePianoKeyState(60, [60], [60], [60])).toBe("carried");
     expect(resolvePianoKeyState(60, [60], [60], [])).toBe("correct");
@@ -32,6 +39,10 @@ describe("piano state and persistence", () => {
     expect(settings.synthesiaHeight).toBe(DEFAULT_PIANO_SETTINGS.synthesiaHeight);
     expect(settings.synthesiaOpaque).toBe(false);
     expect(settings.synthesiaShowNoteLabels).toBe(false);
+    expect(settings.playRightColor).toBe(DEFAULT_PIANO_SETTINGS.playRightColor);
+    expect(settings.playLeftColor).toBe(DEFAULT_PIANO_SETTINGS.playLeftColor);
+    expect(settings.synthesiaRightColor).toBe(DEFAULT_PIANO_SETTINGS.synthesiaRightColor);
+    expect(settings.synthesiaLeftColor).toBe(DEFAULT_PIANO_SETTINGS.synthesiaLeftColor);
   });
   it("migrates the legacy expanded preference and prefers the new field", () => {
     expect(readPianoSettings({ getItem: () => JSON.stringify({ expanded: false }) }).pianoVisible).toBe(false);

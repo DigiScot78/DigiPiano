@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PracticeRunMode } from "../learning/matcher";
 import { midiNoteToName } from "../music/note";
-import { generatePianoLayout, rangeForSettings, resolvePianoKeyState, SYNTHESIA_MIN_HEIGHT, validateCustomRange, type PianoHeight, type PianoRangePreset, type PianoSettings, type PianoWidthMode, type SynthesiaSpeed } from "../piano/piano";
+import { generatePianoLayout, rangeForSettings, resolvePianoKeyState, SYNTHESIA_MIN_HEIGHT, validateCustomRange, type PianoExpectation, type PianoHeight, type PianoRangePreset, type PianoSettings, type PianoWidthMode, type SynthesiaSpeed } from "../piano/piano";
 import { availableSynthesiaHeight, createSynthesiaBlocks, isSynthesiaBlockStriking, isSynthesiaBlockVisible, synthesiaVerticalGeometry } from "../piano/synthesia";
 import type { PlaybackPhase, PlaybackPlan } from "../playback/playback";
 import type { AudioSettings } from "../audio/settings";
@@ -9,7 +9,9 @@ import { PianoSynthEngine, type ScoreAudioEngine } from "../audio/pianoSynth";
 import { AudioControls } from "./AudioControls";
 
 export interface PianoPanelProps {
-  expectedNotes: number[];
+  expectations?: PianoExpectation[];
+  /** Compatibility for isolated consumers; application code should provide event-backed expectations. */
+  expectedNotes?: number[];
   heldNotes: number[];
   ignoredCarriedNotes: number[];
   settings: PianoSettings;
@@ -28,6 +30,7 @@ export interface PianoPanelProps {
   onPanelHeightChange?: (height: number) => void;
   onSettingsChange: (update: Partial<PianoSettings> | ((current: PianoSettings) => PianoSettings)) => void;
   onTogglePlayback: () => void;
+  onStop?: () => void;
   onReset: () => void;
   onSeek: (eventIndex: number) => void;
   onRunModeChange: (mode: PracticeRunMode) => void;
@@ -41,7 +44,7 @@ const WIDTH_LABELS: Record<PianoWidthMode, string> = { auto: "Auto", fit: "Fit",
 const SPEED_LABELS: Record<SynthesiaSpeed, string> = { 70: "Slow", 100: "Normal", 140: "Fast" };
 const ACTIVE_ROLL_PHASES = new Set<PlaybackPhase>(["countdown", "playing", "waiting-note", "paused"]);
 
-export function PianoPanel({ expectedNotes, heldNotes, ignoredCarriedNotes, settings, playbackPlan, playbackPhase, rollElapsedMs, playbackElapsedMs, displayedEventIndex, canPlay, runMode, pauseOnNotes, canClearPerformance, audioSettings, audioError, auditionEngine: providedAuditionEngine, onPanelHeightChange, onSettingsChange, onTogglePlayback, onReset, onSeek, onRunModeChange, onPauseOnNotesChange, onClearPerformance, onAudioSettingsChange }: PianoPanelProps) {
+export function PianoPanel({ expectations, expectedNotes = [], heldNotes, ignoredCarriedNotes, settings, playbackPlan, playbackPhase, rollElapsedMs, playbackElapsedMs, displayedEventIndex, canPlay, runMode, pauseOnNotes, canClearPerformance, audioSettings, audioError, auditionEngine: providedAuditionEngine, onPanelHeightChange, onSettingsChange, onTogglePlayback, onStop, onReset, onSeek, onRunModeChange, onPauseOnNotesChange, onClearPerformance, onAudioSettingsChange }: PianoPanelProps) {
   const range = rangeForSettings(settings);
   const keys = useMemo(() => generatePianoLayout(range.low, range.high), [range.high, range.low]);
   const blocks = useMemo(() => createSynthesiaBlocks(playbackPlan, keys), [keys, playbackPlan]);
@@ -62,16 +65,34 @@ export function PianoPanel({ expectedNotes, heldNotes, ignoredCarriedNotes, sett
   const [availableRollHeight, setAvailableRollHeight] = useState(settings.synthesiaHeight);
   const [draftRollHeight, setDraftRollHeight] = useState<number | undefined>();
   const [openOptions, setOpenOptions] = useState<"piano" | "synthesia" | undefined>();
-  const expectedInRange = expectedNotes.filter((note) => note >= range.low && note <= range.high);
-  const outsideExpected = expectedNotes.filter((note) => note < range.low || note > range.high);
+  const [acceptedHeldNotes, setAcceptedHeldNotes] = useState<number[]>([]);
+  const resolvedExpectations = useMemo(() => expectations ?? expectedNotes.map((midiNote) => ({ midiNote, hand: "right" as const, strength: "active" as const })), [expectations, expectedNotes]);
+  const expectedMidiNotes = resolvedExpectations.map((item) => item.midiNote);
+  const expectedInRange = expectedMidiNotes.filter((note) => note >= range.low && note <= range.high);
+  const outsideExpected = expectedMidiNotes.filter((note) => note < range.low || note > range.high);
   const minimumWhiteWidth = settings.widthMode === "fit" ? 0 : settings.widthMode === "scroll" ? 28 : 22;
   const minimumAllowedHeight = Math.min(SYNTHESIA_MIN_HEIGHT, availableRollHeight);
   const rollHeight = Math.max(minimumAllowedHeight, Math.min(draftRollHeight ?? settings.synthesiaHeight, availableRollHeight));
   const showBlocks = settings.synthesiaEnabled && ACTIVE_ROLL_PHASES.has(playbackPhase);
-  const activeHandByNote = useMemo(() => {
-    if (!showBlocks) return new Map<number, "right" | "left">();
-    return new Map(blocks.filter((block) => isSynthesiaBlockStriking(block, rollElapsedMs)).map((block) => [block.midiNote, block.hand]));
-  }, [blocks, rollElapsedMs, showBlocks]);
+  const strikingHandByNote = useMemo(() => handMap(blocks.filter((block) => isSynthesiaBlockStriking(block, rollElapsedMs)).map((block) => ({ midiNote: block.midiNote, hand: block.hand }))), [blocks, rollElapsedMs]);
+  const expectationByNote = useMemo(() => new Map(resolvedExpectations.map((item) => [item.midiNote, item])), [resolvedExpectations]);
+  const activeWrittenNotes = useMemo(() => activeNotesAt(playbackPlan, playbackElapsedMs), [playbackElapsedMs, playbackPlan]);
+  const timedFeedbackActive = playbackPhase === "playing" || playbackPhase === "waiting-note" || playbackPhase === "paused";
+  const correctHeldNotes = useMemo(() => timedFeedbackActive ? heldNotes.filter((note) => activeWrittenNotes.has(note)) : [], [activeWrittenNotes, heldNotes, timedFeedbackActive]);
+  const playbackCarriedNotes = timedFeedbackActive ? acceptedHeldNotes.filter((note) => heldNotes.includes(note) && !activeWrittenNotes.has(note)) : [];
+
+  useLayoutEffect(() => {
+    if (!timedFeedbackActive) {
+      setAcceptedHeldNotes((current) => current.length ? [] : current);
+      return;
+    }
+    setAcceptedHeldNotes((current) => {
+      const next = new Set(current.filter((note) => heldNotes.includes(note)));
+      for (const note of correctHeldNotes) next.add(note);
+      const values = [...next];
+      return values.length === current.length && values.every((note) => current.includes(note)) ? current : values;
+    });
+  }, [correctHeldNotes, heldNotes, timedFeedbackActive]);
 
   useEffect(() => {
     auditionEngine.setOutput(audioSettings?.volume ?? 65, audioSettings?.muted ?? false);
@@ -208,7 +229,7 @@ export function PianoPanel({ expectedNotes, heldNotes, ignoredCarriedNotes, sett
   };
 
   return (
-    <section ref={panelRef} className={`piano-panel height-${settings.height}${settings.pianoVisible ? "" : " piano-hidden"}${settings.synthesiaEnabled ? " synthesia-open" : ""}${playbackPlan ? " timeline-visible" : ""}`} style={{ "--piano-expected": settings.expectedColor, "--piano-correct": settings.correctColor, "--piano-wrong": settings.wrongColor, "--synthesia-height": `${rollHeight}px` } as React.CSSProperties} aria-label="Practice toolbar and piano">
+    <section ref={panelRef} className={`piano-panel height-${settings.height}${settings.pianoVisible ? "" : " piano-hidden"}${settings.synthesiaEnabled ? " synthesia-open" : ""}${playbackPlan ? " timeline-visible" : ""}`} style={{ "--piano-expected": settings.expectedColor, "--piano-correct": settings.correctColor, "--piano-wrong": settings.wrongColor, "--play-right": settings.playRightColor, "--play-left": settings.playLeftColor, "--synthesia-right": settings.synthesiaRightColor, "--synthesia-left": settings.synthesiaLeftColor, "--synthesia-height": `${rollHeight}px` } as React.CSSProperties} aria-label="Practice toolbar and piano">
       {settings.synthesiaEnabled ? <div className={`synthesia-panel${settings.synthesiaOpaque ? " opaque" : ""}`} style={{ height: rollHeight }} aria-label="Synthesia falling notes">
         <button type="button" className="synthesia-resize-handle" aria-label="Resize Synthesia panel" title="Drag to resize Synthesia" onPointerDown={beginResize} onPointerMove={resize} onPointerUp={finishResize} onPointerCancel={finishResize}><span /></button>
         <div className="synthesia-content synthesia-lane-content" style={{ width: contentWidth || "100%", transform: `translateX(${-scrollLeft}px)` }}>
@@ -253,11 +274,12 @@ export function PianoPanel({ expectedNotes, heldNotes, ignoredCarriedNotes, sett
           </div>
         </div>
         <div className="piano-toolbar-section piano-transport-controls toolbar-centre" role="group" aria-label="Playback controls">
-            <button type="button" aria-label={playbackPhase === "idle" ? "Play score from piano" : playbackPhase === "paused" ? "Resume score from piano" : "Pause playback from piano"} title={playbackPhase === "idle" ? "Play" : playbackPhase === "paused" ? "Resume" : "Pause"} disabled={!canPlay} onClick={onTogglePlayback}>{playbackPhase === "idle" || playbackPhase === "paused" ? <PlayIcon /> : <TransportPauseIcon />}</button>
-            <button type="button" aria-label="Reset score progress from piano" title="Reset" disabled={!canPlay} onClick={onReset}><ResetIcon /></button>
+            <button type="button" aria-label={playbackPhase === "idle" || playbackPhase === "stopped" ? "Play score from piano" : playbackPhase === "paused" ? "Resume score from piano" : "Pause playback from piano"} title={playbackPhase === "idle" || playbackPhase === "stopped" ? "Play" : playbackPhase === "paused" ? "Resume" : "Pause"} disabled={!canPlay} onClick={onTogglePlayback}>{playbackPhase === "idle" || playbackPhase === "stopped" || playbackPhase === "paused" ? <PlayIcon /> : <TransportPauseIcon />}</button>
+            <button type="button" aria-label="Stop score playback from piano" title="Stop" disabled={!canStop(playbackPhase)} onClick={onStop}><StopIcon /></button>
             <button type="button" className={runMode === "loop" ? "active" : ""} aria-label="Loop from piano" aria-pressed={runMode === "loop"} disabled={playbackPhase !== "idle"} title={runMode === "loop" ? "Loop on" : "Loop off"} onClick={() => onRunModeChange(runMode === "loop" ? "once" : "loop")}><LoopIcon /></button>
             <button type="button" className={pauseOnNotes ? "active" : ""} aria-label="Pause at each note from piano" aria-pressed={pauseOnNotes} title={pauseOnNotes ? "Pause at each note on" : "Pause at each note off"} onClick={() => onPauseOnNotesChange(!pauseOnNotes)}><PauseIcon /></button>
             <button type="button" aria-label="Clear performance from piano" title="Clear performance" disabled={!canClearPerformance} onClick={onClearPerformance}><ClearIcon /></button>
+            <button type="button" aria-label="Reset score progress from piano" title="Reset" disabled={!canPlay} onClick={onReset}><ResetIcon /></button>
         </div>
         <div className="piano-toolbar-section toolbar-right">
           {audioSettings && onAudioSettingsChange ? <AudioControls settings={audioSettings} error={audioError} onSettingsChange={onAudioSettingsChange} compact /> : null}
@@ -268,10 +290,14 @@ export function PianoPanel({ expectedNotes, heldNotes, ignoredCarriedNotes, sett
         <div className="piano-lane-layer" aria-hidden="true" />
         <div className="piano-keyboard" ref={keyboardRef} style={{ minWidth: minimumWhiteWidth ? `${whiteCount * minimumWhiteWidth}px` : undefined }}>
           {keys.map((key) => {
-            const state = resolvePianoKeyState(key.midiNote, expectedNotes, heldNotes, ignoredCarriedNotes);
+            const expectation = expectationByNote.get(key.midiNote);
+            const visualExpected = expectedMidiNotes;
+            const visualCarried = playbackPhase === "idle" ? ignoredCarriedNotes : playbackCarriedNotes;
+            const visualHeld = correctHeldNotes.includes(key.midiNote) ? [...heldNotes] : heldNotes;
+            const state = correctHeldNotes.includes(key.midiNote) ? "correct" : resolvePianoKeyState(key.midiNote, visualExpected, visualHeld, visualCarried);
             const name = midiNoteToName(key.midiNote);
-            const activeHand = activeHandByNote.get(key.midiNote);
-            return <div key={key.midiNote} data-midi-note={key.midiNote} className={`piano-key ${key.isBlack ? "black" : "white"} state-${state}${activeHand ? ` synthesia-active hand-${activeHand}` : ""}${auditioningNotes.includes(key.midiNote) ? " auditioning" : ""}`} style={{ left: `${key.x * 100}%`, width: `${key.width * 100}%` }} role="button" tabIndex={-1} aria-label={`${name}, ${state === "neutral" ? "not active" : state}`} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); auditionNote(key.midiNote); }}>
+            const strikingHand = showBlocks ? strikingHandByNote.get(key.midiNote) : undefined;
+            return <div key={key.midiNote} data-midi-note={key.midiNote} className={`piano-key ${key.isBlack ? "black" : "white"} state-${state}${expectation && state === "expected" ? ` play-expected hand-${expectation.hand} expectation-${expectation.strength}` : ""}${strikingHand && !(expectation && state === "expected") ? ` synthesia-active hand-${strikingHand}` : ""}${auditioningNotes.includes(key.midiNote) ? " auditioning" : ""}`} style={{ left: `${key.x * 100}%`, width: `${key.width * 100}%` }} role="button" tabIndex={-1} aria-label={`${name}, ${state === "neutral" ? "not active" : state}`} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); auditionNote(key.midiNote); }}>
               {settings.showLabels ? <span>{name}</span> : null}
             </div>;
           })}
@@ -318,7 +344,25 @@ function PianoIcon() { return <svg viewBox="0 0 28 20" aria-hidden="true"><path 
 function MoreIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>; }
 function PlayIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8L7 4Z" /></svg>; }
 function TransportPauseIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6V4Zm8 0h4v16h-4V4Z" /></svg>; }
+function StopIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5V5Z" /></svg>; }
 function ResetIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.1 7.2A8 8 0 1 1 4 14h2.1a6 6 0 1 0 .8-5.2L10 12H2V4l3.1 3.2Z" /></svg>; }
 function LoopIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.7 7.3A8 8 0 0 0 4.6 9H2l3.5-4L9 9H6.7a6 6 0 0 1 9.6-.3L17.7 7.3Zm-10.4 9.4A8 8 0 0 0 20 15h2l-3.5 4-3.5-4h2.3a6 6 0 0 1-9.6.3l-1.4 1.4Z" /></svg>; }
 function PauseIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4v16H5V4Zm7 0h4v7.2l3.5 2.1-1 1.7-4.5-2.7V4h-2Z" /></svg>; }
 function ClearIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 6 1-2h8l1 2h4v2H3V6h4Zm1 4h8l-1 10H9L8 10Z" /></svg>; }
+
+type PianoHand = "right" | "left" | "both";
+
+function canStop(phase: PlaybackPhase): boolean { return phase === "countdown" || phase === "playing" || phase === "waiting-note" || phase === "paused"; }
+
+function activeNotesAt(plan: PlaybackPlan | undefined, elapsedMs: number): Set<number> {
+  return new Set(plan?.events.filter((item) => item.onsetMs <= elapsedMs + 0.001 && item.endMs > elapsedMs + 0.001).flatMap((item) => item.event.midiNotes) ?? []);
+}
+
+function handMap(items: { midiNote: number; hand: "right" | "left" }[]): Map<number, PianoHand> {
+  const result = new Map<number, PianoHand>();
+  for (const item of items) {
+    const current = result.get(item.midiNote);
+    result.set(item.midiNote, current && current !== item.hand ? "both" : item.hand);
+  }
+  return result;
+}

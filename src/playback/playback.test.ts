@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScoreEvent } from "../music/scoreTypes";
-import { activeExpectedNotes, activePlaybackEvent, createPlaybackPlan, millisecondsBetweenQuarters, missedPerformanceNotes, playbackGates, scorePerformanceAttempt, scoreQuarterAtElapsed, shouldShowPerformanceResults } from "./playback";
+import { activeExpectedNotes, activePlaybackEvent, createPlaybackPlan, gatePreviewStartMs, millisecondsBetweenQuarters, missedPerformanceNotes, playbackGates, scorePerformanceAttempt, scoreQuarterAtElapsed, shouldShowPerformanceResults } from "./playback";
 
 const events: ScoreEvent[] = [
   event("a", 0, 1, [60], 1),
@@ -31,6 +31,14 @@ describe("playback timing", () => {
     rolled.noteDetails = rolled.noteDetails.map((detail) => ({ ...detail, arpeggio: { direction: "down" } }));
     const gate = playbackGates(createPlaybackPlan([rolled], [], 120, "both")!)[0];
     expect(gate.arpeggioNotes).toEqual([67, 64, 60]);
+  });
+  it("starts a gate preview one local quarter-note beat before its onset", () => {
+    const tempoChanges = [{ quarter: 3, bpm: 60, source: "sound" as const }];
+    const plan = createPlaybackPlan([event("first", 0, 1, [60], 1), event("next", 4, 1, [64, 67], 1)], tempoChanges, 120, "both")!;
+    const gate = playbackGates(plan)[1];
+    const previewStart = gatePreviewStartMs(plan, gate, tempoChanges, 120);
+    expect(previewStart).toBe(1500);
+    expect(gate.onsetMs - previewStart).toBe(1000);
   });
 });
 

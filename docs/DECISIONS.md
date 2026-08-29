@@ -65,3 +65,9 @@ Held-note state may safely collapse to its latest value, but scoring and note ga
 
 ## 20. Preserve Arpeggios As Ordered Gestures
 An arpeggio shares a written onset but is neither a simultaneous chord nor several independently timed score events. Per-note MusicXML arpeggiate metadata remains on the normalized event; practice and gates recognize its pitch-ordered note-on sequence with a 750ms inter-note allowance, while audio applies a 70ms presentation spread. This preserves score navigation and tempo timing while matching the intended physical gesture. Sidebar diagnostics follow the displayed event so timeline and score seeking reveal the active expectation immediately.
+
+## 21. Separate Stop, Reset, And Hand-Colour Ownership
+Stop freezes the exact transport position, cancels scheduled audio, exits playback presentation, and preserves results so the next Play resumes through the configured countdown. Reset remains the destructive return to the active plan start. Timed piano expectations derive RH/LH ownership from playback-plan staff details and use their own persisted colour pair; Synthesia retains a separate configurable pair. Correct held notes are duration-aware and become neutral-carried after their written end rather than being reclassified as wrong.
+
+## 22. Make Piano Expectations Event-Backed And Musically Timed
+Keyboard expectations carry their exact source event/gate, staff-derived hand, and preview/active strength. This prevents repeated or sustained pitches elsewhere in the plan from producing partial chord fills and gives untimed practice the same full RH/LH presentation as Play. Pause-at-each-note reveals the complete next gate one quarter-note beat early using the local tempo map, dimming that preview until the gate becomes active; transport, cursor, audio, and Synthesia timing remain unchanged.
