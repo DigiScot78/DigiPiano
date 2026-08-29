@@ -75,6 +75,7 @@ export interface LoadedScore {
 
 export interface ScoreInfo {
   title?: string;
+  subtitle?: string;
   composer?: string;
   movementTitle?: string;
   partCount: number;

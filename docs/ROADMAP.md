@@ -59,7 +59,7 @@ Acceptance criteria:
 - Both toolbars and Space share Play/Pause/countdown-Resume behavior, with Reset returning to the active plan start.
 - Timed and untimed cursor movement auto-follows notation systems, and Synthesia exposes a selection-relative event-snapped timeline below the keyboard.
 - The timeline remains available without Synthesia and with the keyboard collapsed; score clicks provide the same event-snapped navigation while preserving active selection bounds.
-- The right workspace panel persists collapse, active Practice/Debug tab, and drag-resized width; it hides for every fresh Play run but can be restored mid-run, reserves score width while layering above bottom instruments in its own column, and uses independent open/docked score margins. Optional Play fullscreen owns only the fullscreen session it starts. OSMD overlays remain aligned through every live layout/display/fullscreen resize.
+- A fixed application header keeps app identity, imported score title/subtitle, and Settings visible while the score scrolls. The right workspace panel persists collapse, active Practice/Debug tab, and drag-resized width; it remains viewport-fixed below that header, hides for every fresh Play run but can be restored mid-run, reserves score width while layering above bottom instruments in its own column, and uses independent open/docked score margins. Optional Play fullscreen owns only the fullscreen session it starts. OSMD overlays remain aligned through every live layout/display/fullscreen resize.
 
 ## Milestone 4: Feedback Quality
 Status: in progress.

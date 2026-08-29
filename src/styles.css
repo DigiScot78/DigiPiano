@@ -100,15 +100,27 @@ select {
 }
 
 .app-shell {
+  --app-header-height: 3.25rem;
   padding: 0.75rem;
+  padding-top: calc(var(--app-header-height) + 1.4rem);
 }
 
 .app-header {
-  display: flex;
+  position: fixed;
+  top: 0.75rem;
+  right: 0.75rem;
+  left: 0.75rem;
+  z-index: 96;
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr) minmax(12rem, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 0.65rem;
+  height: var(--app-header-height);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  padding: 0.4rem 0.55rem 0.4rem 0.85rem;
+  background: var(--app-surface-raised);
+  box-shadow: 0 5px 18px var(--app-shadow);
 }
 
 .app-header h1 {
@@ -116,10 +128,31 @@ select {
   font-size: 1.2rem;
 }
 
+.score-heading {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.score-heading strong,
+.score-heading span {
+  display: block;
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-heading strong { font-size: 1rem; }
+.score-heading span { margin-top: 0.15rem; color: var(--app-muted); font-size: 0.76rem; }
+.app-header-actions { display: flex; justify-content: flex-end; }
+
 .playback-notice {
   position: fixed;
-  z-index: 80;
-  top: 0.75rem;
+  z-index: 110;
+  top: calc(var(--app-header-height, 3.25rem) + 1.25rem);
   left: 50%;
   max-width: min(32rem, calc(100vw - 2rem));
   transform: translateX(-50%);
@@ -264,12 +297,14 @@ dd {
 .score-layout.sidebar-collapsed { grid-template-columns: minmax(0, 1fr); }
 
 .right-sidebar {
-  position: sticky;
-  top: 0.75rem;
+  position: fixed;
+  top: calc(0.75rem + var(--app-header-height) + 0.5rem);
+  right: 0.75rem;
+  bottom: 0.75rem;
   z-index: 90;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  height: calc(100vh - 1.5rem);
+  width: var(--sidebar-width, 20rem);
   min-width: 0;
   min-height: 0;
   align-self: start;
@@ -296,7 +331,6 @@ dd {
 }
 .file-panel-actions { display: flex; align-items: stretch; gap: 0.45rem; }
 .file-panel-actions .file-picker-button { flex: 1; }
-.file-panel-actions .settings-button { flex: 0 0 36px; height: auto; min-height: 36px; }
 
 .file-picker-button {
   display: block;

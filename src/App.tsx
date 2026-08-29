@@ -475,6 +475,13 @@ function App() {
     <main className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px`, "--score-margin": `${scoreMargin}px` } as React.CSSProperties}>
       <header className="app-header">
         <h1>Piano Learning</h1>
+        {loadedScore ? <div className="score-heading" aria-live="polite">
+          <strong title={loadedScore.info.title}>{loadedScore.info.title}</strong>
+          {loadedScore.info.subtitle ? <span title={loadedScore.info.subtitle}>{loadedScore.info.subtitle}</span> : null}
+        </div> : <div />}
+        <div className="app-header-actions">
+          <button type="button" className="settings-button" aria-label="Open settings" title="Settings" onClick={() => setMidiSettingsOpen(true)}><SettingsIcon /></button>
+        </div>
       </header>
       {fullscreenNotice ? <div className="playback-notice" role="status">{fullscreenNotice}</div> : null}
 
@@ -530,7 +537,6 @@ function App() {
                 Open score
                 <input type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />
               </label>
-              <button type="button" className="settings-button" aria-label="Open settings" title="Settings" onClick={() => setMidiSettingsOpen(true)}><SettingsIcon /></button>
               <button type="button" className="sidebar-collapse-button" aria-label="Collapse side panel" title="Collapse side panel" onClick={() => workspace.setSettings({ sidebarOpen: false })}><SidebarCollapseIcon /></button>
             </div>
             {scoreError ? <p className="error compact-message">{scoreError}</p> : null}
