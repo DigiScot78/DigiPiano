@@ -83,7 +83,8 @@ describe("performance result visibility", () => {
     expect(shouldShowPerformanceResults("idle", false)).toBe(true);
     expect(shouldShowPerformanceResults("waiting-restart", false)).toBe(true);
     expect(shouldShowPerformanceResults("waiting-note", false)).toBe(false);
-    expect(shouldShowPerformanceResults("waiting-note", true)).toBe(false);
+    expect(shouldShowPerformanceResults("waiting-note", true)).toBe(true);
+    expect(shouldShowPerformanceResults("paused", false)).toBe(true);
   });
 });
 

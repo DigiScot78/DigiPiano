@@ -733,20 +733,22 @@ describe("ScoreRenderer", () => {
   it("renders score practice controls and keeps at least one hand enabled", async () => {
     const onHandModeChange = vi.fn();
     const onRunModeChange = vi.fn();
-    const onPauseOnNotesChange = vi.fn();
+    const onPlayModeChange = vi.fn();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} handMode="right" runMode="once" pauseOnNotes={false} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onHandModeChange={onHandModeChange} onRunModeChange={onRunModeChange} onPauseOnNotesChange={onPauseOnNotesChange} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={3} handMode="right" runMode="once" playMode="play" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onHandModeChange={onHandModeChange} onRunModeChange={onRunModeChange} onPlayModeChange={onPlayModeChange} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
 
     const rightHand = container.querySelector<HTMLButtonElement>('[aria-label="Toggle right hand"]');
     const leftHand = container.querySelector<HTMLButtonElement>('[aria-label="Toggle left hand"]');
     const loop = container.querySelector<HTMLButtonElement>('[aria-label="Loop selected range"]');
-    const pauseOnNotes = container.querySelector<HTMLButtonElement>('[aria-label="Pause at each note"]');
+    const playOptions = container.querySelector<HTMLButtonElement>('[aria-label="Choose play mode"]');
+    expect(playOptions?.querySelector("path")).not.toBeNull();
+    expect(playOptions?.querySelector("circle")).toBeNull();
     expect(rightHand?.getAttribute("aria-pressed")).toBe("true");
     expect(rightHand?.getAttribute("aria-disabled")).toBe("true");
     expect(leftHand?.getAttribute("aria-pressed")).toBe("false");
@@ -755,13 +757,15 @@ describe("ScoreRenderer", () => {
       rightHand?.click();
       leftHand?.click();
       loop?.click();
-      pauseOnNotes?.click();
+      playOptions?.click();
     });
 
     expect(onHandModeChange).toHaveBeenCalledTimes(1);
     expect(onHandModeChange).toHaveBeenCalledWith("both");
     expect(onRunModeChange).toHaveBeenCalledWith("loop");
-    expect(onPauseOnNotesChange).toHaveBeenCalledWith(true);
+    const practice = container.querySelector<HTMLInputElement>('input[value="practice"]');
+    await act(async () => practice?.click());
+    expect(onPlayModeChange).toHaveBeenCalledWith("practice");
   });
 
   it("shows the remaining notes while playback is waiting", async () => {

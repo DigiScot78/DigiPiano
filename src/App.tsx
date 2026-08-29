@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScoreRenderer, type CompletedNoteFeedback } from "./components/ScoreRenderer";
 import { PianoPanel } from "./components/PianoPanel";
+import { PerformanceScoreBadge } from "./components/PerformanceScoreBadge";
 import {
   advanceWhenSatisfied,
   advanceArpeggioProgress,
@@ -30,9 +31,10 @@ import { usePianoSettings } from "./piano/usePianoSettings";
 import { pianoExpectationsForEvents, type PianoSettings } from "./piano/piano";
 import { usePlaySettings } from "./playback/usePlaySettings";
 import { usePlaybackSession } from "./playback/usePlaybackSession";
-import type { PlaySettings } from "./playback/settings";
+import type { PlayMode, PlaySettings } from "./playback/settings";
 import { PlaybackFullscreenController } from "./playback/fullscreen";
 import { shouldShowPerformanceResults } from "./playback/playback";
+import { addPerformanceToHistory, calculatePerformanceScore, exercisePerformanceKey, type ExercisePerformanceHistory } from "./playback/performanceScore";
 import { useAudioSettings } from "./audio/useAudioSettings";
 import { useScoreAudio } from "./audio/useScoreAudio";
 import { useWorkspaceLayoutSettings } from "./layout/useWorkspaceLayoutSettings";
@@ -77,7 +79,6 @@ function App() {
   const [selectedRange, setSelectedRange] = useState<ScoreSelectionRange | undefined>();
   const [handMode, setHandMode] = useState<HandMode>("both");
   const [runMode, setRunMode] = useState<PracticeRunMode>("once");
-  const [pauseOnNotes, setPauseOnNotes] = useState(false);
   const [lastPracticeAttempt, setLastPracticeAttempt] = useState<PracticeAttemptDiagnostic | undefined>();
   const [showCorrectNoteNames, setShowCorrectNoteNames] = useState(true);
   const [showWrongNoteNames, setShowWrongNoteNames] = useState(true);
@@ -92,12 +93,32 @@ function App() {
   const [draftSidebarWidth, setDraftSidebarWidth] = useState<number | undefined>();
   const [sidebarHiddenForPlayback, setSidebarHiddenForPlayback] = useState(false);
   const [fullscreenNotice, setFullscreenNotice] = useState<string | undefined>();
+  const [performanceHistory, setPerformanceHistory] = useState<Map<string, ExercisePerformanceHistory>>(() => new Map());
+  const processedCompletionIdRef = useRef(0);
   const fullscreenControllerRef = useRef(new PlaybackFullscreenController());
   const fullscreenNoticeTimerRef = useRef<number | undefined>(undefined);
 
-  const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, handMode, range: selectedRange, runMode, pauseOnNotes, settings: play.settings });
+  const pauseOnNotes = play.settings.playMode === "pause-each-note";
+  const untimedPractice = play.settings.playMode === "practice";
+  const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, handMode, range: selectedRange, runMode, pauseOnNotes, untimedPractice, settings: play.settings });
   const scoreAudio = useScoreAudio({ plan: playback.plan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, audioStartElapsedMs: playback.audioStartElapsedMs, runId: playback.runId, pauseOnNotes, nextPendingGateOnsetMs: playback.nextPendingGateOnsetMs, settings: audioSettings.settings });
   const { phase: playbackPhase, handleHeldNotesChange, handleMidiNoteOn } = playback;
+  const currentExerciseKey = useMemo(() => loadedScore ? exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, selectedRange, handMode, play.settings.playMode) : undefined, [handMode, loadedScore, play.settings.playMode, selectedRange]);
+  const currentPerformanceHistory = currentExerciseKey ? performanceHistory.get(currentExerciseKey) : undefined;
+
+  useEffect(() => {
+    const completed = playback.completedRun;
+    if (!completed || !loadedScore || completed.id === processedCompletionIdRef.current) return;
+    processedCompletionIdRef.current = completed.id;
+    const score = calculatePerformanceScore(completed.plan, completed.results);
+    const summary = { ...score, playMode: completed.playMode, handMode: completed.handMode, ...(completed.range ? { range: completed.range } : {}) };
+    const key = exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, completed.range, completed.handMode, completed.playMode);
+    setPerformanceHistory((current) => {
+      const next = new Map(current);
+      next.set(key, addPerformanceToHistory(current.get(key), summary));
+      return next;
+    });
+  }, [loadedScore, playback.completedRun]);
   const clearCompletedFeedback = useCallback(() => {
     if (completedFeedbackTimerRef.current !== undefined) {
       window.clearTimeout(completedFeedbackTimerRef.current);
@@ -128,7 +149,7 @@ function App() {
     setSimulatedHeldNotes([]);
     setCarriedCompletedNotes([]);
     clearCompletedFeedback();
-    if (playback.phase === "idle" || playback.phase === "stopped") {
+    if (playback.phase === "idle") {
       setSidebarHiddenForPlayback(true);
       setFullscreenNotice(undefined);
       if (play.settings.playFullscreen) {
@@ -144,7 +165,7 @@ function App() {
   }, [clearCompletedFeedback, learningState.currentIndex, play.settings.playFullscreen, playback, scoreAudio, showFullscreenNotice]);
 
   useEffect(() => {
-    if (playbackPhase === "idle" || playbackPhase === "stopped") finishPlaybackPresentation();
+    if (playbackPhase === "idle") finishPlaybackPresentation();
   }, [finishPlaybackPresentation, playbackPhase]);
 
   useEffect(() => {
@@ -402,6 +423,24 @@ function App() {
     clearCompletedFeedback();
   }, [clearCompletedFeedback, finishPlaybackPresentation, handMode, parsedScore.events, playback, selectedRange]);
 
+  const stopPlayback = useCallback(() => {
+    const startIndex = playback.plan?.events[0]?.eventIndex ?? firstPlayableIndex(parsedScore.events, handMode, selectedRange) ?? selectedRange?.startIndex ?? 0;
+    finishPlaybackPresentation();
+    playback.stopAtPlanStart();
+    const nextState = initialLearningState(startIndex);
+    learningStateRef.current = nextState;
+    setLearningState(nextState);
+    setSimulatedHeldNotes([]);
+    setCarriedCompletedNotes([]);
+    clearCompletedFeedback();
+  }, [clearCompletedFeedback, finishPlaybackPresentation, handMode, parsedScore.events, playback, selectedRange]);
+
+  const handlePlayModeChange = useCallback((playMode: PlayMode) => {
+    if (playMode === play.settings.playMode) return;
+    resetAllProgress();
+    play.setSettings({ playMode });
+  }, [play, resetAllProgress]);
+
   const seekToEvent = useCallback((eventIndex: number) => {
     const playable = playback.plan?.events;
     const destination = playable?.find((item) => item.eventIndex === eventIndex)
@@ -482,7 +521,7 @@ function App() {
   return (
     <main className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px`, "--score-margin": `${scoreMargin}px` } as React.CSSProperties}>
       <header className="app-header">
-        <h1>Piano Learning</h1>
+        <div className="app-brand"><h1>Piano Learning</h1>{currentPerformanceHistory ? <PerformanceScoreBadge history={currentPerformanceHistory} /> : null}</div>
         {loadedScore ? <div className="score-heading" aria-live="polite">
           <strong title={loadedScore.info.title}>{loadedScore.info.title}</strong>
           {loadedScore.info.subtitle ? <span title={loadedScore.info.subtitle}>{loadedScore.info.subtitle}</span> : null}
@@ -519,6 +558,8 @@ function App() {
             handMode={handMode}
             runMode={runMode}
             pauseOnNotes={pauseOnNotes}
+            playMode={play.settings.playMode}
+            showProgressWhilePlaying={play.settings.showHitsWhilePlaying}
             waitingForNotes={waitingForGateNotes}
             audioSettings={audioSettings.settings}
             audioError={scoreAudio.error}
@@ -529,9 +570,10 @@ function App() {
             onEventSeek={seekToEvent}
             onHandModeChange={handleHandModeChange}
             onRunModeChange={setRunMode}
-            onPauseOnNotesChange={setPauseOnNotes}
+            onPlayModeChange={handlePlayModeChange}
+            onShowProgressWhilePlayingChange={(showHitsWhilePlaying) => play.setSettings({ showHitsWhilePlaying })}
             onTogglePlayback={togglePlaybackWithAudio}
-            onStop={playback.stopAtCurrentPosition}
+            onStop={stopPlayback}
             onReset={resetAllProgress}
             onClearPerformance={playback.clearResults}
             onAudioSettingsChange={audioSettings.setSettings}
@@ -610,16 +652,19 @@ function App() {
         canPlay={Boolean(playback.plan)}
         runMode={runMode}
         pauseOnNotes={pauseOnNotes}
+        playMode={play.settings.playMode}
+        showProgressWhilePlaying={play.settings.showHitsWhilePlaying}
         canClearPerformance={playback.results.length > 0 || playback.missedNotes.length > 0}
         audioSettings={audioSettings.settings}
         audioError={scoreAudio.error}
         onSettingsChange={piano.setSettings}
         onTogglePlayback={togglePlaybackWithAudio}
-        onStop={playback.stopAtCurrentPosition}
+        onStop={stopPlayback}
         onReset={resetAllProgress}
         onSeek={seekToEvent}
         onRunModeChange={setRunMode}
-        onPauseOnNotesChange={setPauseOnNotes}
+        onPlayModeChange={handlePlayModeChange}
+        onShowProgressWhilePlayingChange={(showHitsWhilePlaying) => play.setSettings({ showHitsWhilePlaying })}
         onClearPerformance={playback.clearResults}
         onAudioSettingsChange={audioSettings.setSettings}
       />
@@ -773,7 +818,6 @@ function SettingsDialog({
             <label>Countdown (seconds)<input type="number" min="0" max="10" step="1" value={playSettings.countdownSeconds} onChange={(event) => onPlaySettingsChange({ countdownSeconds: clampSetting(event.target.value, 0, 10) })} /></label>
             <label>Fallback tempo (BPM)<input type="number" min="30" max="300" step="1" value={playSettings.fallbackBpm} onChange={(event) => onPlaySettingsChange({ fallbackBpm: clampSetting(event.target.value, 30, 300) })} /></label>
             <label>Hit tolerance (ms)<input type="number" min="0" max="1000" step="25" value={playSettings.hitToleranceMs} onChange={(event) => onPlaySettingsChange({ hitToleranceMs: clampSetting(event.target.value, 0, 1000) })} /></label>
-            <label className="play-checkbox-setting">Show hits while playing<input type="checkbox" checked={playSettings.showHitsWhilePlaying} onChange={(event) => onPlaySettingsChange({ showHitsWhilePlaying: event.target.checked })} /></label>
             <label className="play-checkbox-setting">Play fullscreen<input type="checkbox" checked={playSettings.playFullscreen} onChange={(event) => onPlaySettingsChange({ playFullscreen: event.target.checked })} /></label>
           </div>
           <p className="settings-hint">Embedded score tempo is used when available. The fallback applies before the first tempo marking or when none is supplied. Play always hides the side panel; fullscreen uses the browser display and Escape leaves it without stopping playback.</p>

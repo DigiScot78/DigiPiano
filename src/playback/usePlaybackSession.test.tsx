@@ -2,6 +2,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScoreEvent } from "../music/scoreTypes";
+import type { ScoreSelectionRange } from "../learning/matcher";
 import { usePlaybackSession } from "./usePlaybackSession";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -25,9 +26,9 @@ describe("usePlaybackSession", () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-  async function render(countdownSeconds = 0, runMode: "once" | "loop" = "once", pauseOnNotes = false, events = scoreEvents) {
+  async function render(countdownSeconds = 0, runMode: "once" | "loop" = "once", pauseOnNotes = false, events = scoreEvents, untimedPractice = false, range?: ScoreSelectionRange) {
     function Harness() {
-      session = usePlaybackSession({ events, tempoChanges: [], handMode: "both", runMode, pauseOnNotes, settings: { countdownSeconds, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
+      session = usePlaybackSession({ events, tempoChanges: [], handMode: "both", range, runMode, pauseOnNotes, untimedPractice, settings: { playMode: untimedPractice ? "practice" : "play", countdownSeconds, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
       return null;
     }
     await act(async () => root.render(<Harness />));
@@ -63,12 +64,13 @@ describe("usePlaybackSession", () => {
     expect(session.showStartCue).toBe(false);
     await act(async () => nextFrame?.(2501));
     expect(session.phase).toBe("waiting-restart");
+    expect(session.completedRun).toMatchObject({ id: 1, playMode: "play", handMode: "both" });
     await act(async () => session.handleMidiNoteOn(60, 2600));
     expect(session.phase).toBe("countdown");
     expect(session.results).toHaveLength(0);
   });
 
-  it("waits at an onset without recording gated correct or wrong notes", async () => {
+  it("records wrong and correct attempts while waiting at a note gate", async () => {
     await render(0, "once", true);
     await act(async () => session.start());
     expect(session.phase).toBe("waiting-note");
@@ -78,11 +80,13 @@ describe("usePlaybackSession", () => {
 
     await act(async () => session.handleMidiNoteOn(61, 1400));
     expect(session.phase).toBe("waiting-note");
-    expect(session.results).toHaveLength(0);
+    expect(session.results).toHaveLength(1);
+    expect(session.results[0]).toMatchObject({ playedNote: 61, expectedNote: 60, timingErrorMs: 0, result: "wrong" });
 
     await act(async () => session.handleMidiNoteOn(60, 1500));
     expect(session.phase).toBe("playing");
-    expect(session.results).toHaveLength(0);
+    expect(session.results).toHaveLength(2);
+    expect(session.results[1]).toMatchObject({ playedNote: 60, expectedNote: 60, timingErrorMs: 0, result: "correct" });
   });
 
   it("requires every chord note to be held concurrently at a gate", async () => {
@@ -98,7 +102,8 @@ describe("usePlaybackSession", () => {
     expect(session.phase).toBe("waiting-note");
     await act(async () => session.handleMidiNoteOn(60, 1400, [60, 64]));
     expect(session.phase).toBe("playing");
-    expect(session.results).toHaveLength(0);
+    expect(session.results).toHaveLength(2);
+    expect(session.results.every((result) => result.result === "correct")).toBe(true);
   });
 
   it("accepts a released arpeggio in order instead of requiring a held chord", async () => {
@@ -112,7 +117,8 @@ describe("usePlaybackSession", () => {
     expect(session.phase).toBe("waiting-note");
     await act(async () => session.handleMidiNoteOn(67, 1500, [67]));
     expect(session.phase).toBe("playing");
-    expect(session.results).toHaveLength(0);
+    expect(session.results).toHaveLength(3);
+    expect(session.results.every((result) => result.result === "correct")).toBe(true);
   });
 
   it("rebases playback after a gate and waits again at a repeated pitch", async () => {
@@ -168,13 +174,29 @@ describe("usePlaybackSession", () => {
     expect(session.expectationStrength).toBe("active");
   });
 
+  it("advances an untimed scored practice directly between gates", async () => {
+    const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 4, midiNotes: [64], sourceNoteIds: ["64"], noteDetails: [{ ...scoreEvent.noteDetails[0], midiNote: 64, sourceNoteId: "64" }] }];
+    await render(0, "once", false, repeated, true);
+    await act(async () => session.start());
+    expect(session.phase).toBe("waiting-note");
+    await act(async () => session.handleMidiNoteOn(61, 1100));
+    await act(async () => session.handleMidiNoteOn(60, 1200));
+    expect(session.phase).toBe("waiting-note");
+    expect(session.elapsedMs).toBe(2000);
+    expect(session.expectedNotes).toEqual([64]);
+    await act(async () => session.handleMidiNoteOn(64, 1300));
+    expect(session.phase).toBe("idle");
+    expect(session.results.map((result) => result.result)).toEqual(["wrong", "correct", "correct"]);
+    expect(session.completedRun).toMatchObject({ id: 1, results: [{ result: "wrong" }, { result: "correct" }, { result: "correct" }] });
+  });
+
   it("can enable for the next onset and disable an active gate", async () => {
     const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 1 }];
     let setPauseOnNotes!: (enabled: boolean) => void;
     function Harness() {
       const [pauseOnNotes, setPause] = useState(false);
       setPauseOnNotes = setPause;
-      session = usePlaybackSession({ events: repeated, tempoChanges: [], handMode: "both", runMode: "once", pauseOnNotes, settings: { countdownSeconds: 0, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
+      session = usePlaybackSession({ events: repeated, tempoChanges: [], handMode: "both", runMode: "once", pauseOnNotes, settings: { playMode: "play", countdownSeconds: 0, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
       return null;
     }
     await act(async () => root.render(<Harness />));
@@ -212,7 +234,7 @@ describe("usePlaybackSession", () => {
     expect(session.elapsedMs).toBe(650);
   });
 
-  it("stops at the exact position, preserves results, and resumes through a fresh countdown", async () => {
+  it("stops at the plan start, preserves results, and starts a fresh attempt next time", async () => {
     const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 2 }];
     await render(1, "once", false, repeated);
     await act(async () => session.start());
@@ -221,33 +243,49 @@ describe("usePlaybackSession", () => {
     await act(async () => nextFrame?.(2400));
     expect(session.elapsedMs).toBe(400);
 
-    await act(async () => session.stopAtCurrentPosition());
-    expect(session.phase).toBe("stopped");
-    expect(session.elapsedMs).toBe(400);
+    await act(async () => session.stopAtPlanStart());
+    expect(session.phase).toBe("idle");
+    expect(session.elapsedMs).toBe(0);
     expect(session.results).toHaveLength(1);
+    expect(session.completedRun).toBeUndefined();
 
     vi.mocked(performance.now).mockReturnValue(3000);
     await act(async () => session.togglePlayback());
     expect(session.phase).toBe("countdown");
-    expect(session.rollElapsedMs).toBe(-600);
-    expect(session.results).toHaveLength(1);
+    expect(session.rollElapsedMs).toBe(-1000);
+    expect(session.results).toHaveLength(0);
     await act(async () => nextFrame?.(4000));
     expect(session.phase).toBe("playing");
     await act(async () => nextFrame?.(4200));
-    expect(session.elapsedMs).toBe(600);
+    expect(session.elapsedMs).toBe(200);
   });
 
-  it("stops a gate and resumes it without partial satisfaction", async () => {
+  it("stops a gate at the plan start and clears partial satisfaction", async () => {
     const chord = { ...scoreEvent, midiNotes: [60, 64], sourceNoteIds: ["60", "64"], noteDetails: [{ ...scoreEvent.noteDetails[0], midiNote: 60, sourceNoteId: "60" }, { ...scoreEvent.noteDetails[0], midiNote: 64, sourceNoteId: "64" }] };
     await render(0, "once", true, [chord]);
     await act(async () => session.start());
     await act(async () => session.handleMidiNoteOn(60, 1100, [60]));
     expect(session.gate?.satisfiedNotes).toEqual([60]);
-    await act(async () => session.stopAtCurrentPosition());
-    expect(session.phase).toBe("stopped");
+    await act(async () => session.stopAtPlanStart());
+    expect(session.phase).toBe("idle");
+    expect(session.elapsedMs).toBe(0);
+    expect(session.results).toHaveLength(1);
     await act(async () => session.togglePlayback());
     expect(session.phase).toBe("waiting-note");
     expect(session.gate?.satisfiedNotes).toEqual([]);
+    expect(session.results).toHaveLength(0);
+  });
+
+  it("uses the selected range start as the Stop destination", async () => {
+    const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 2, midiNotes: [64], sourceNoteIds: ["64"], noteDetails: [{ ...scoreEvent.noteDetails[0], midiNote: 64, sourceNoteId: "64" }] }];
+    await render(0, "once", false, repeated, false, { startIndex: 1, endIndex: 1 });
+    expect(session.plan?.events[0]?.eventIndex).toBe(1);
+    await act(async () => session.start());
+    await act(async () => session.handleMidiNoteOn(64, 1100));
+    await act(async () => session.stopAtPlanStart());
+    expect(session.phase).toBe("idle");
+    expect(session.elapsedMs).toBe(0);
+    expect(session.results).toHaveLength(1);
   });
 
   it("suspends a note gate while manually paused and restores it after the resume countdown", async () => {

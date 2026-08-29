@@ -1,7 +1,8 @@
 import { filterEventForHand, type HandMode, type ScoreSelectionRange } from "../learning/matcher";
 import type { ScoreEvent, TempoChange } from "../music/scoreTypes";
+import type { PlayMode } from "./settings";
 
-export type PlaybackPhase = "idle" | "stopped" | "countdown" | "playing" | "paused" | "waiting-note" | "waiting-restart";
+export type PlaybackPhase = "idle" | "countdown" | "playing" | "paused" | "waiting-note" | "waiting-restart";
 export type AttemptResult = "correct" | "wrong";
 
 export interface PlaybackEvent {
@@ -32,10 +33,10 @@ export interface PerformanceResult {
   result: AttemptResult;
 }
 export interface MissedPerformanceNote { id: string; note: number; eventIndex: number; staffNumber?: number }
+export interface CompletedPlaybackRun { id: number; plan: PlaybackPlan; results: PerformanceResult[]; playMode: PlayMode; handMode: HandMode; range?: ScoreSelectionRange }
 
 export function shouldShowPerformanceResults(phase: PlaybackPhase, showHitsWhilePlaying: boolean): boolean {
-  if (phase === "waiting-note") return false;
-  return phase !== "playing" || showHitsWhilePlaying;
+  return (phase !== "playing" && phase !== "waiting-note") || showHitsWhilePlaying;
 }
 
 export function missedPerformanceNotes(plan: PlaybackPlan | undefined, results: PerformanceResult[]): MissedPerformanceNote[] {

@@ -144,32 +144,50 @@ describe("PianoPanel", () => {
     const onReset = vi.fn();
     const onStop = vi.fn();
     const onRunModeChange = vi.fn();
-    const onPauseOnNotesChange = vi.fn();
+    const onPlayModeChange = vi.fn();
     const onClearPerformance = vi.fn();
-    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="paused" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={true} audioSettings={{ muted: false, volume: 65 }} onSettingsChange={vi.fn()} onTogglePlayback={onPlay} onStop={onStop} onReset={onReset} onSeek={vi.fn()} onRunModeChange={onRunModeChange} onPauseOnNotesChange={onPauseOnNotesChange} onClearPerformance={onClearPerformance} onAudioSettingsChange={vi.fn()} />));
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="paused" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} playMode="play" canClearPerformance={true} audioSettings={{ muted: false, volume: 65 }} onSettingsChange={vi.fn()} onTogglePlayback={onPlay} onStop={onStop} onReset={onReset} onSeek={vi.fn()} onRunModeChange={onRunModeChange} onPlayModeChange={onPlayModeChange} onClearPerformance={onClearPerformance} onAudioSettingsChange={vi.fn()} />));
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[aria-label="Resume score from piano"]')?.click();
       container.querySelector<HTMLButtonElement>('[aria-label="Stop score playback from piano"]')?.click();
       container.querySelector<HTMLButtonElement>('[aria-label="Reset score progress from piano"]')?.click();
-      container.querySelector<HTMLButtonElement>('[aria-label="Pause at each note from piano"]')?.click();
       container.querySelector<HTMLButtonElement>('[aria-label="Clear performance from piano"]')?.click();
     });
     expect(onPlay).toHaveBeenCalledOnce();
     expect(onStop).toHaveBeenCalledOnce();
     expect(onReset).toHaveBeenCalledOnce();
     expect(onRunModeChange).not.toHaveBeenCalled();
-    expect(onPauseOnNotesChange).toHaveBeenCalledWith(true);
+    expect(onPlayModeChange).not.toHaveBeenCalled();
     expect(onClearPerformance).toHaveBeenCalledOnce();
     expect(Array.from(container.querySelectorAll<HTMLButtonElement>(".toolbar-centre button")).map((button) => button.getAttribute("aria-label"))).toEqual([
       "Resume score from piano",
+      "Choose play mode from piano",
       "Stop score playback from piano",
       "Loop from piano",
-      "Pause at each note from piano",
       "Clear performance from piano",
       "Reset score progress from piano",
     ]);
     expect(container.querySelector(".toolbar-left")).not.toBeNull();
     expect(container.querySelector(".toolbar-right .audio-controls")).not.toBeNull();
+  });
+
+  it("allows active runs to change mode and exposes the live progress preference", async () => {
+    const onPlayModeChange = vi.fn();
+    const onShowProgressChange = vi.fn();
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="playing" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} playMode="play" showProgressWhilePlaying={false} canClearPerformance={true} onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onStop={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onPlayModeChange={onPlayModeChange} onShowProgressWhilePlayingChange={onShowProgressChange} onClearPerformance={vi.fn()} />));
+    const modeButton = container.querySelector<HTMLButtonElement>('[aria-label="Choose play mode from piano"]');
+    expect(modeButton?.querySelector("path")).not.toBeNull();
+    expect(modeButton?.querySelector("circle")).toBeNull();
+    await act(async () => modeButton?.click());
+    const practice = container.querySelector<HTMLInputElement>('input[value="practice"]');
+    expect(practice?.disabled).toBe(false);
+    const progress = container.querySelector<HTMLInputElement>('.play-mode-toolbar input[type="checkbox"]');
+    expect(progress?.checked).toBe(false);
+    await act(async () => progress?.click());
+    expect(onShowProgressChange).toHaveBeenCalledWith(true);
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => practice?.click());
+    expect(onPlayModeChange).toHaveBeenCalledWith("practice");
   });
 
   it("shows a selection-relative Synthesia timeline and seeks to the nearest event", async () => {

@@ -102,7 +102,7 @@ select {
 .app-shell {
   --app-header-top: 0.375rem;
   --app-header-height: 3.25rem;
-  --score-follow-offset: calc(var(--app-header-top) + var(--app-header-height) + 3.25rem);
+  --score-follow-offset: calc(var(--app-header-top) + var(--app-header-height) + 3.25rem + 20px);
   padding: 0.75rem;
   padding-top: calc(var(--app-header-top) + var(--app-header-height) + 0.65rem);
 }
@@ -129,6 +129,22 @@ select {
   margin: 0;
   font-size: 1.2rem;
 }
+
+.app-brand { display: flex; align-items: center; gap: .7rem; min-width: 0; }
+.performance-score { position: relative; flex: 0 0 auto; }
+.performance-score-badge { min-width: 3.4rem; padding: .35rem .6rem; border-radius: 999px; font-size: .9rem; font-weight: 800; font-variant-numeric: tabular-nums; box-shadow: 0 2px 8px color-mix(in srgb, var(--app-accent) 28%, transparent); }
+.performance-score-panel { position: absolute; z-index: 140; top: calc(100% + .7rem); left: 0; width: min(25rem, calc(100vw - 2rem)); border: 1px solid var(--app-border); border-radius: 12px; padding: .85rem; background: var(--app-surface-raised); color: var(--app-text); box-shadow: 0 14px 36px var(--app-shadow); }
+.performance-score-panel::before { content: ""; position: absolute; top: -6px; left: 1.25rem; width: 10px; height: 10px; border-top: 1px solid var(--app-border); border-left: 1px solid var(--app-border); background: var(--app-surface-raised); transform: rotate(45deg); }
+.performance-score-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: .45rem; }
+.performance-score-summary > div { border-radius: 8px; padding: .55rem; background: var(--app-surface-muted); text-align: center; }
+.performance-score-summary dt, .performance-score-stats dt { color: var(--app-muted); font-size: .72rem; }
+.performance-score-summary dd { margin: .12rem 0 0; font-size: 1.15rem; font-weight: 800; }
+.performance-score-context { margin: .7rem 0; color: var(--app-muted); font-size: .78rem; font-weight: 700; }
+.performance-score-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem .85rem; margin: 0; }
+.performance-score-stats > div { display: flex; justify-content: space-between; gap: .5rem; border-bottom: 1px solid var(--app-border); padding: .28rem 0; }
+.performance-score-stats dd { margin: 0; font-size: .8rem; font-weight: 750; }
+.performance-score-totals { margin: .7rem 0 0; color: var(--app-muted); font-size: .74rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 
 .score-heading {
   display: grid;
@@ -427,6 +443,26 @@ dd {
   max-height: min(48rem, calc(100vh - 2rem));
   overflow: hidden;
 }
+
+.play-mode-backdrop { z-index: 1300; }
+.play-mode-dialog { width: min(560px, calc(100vw - 2rem)); padding: 1.25rem; border: 1px solid var(--app-border); border-radius: 16px; background: var(--app-surface); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
+.play-mode-dialog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.play-mode-dialog h2, .play-mode-dialog p { margin: 0; }
+.play-mode-dialog header p { margin-top: .25rem; color: var(--app-muted); }
+.play-mode-options { display: grid; gap: .65rem; margin-top: 1rem; }
+.play-mode-option { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: .75rem; padding: .85rem; border: 1px solid var(--app-border); border-radius: 10px; cursor: pointer; }
+.play-mode-option.selected { border-color: var(--app-accent); background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface)); }
+.play-mode-option input { margin-top: .2rem; }
+.play-mode-option span, .play-mode-option small { display: block; }
+.play-mode-option small { margin-top: .2rem; color: var(--app-muted); line-height: 1.35; }
+.play-mode-toolbar { margin: 1rem -1.25rem -1.25rem; padding: .8rem 1.25rem; border-top: 1px solid var(--app-border); background: var(--app-surface-muted); border-radius: 0 0 16px 16px; }
+.play-mode-toolbar label { display: flex; align-items: flex-start; gap: .7rem; cursor: pointer; }
+.play-mode-toolbar input { margin-top: .2rem; }
+.play-mode-toolbar span, .play-mode-toolbar small { display: block; }
+.play-mode-toolbar small { margin-top: .15rem; color: var(--app-muted); line-height: 1.35; }
+.play-control-group { position: relative; display: inline-flex; }
+.play-control-group > :first-child { border-radius: 6px 0 0 6px; }
+.play-control-group > .toolbar-options-button { align-self: stretch; height: auto; padding: 0; }
 
 .settings-dialog header {
   flex: 0 0 auto;

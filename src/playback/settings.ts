@@ -1,4 +1,7 @@
+export type PlayMode = "play" | "pause-each-note" | "practice";
+
 export interface PlaySettings {
+  playMode: PlayMode;
   countdownSeconds: number;
   fallbackBpm: number;
   hitToleranceMs: number;
@@ -7,7 +10,7 @@ export interface PlaySettings {
 }
 
 export const PLAY_SETTINGS_KEY = "piano.play-settings";
-export const DEFAULT_PLAY_SETTINGS: PlaySettings = { countdownSeconds: 3, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false };
+export const DEFAULT_PLAY_SETTINGS: PlaySettings = { playMode: "play", countdownSeconds: 3, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false };
 
 export function readPlaySettings(storage: Pick<Storage, "getItem"> | undefined): PlaySettings {
   let value: unknown;
@@ -15,6 +18,7 @@ export function readPlaySettings(storage: Pick<Storage, "getItem"> | undefined):
   if (!value || typeof value !== "object") return DEFAULT_PLAY_SETTINGS;
   const candidate = value as Partial<PlaySettings> & { autoHideSidebarOnPlay?: unknown };
   return {
+    playMode: candidate.playMode === "pause-each-note" || candidate.playMode === "practice" ? candidate.playMode : "play",
     countdownSeconds: integerInRange(candidate.countdownSeconds, 0, 10, 3),
     fallbackBpm: integerInRange(candidate.fallbackBpm, 30, 300, 120),
     hitToleranceMs: integerInRange(candidate.hitToleranceMs, 0, 1000, 250),
