@@ -33,4 +33,8 @@ describe("piano state and persistence", () => {
     expect(settings.synthesiaOpaque).toBe(false);
     expect(settings.synthesiaShowNoteLabels).toBe(false);
   });
+  it("migrates the legacy expanded preference and prefers the new field", () => {
+    expect(readPianoSettings({ getItem: () => JSON.stringify({ expanded: false }) }).pianoVisible).toBe(false);
+    expect(readPianoSettings({ getItem: () => JSON.stringify({ pianoVisible: true, expanded: false }) }).pianoVisible).toBe(true);
+  });
 });

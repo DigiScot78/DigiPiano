@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlaybackPlan } from "../playback/playback";
 import { generatePianoLayout } from "./piano";
-import { createSynthesiaBlocks, isSynthesiaBlockStriking, isSynthesiaBlockVisible, synthesiaVerticalGeometry } from "./synthesia";
+import { availableSynthesiaHeight, createSynthesiaBlocks, isSynthesiaBlockStriking, isSynthesiaBlockVisible, synthesiaVerticalGeometry } from "./synthesia";
 
 const plan: PlaybackPlan = {
   startQuarter: 0,
@@ -23,6 +23,11 @@ const plan: PlaybackPlan = {
 };
 
 describe("Synthesia geometry", () => {
+  it("limits the roll to the space below the fixed header", () => {
+    expect(availableSynthesiaHeight(500, 60)).toBe(434);
+    expect(availableSynthesiaHeight(50, 60)).toBe(0);
+  });
+
   it("shares piano key coordinates and classifies hands", () => {
     const keys = generatePianoLayout(36, 96);
     const blocks = createSynthesiaBlocks(plan, keys);

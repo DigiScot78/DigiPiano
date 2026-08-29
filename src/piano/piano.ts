@@ -5,7 +5,7 @@ export type SynthesiaSpeed = 70 | 100 | 140;
 export type PianoKeyState = "neutral" | "expected" | "correct" | "wrong" | "carried";
 
 export interface PianoSettings {
-  expanded: boolean;
+  pianoVisible: boolean;
   synthesiaEnabled: boolean;
   synthesiaHeight: number;
   synthesiaOpaque: boolean;
@@ -40,7 +40,7 @@ export const SYNTHESIA_DEFAULT_HEIGHT = 320;
 export const SYNTHESIA_MAX_STORED_HEIGHT = 2000;
 export const DEFAULT_PIANO_COLORS = { expected: "#28b8d7", correct: "#239b56", wrong: "#d64545" } as const;
 export const DEFAULT_PIANO_SETTINGS: PianoSettings = {
-  expanded: true,
+  pianoVisible: true,
   synthesiaEnabled: false,
   synthesiaHeight: SYNTHESIA_DEFAULT_HEIGHT,
   synthesiaOpaque: false,
@@ -113,10 +113,12 @@ export function readPianoSettings(storage: Pick<Storage, "getItem"> | undefined)
   let value: unknown;
   try { value = JSON.parse(storage?.getItem(PIANO_SETTINGS_KEY) ?? "null"); } catch { return DEFAULT_PIANO_SETTINGS; }
   if (!value || typeof value !== "object") return DEFAULT_PIANO_SETTINGS;
-  const candidate = value as Partial<PianoSettings>;
+  const candidate = value as Partial<PianoSettings> & { expanded?: unknown };
   const range = validateCustomRange(Number(candidate.customLow), Number(candidate.customHigh));
   return {
-    expanded: typeof candidate.expanded === "boolean" ? candidate.expanded : true,
+    pianoVisible: typeof candidate.pianoVisible === "boolean"
+      ? candidate.pianoVisible
+      : typeof candidate.expanded === "boolean" ? candidate.expanded : true,
     synthesiaEnabled: typeof candidate.synthesiaEnabled === "boolean" ? candidate.synthesiaEnabled : false,
     synthesiaHeight: integerInRange(candidate.synthesiaHeight, SYNTHESIA_MIN_HEIGHT, SYNTHESIA_MAX_STORED_HEIGHT, SYNTHESIA_DEFAULT_HEIGHT),
     synthesiaOpaque: typeof candidate.synthesiaOpaque === "boolean" ? candidate.synthesiaOpaque : false,

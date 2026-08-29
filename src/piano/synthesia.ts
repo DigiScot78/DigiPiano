@@ -20,6 +20,10 @@ export const SYNTHESIA_PIXELS_PER_SECOND = 100;
 export const SYNTHESIA_MIN_BLOCK_HEIGHT = 6;
 export const SYNTHESIA_MIN_STRIKE_HIGHLIGHT_MS = 140;
 
+export function availableSynthesiaHeight(strikeTop: number, headerBottom: number, gap = 6): number {
+  return Math.max(0, Math.floor(strikeTop - headerBottom - gap));
+}
+
 export function createSynthesiaBlocks(plan: PlaybackPlan | undefined, keys: PianoKeyLayout[]): SynthesiaNoteBlock[] {
   if (!plan) return [];
   const keyByNote = new Map(keys.map((key) => [key.midiNote, key]));

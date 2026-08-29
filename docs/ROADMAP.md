@@ -53,12 +53,12 @@ Acceptance criteria:
 - Loop playback waits for keyboard or MIDI confirmation before beginning the next countdown.
 - Timestamped MIDI note-ons produce one deduplicated green completion per written note plus individual red mistake attempts at their played score-time positions; results default to appearing after playback and remain until cleared or a new run starts.
 - Pause-at-each-note can be changed live and freezes timed playback at each hand-filtered onset until fresh MIDI input completes the note or chord without compressing later rhythm.
-- The fixed piano toolbar mirrors Play/Pause/Resume, Reset, Loop, Pause-at-each-note, and Clear controls from the score toolbar.
-- A persisted, resizable Synthesia overlay shares piano geometry and playback time, supports transparent/opaque and note-label modes, and aligns staff-coloured duration blocks plus strike-time key fills with the keyboard.
+- The permanent bottom toolbar groups Piano/Synthesia view controls and popovers at left, Play/Pause/Resume, Reset, Loop, Pause-at-each-note, and Clear centrally, and Score Audio at right.
+- A persisted, resizable Synthesia overlay shares piano geometry and playback time, remains independently visible without piano keys, clamps below the fixed header, and aligns staff-coloured duration blocks with its keyboard or toolbar strike edge.
 - Score and Synthesia Play controls produce synchronized piano-like browser audio, with shared persisted mute/volume controls and Pause-gate-aware scheduling.
 - Both toolbars and Space share Play/Pause/countdown-Resume behavior, with Reset returning to the active plan start.
 - Timed and untimed cursor movement auto-follows notation systems, and Synthesia exposes a selection-relative event-snapped timeline below the keyboard.
-- The timeline remains available without Synthesia and with the keyboard collapsed; score clicks provide the same event-snapped navigation while preserving active selection bounds.
+- The timeline remains full width below the permanent toolbar without Synthesia or visible piano keys; score clicks provide the same event-snapped navigation while preserving active selection bounds.
 - A fixed application header keeps app identity, imported score title/subtitle, and Settings visible while the score scrolls. The right workspace panel persists collapse, active Practice/Debug tab, and drag-resized width; it remains viewport-fixed below that header, hides for every fresh Play run but can be restored mid-run, reserves score width while layering above bottom instruments in its own column, and uses independent open/docked score margins. Optional Play fullscreen owns only the fullscreen session it starts. OSMD overlays remain aligned through every live layout/display/fullscreen resize.
 
 ## Milestone 4: Feedback Quality

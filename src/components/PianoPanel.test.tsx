@@ -53,15 +53,16 @@ describe("PianoPanel", () => {
     expect(middleC?.className).toContain("auditioning");
   });
 
-  it("keeps a restoration control when collapsed", async () => {
-    const onChange = await render({ ...DEFAULT_PIANO_SETTINGS, expanded: false });
+  it("keeps the permanent toolbar when the piano is hidden", async () => {
+    const onChange = await render({ ...DEFAULT_PIANO_SETTINGS, pianoVisible: false });
     expect(container.querySelectorAll(".piano-key")).toHaveLength(0);
     const button = container.querySelector<HTMLButtonElement>(".piano-toggle");
-    expect(container.querySelector(".piano-panel")?.className).toContain("collapsed");
+    expect(container.querySelector(".piano-panel")?.className).toContain("piano-hidden");
     expect(button?.getAttribute("aria-label")).toBe("Show piano");
-    expect(button?.querySelector("svg")).not.toBeNull();
+    expect(container.querySelector('[aria-label="Toggle Synthesia"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Play score from piano"]')).not.toBeNull();
     await act(async () => button?.click());
-    expect(onChange).toHaveBeenCalledWith({ expanded: true });
+    expect(onChange).toHaveBeenCalledWith({ pianoVisible: true });
   });
 
   it("warns about and reveals expected notes outside the range", async () => {
@@ -77,10 +78,20 @@ describe("PianoPanel", () => {
     expect(container.querySelector(".piano-viewport")?.className).toContain("width-fit");
   });
 
-  it("keeps Synthesia and its controls hidden with a collapsed piano", async () => {
-    await render({ ...DEFAULT_PIANO_SETTINGS, expanded: false, synthesiaEnabled: true });
-    expect(container.querySelector(".synthesia-panel")).toBeNull();
-    expect(container.querySelector('[aria-label="Toggle Synthesia"]')).toBeNull();
+  it("moves piano presentation controls into an accessible options popover", async () => {
+    const onChange = await render();
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Piano options"]')?.click());
+    expect(container.querySelector('[role="dialog"][aria-label="Piano options"]')).not.toBeNull();
+    await act(async () => container.querySelector<HTMLInputElement>('.piano-options-popover input[type="checkbox"]')?.click());
+    expect(onChange).toHaveBeenCalledWith({ showLabels: true });
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(container.querySelector('[role="dialog"][aria-label="Piano options"]')).toBeNull();
+  });
+
+  it("keeps Synthesia visible independently when the piano is hidden", async () => {
+    await render({ ...DEFAULT_PIANO_SETTINGS, pianoVisible: false, synthesiaEnabled: true });
+    expect(container.querySelector(".synthesia-panel")).not.toBeNull();
+    expect(container.querySelector('[aria-label="Toggle Synthesia"]')?.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("renders transparent lanes and toggles Synthesia from the piano toolbar", async () => {
@@ -89,10 +100,10 @@ describe("PianoPanel", () => {
     expect(container.querySelector(".synthesia-resize-handle")).not.toBeNull();
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Toggle Synthesia"]')?.click());
     expect(onChange).toHaveBeenCalledWith({ synthesiaEnabled: false });
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>('[aria-label="Toggle opaque Synthesia"]')?.click();
-      container.querySelector<HTMLButtonElement>('[aria-label="Show falling note labels"]')?.click();
-    });
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Synthesia options"]')?.click());
+    expect(container.querySelector('[role="dialog"][aria-label="Synthesia options"]')).not.toBeNull();
+    const optionChecks = container.querySelectorAll<HTMLInputElement>('.synthesia-options-popover input[type="checkbox"]');
+    await act(async () => { optionChecks[0]?.click(); optionChecks[1]?.click(); });
     expect(onChange).toHaveBeenCalledWith({ synthesiaOpaque: true });
     expect(onChange).toHaveBeenCalledWith({ synthesiaShowNoteLabels: true });
     const speed = container.querySelector<HTMLSelectElement>('[aria-label="Piano roll speed"]');
@@ -107,7 +118,7 @@ describe("PianoPanel", () => {
     const onRunModeChange = vi.fn();
     const onPauseOnNotesChange = vi.fn();
     const onClearPerformance = vi.fn();
-    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={true} onSettingsChange={vi.fn()} onTogglePlayback={onPlay} onReset={onReset} onSeek={vi.fn()} onRunModeChange={onRunModeChange} onPauseOnNotesChange={onPauseOnNotesChange} onClearPerformance={onClearPerformance} />));
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={true} audioSettings={{ muted: false, volume: 65 }} onSettingsChange={vi.fn()} onTogglePlayback={onPlay} onReset={onReset} onSeek={vi.fn()} onRunModeChange={onRunModeChange} onPauseOnNotesChange={onPauseOnNotesChange} onClearPerformance={onClearPerformance} onAudioSettingsChange={vi.fn()} />));
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[aria-label="Play score from piano"]')?.click();
       container.querySelector<HTMLButtonElement>('[aria-label="Reset score progress from piano"]')?.click();
@@ -120,6 +131,15 @@ describe("PianoPanel", () => {
     expect(onRunModeChange).toHaveBeenCalledWith("loop");
     expect(onPauseOnNotesChange).toHaveBeenCalledWith(true);
     expect(onClearPerformance).toHaveBeenCalledOnce();
+    expect(Array.from(container.querySelectorAll<HTMLButtonElement>(".toolbar-centre button")).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Play score from piano",
+      "Reset score progress from piano",
+      "Loop from piano",
+      "Pause at each note from piano",
+      "Clear performance from piano",
+    ]);
+    expect(container.querySelector(".toolbar-left")).not.toBeNull();
+    expect(container.querySelector(".toolbar-right .audio-controls")).not.toBeNull();
   });
 
   it("shows a selection-relative Synthesia timeline and seeks to the nearest event", async () => {
@@ -133,10 +153,10 @@ describe("PianoPanel", () => {
     expect(onSeek).toHaveBeenCalledWith(5);
   });
 
-  it("keeps the timeline available without Synthesia and with the keyboard collapsed", async () => {
+  it("keeps the timeline available without Synthesia and with the piano hidden", async () => {
     const event: ScoreEvent = { id: "a", partId: "P1", measureNumber: 1, startQuarter: 0, durationQuarters: 1, midiNotes: [60], staffNumbers: [1], voiceNumbers: ["1"], sourceNoteIds: ["a"], noteDetails: [{ midiNote: 60, staffNumber: 1, voiceNumber: "1", sourceNoteId: "a" }] };
     const plan: PlaybackPlan = { startQuarter: 0, endQuarter: 1, durationMs: 500, events: [{ eventIndex: 0, event, onsetMs: 0, endMs: 500 }] };
-    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={{ ...DEFAULT_PIANO_SETTINGS, expanded: false, synthesiaEnabled: false }} playbackPlan={plan} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onPauseOnNotesChange={vi.fn()} onClearPerformance={vi.fn()} />));
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={{ ...DEFAULT_PIANO_SETTINGS, pianoVisible: false, synthesiaEnabled: false }} playbackPlan={plan} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onPauseOnNotesChange={vi.fn()} onClearPerformance={vi.fn()} />));
     expect(container.querySelector(".piano-panel")?.className).toContain("timeline-visible");
     expect(container.querySelector(".score-timeline")).not.toBeNull();
     expect(container.querySelectorAll(".piano-key")).toHaveLength(0);

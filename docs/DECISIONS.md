@@ -55,6 +55,8 @@ Playback panel hiding is transient state layered over the persisted sidebar pref
 
 The application header and right workspace are viewport-fixed independently of the scrolling score. The workspace is bounded below the header and its active tab body is the sole panel scroll owner. Settings lives in the application header so it remains available when playback hides the workspace. Imported score identity prefers explicit MusicXML metadata, permits narrowly filtered centred-credit inference for exporters that omit semantic credit types, and uses the filename only as a final title fallback.
 
+The bottom surface is a permanent application toolbar rather than a collapsible piano shell. Piano visibility is independent from toolbar and Synthesia visibility, transport remains centred between view controls and score audio, and presentation options use attached popovers to leave room for future controls. Synthesia uses either the visible keyboard or toolbar as its strike edge and may not resize above the fixed application header. Score system following derives its clearance from that header and the notation toolbar rather than an unrelated fixed margin.
+
 ## 18. Place Feedback From The Written Clef, Not The Staff Number
 Staff number describes ownership and hand filtering, not pitch geometry: either piano staff may use treble, bass, C, or octave-shifted clefs and may change clef during the score. The normalized note detail therefore carries the active MusicXML clef, and feedback maps written pitch from that clef's reference line onto OSMD's measured staff lines. The former staff-1/treble and staff-2/bass rule is retained only for metadata compatibility fallback.
 

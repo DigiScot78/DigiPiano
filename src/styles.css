@@ -100,14 +100,16 @@ select {
 }
 
 .app-shell {
+  --app-header-top: 0.375rem;
   --app-header-height: 3.25rem;
+  --score-follow-offset: calc(var(--app-header-top) + var(--app-header-height) + 3.25rem);
   padding: 0.75rem;
-  padding-top: calc(var(--app-header-height) + 1.4rem);
+  padding-top: calc(var(--app-header-top) + var(--app-header-height) + 0.65rem);
 }
 
 .app-header {
   position: fixed;
-  top: 0.75rem;
+  top: var(--app-header-top);
   right: 0.75rem;
   left: 0.75rem;
   z-index: 96;
@@ -152,7 +154,7 @@ select {
 .playback-notice {
   position: fixed;
   z-index: 110;
-  top: calc(var(--app-header-height, 3.25rem) + 1.25rem);
+  top: calc(var(--app-header-top, 0.375rem) + var(--app-header-height, 3.25rem) + 0.5rem);
   left: 50%;
   max-width: min(32rem, calc(100vw - 2rem));
   transform: translateX(-50%);
@@ -298,7 +300,7 @@ dd {
 
 .right-sidebar {
   position: fixed;
-  top: calc(0.75rem + var(--app-header-height) + 0.5rem);
+  top: calc(var(--app-header-top) + var(--app-header-height) + 0.5rem);
   right: 0.75rem;
   bottom: 0.75rem;
   z-index: 90;
@@ -735,7 +737,7 @@ dd {
 .score-current-event-marker.playback-onset {
   animation: playback-onset-pulse 300ms ease-out;
 }
-.score-current-event-marker { scroll-margin-top: 7rem; }
+.score-current-event-marker { scroll-margin-top: var(--score-follow-offset, 6.875rem); }
 
 @keyframes playback-onset-pulse {
   0% { box-shadow: 0 0 0 3px var(--score-page), 0 0 0 5px var(--score-outline), 0 0 22px 8px var(--score-outline); }
@@ -1015,6 +1017,7 @@ pre {
   --score-timeline-height: 44px;
   --active-score-timeline-height: 0px;
   --piano-toolbar-height: 43px;
+  --active-piano-height: var(--piano-keyboard-height);
   position: fixed;
   right: 0.75rem;
   bottom: 0.75rem;
@@ -1029,22 +1032,21 @@ pre {
   flex-direction: column;
 }
 .piano-panel.timeline-visible { --active-score-timeline-height: var(--score-timeline-height); }
+.piano-panel.piano-hidden { --active-piano-height: 0px; }
 
 .piano-panel.height-small { --piano-keyboard-height: 112px; }
 .piano-panel.height-medium { --piano-keyboard-height: 168px; }
 .piano-panel.height-large { --piano-keyboard-height: 236px; }
 
-/* Keep the end of long scores reachable above the viewport-fixed piano. */
-.app-shell:has(.piano-panel.collapsed) { padding-bottom: 3.75rem; }
-.app-shell:has(.piano-panel.height-small:not(.collapsed)) { padding-bottom: 10.75rem; }
-.app-shell:has(.piano-panel.height-medium:not(.collapsed)) { padding-bottom: 14.25rem; }
-.app-shell:has(.piano-panel.height-large:not(.collapsed)) { padding-bottom: 18.5rem; }
-.app-shell:has(.piano-panel.height-small.timeline-visible:not(.collapsed)) { padding-bottom: 13.5rem; }
-.app-shell:has(.piano-panel.height-medium.timeline-visible:not(.collapsed)) { padding-bottom: 17rem; }
-.app-shell:has(.piano-panel.height-large.timeline-visible:not(.collapsed)) { padding-bottom: 21.25rem; }
-.app-shell:has(.piano-panel.height-small.synthesia-open:not(.collapsed)) { padding-bottom: 13.5rem; }
-.app-shell:has(.piano-panel.height-medium.synthesia-open:not(.collapsed)) { padding-bottom: 17rem; }
-.app-shell:has(.piano-panel.height-large.synthesia-open:not(.collapsed)) { padding-bottom: 21.25rem; }
+/* Keep the end of long scores reachable above the viewport-fixed toolbar, keyboard, and timeline. */
+.app-shell:has(.piano-panel.piano-hidden) { padding-bottom: 3.75rem; }
+.app-shell:has(.piano-panel.piano-hidden.timeline-visible) { padding-bottom: 6.5rem; }
+.app-shell:has(.piano-panel.height-small:not(.piano-hidden)) { padding-bottom: 10.75rem; }
+.app-shell:has(.piano-panel.height-medium:not(.piano-hidden)) { padding-bottom: 14.25rem; }
+.app-shell:has(.piano-panel.height-large:not(.piano-hidden)) { padding-bottom: 18.5rem; }
+.app-shell:has(.piano-panel.height-small.timeline-visible:not(.piano-hidden)) { padding-bottom: 13.5rem; }
+.app-shell:has(.piano-panel.height-medium.timeline-visible:not(.piano-hidden)) { padding-bottom: 17rem; }
+.app-shell:has(.piano-panel.height-large.timeline-visible:not(.piano-hidden)) { padding-bottom: 21.25rem; }
 
 :root[data-app-theme="dark"] .piano-panel {
   --piano-white: #e4e8e9;
@@ -1057,9 +1059,9 @@ pre {
   position: relative;
   z-index: 4;
   min-height: 42px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  flex-wrap: wrap;
   gap: 0.55rem;
   padding: 0.38rem 0.55rem;
   background: var(--app-surface-raised);
@@ -1073,23 +1075,47 @@ pre {
   backdrop-filter: blur(5px);
 }
 
-.piano-panel.collapsed .piano-toolbar { border-bottom: 0; }
-.piano-panel.collapsed { right: auto; width: max-content; }
-.piano-panel.collapsed .piano-toolbar { min-height: 0; padding: 0; }
-.piano-panel.collapsed.timeline-visible { right: 0.75rem; width: auto; display: grid; grid-template-columns: auto minmax(0, 1fr); }
-.piano-panel.collapsed.timeline-visible .piano-toolbar { grid-column: 1; order: 1; border: 0; }
-.piano-panel.collapsed.timeline-visible .score-timeline { grid-column: 2; order: 2; border-top: 0; border-left: 1px solid var(--app-border); }
-.piano-toolbar label { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--app-muted); font-size: 0.78rem; }
-.piano-toolbar select { width: auto; margin: 0; padding: 0.3rem 1.6rem 0.3rem 0.4rem; }
-.piano-toolbar input[type="checkbox"] { margin: 0; }
-.piano-toggle { display: grid; width: 34px; height: 30px; place-items: center; padding: 0; }
+.piano-toolbar-section { display: flex; align-items: center; min-width: 0; }
+.toolbar-left { justify-self: start; gap: 0.5rem; }
+.toolbar-centre { justify-self: center; }
+.toolbar-right { justify-self: end; }
+.toolbar-control-group { position: relative; display: flex; }
+.toolbar-icon-button { display: grid; width: 32px; height: 28px; place-items: center; padding: 0; border: 0; border-radius: 6px 0 0 6px; background: transparent; color: var(--app-text); }
+.toolbar-icon-button:hover { background: var(--app-surface-muted); }
+.toolbar-icon-button.active { background: var(--piano-expected); color: #07171b; }
+.toolbar-options-button { width: 22px; border-left: 1px solid var(--app-border); border-radius: 0 6px 6px 0; }
+.toolbar-options-button[aria-expanded="true"] { background: var(--app-surface-muted); }
+.toolbar-icon-button svg { width: 19px; height: 19px; fill: currentColor; }
+.toolbar-options-button svg { width: 15px; height: 15px; }
+.piano-toggle { width: 36px; }
 .piano-toggle svg { width: 25px; height: 18px; fill: currentColor; }
 .piano-toggle .piano-icon-black { fill: var(--app-surface-raised); }
 .piano-custom-range { display: flex; gap: 0.4rem; }
 .piano-custom-range input { width: 4.3rem; padding: 0.3rem; border: 1px solid var(--app-border); border-radius: 5px; background: var(--app-surface); color: var(--app-text); }
-.piano-range-name { margin-left: auto; color: var(--app-muted); font-size: 0.78rem; font-weight: 700; }
+.piano-range-name { color: var(--app-muted); font-size: 0.78rem; font-weight: 700; }
 
-.piano-transport-controls { display: flex; gap: 3px; padding-right: 0.35rem; border-right: 1px solid var(--app-border); }
+.toolbar-options-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 35;
+  display: grid;
+  gap: 0.65rem;
+  width: 260px;
+  padding: 0.75rem;
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  background: var(--app-surface-raised);
+  color: var(--app-text);
+  box-shadow: 0 8px 24px var(--app-shadow);
+}
+.toolbar-options-popover > strong { font-size: 0.82rem; }
+.toolbar-options-popover label { display: grid; gap: 0.25rem; color: var(--app-muted); font-size: 0.76rem; }
+.toolbar-options-popover select { width: 100%; margin: 0; padding: 0.35rem 1.6rem 0.35rem 0.45rem; }
+.toolbar-options-popover .toolbar-checkbox { display: flex; align-items: center; gap: 0.4rem; }
+.toolbar-options-popover input[type="checkbox"] { width: auto; margin: 0; }
+
+.piano-transport-controls { display: flex; gap: 3px; }
 .piano-transport-controls button {
   display: grid;
   width: 30px;
@@ -1104,6 +1130,10 @@ pre {
 .piano-transport-controls button:hover:not(:disabled) { background: var(--app-surface-muted); }
 .piano-transport-controls button.active { background: var(--piano-expected); color: #07171b; }
 .piano-transport-controls svg { width: 19px; height: 19px; fill: currentColor; }
+
+.toolbar-right .audio-controls > button { width: 32px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--app-text); }
+.toolbar-right .audio-controls > button:hover { background: var(--app-surface-muted); }
+.toolbar-right .audio-controls > button.active { background: var(--piano-expected); color: #07171b; }
 
 .audio-controls { position: relative; }
 .audio-controls > button { display: grid; place-items: center; }
@@ -1153,7 +1183,7 @@ pre {
 .synthesia-panel {
   position: absolute;
   right: -1px;
-  bottom: calc(var(--piano-keyboard-height) + var(--piano-toolbar-height) + var(--active-score-timeline-height));
+  bottom: calc(var(--active-piano-height) + var(--piano-toolbar-height) + var(--active-score-timeline-height));
   left: -1px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--piano-expected) 38%, var(--app-border));
