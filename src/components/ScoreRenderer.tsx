@@ -3,7 +3,7 @@ import { Fraction, OpenSheetMusicDisplay, PointF2D } from "opensheetmusicdisplay
 import { midiNoteToName } from "../music/note";
 import type { HandMode, NoteFeedbackMarker, PracticeRunMode, ScoreSelectionRange } from "../learning/matcher";
 import { normalizeSelectionRange } from "../learning/matcher";
-import type { MeasureTiming, ScoreEvent } from "../music/scoreTypes";
+import type { MeasureTiming, ScoreEvent, ScoreEventNote, ScoreNoteInspection } from "../music/scoreTypes";
 import type { MissedPerformanceNote, PerformanceResult, PlaybackPhase, VisualPlayheadAnchor } from "../playback/playback";
 import { SCORE_THEME_PRESETS, type ScoreTheme } from "../theme/appearance";
 import type { AudioSettings } from "../audio/settings";
@@ -58,6 +58,10 @@ interface ScoreRendererProps {
   scoreTheme?: ScoreTheme;
   showCorrectNoteNames: boolean;
   showWrongNoteNames: boolean;
+  seeNoteEnabled?: boolean;
+  inspectedNote?: ScoreNoteInspection;
+  onSeeNoteToggle?: () => void;
+  onInspectedNoteChange?: (note: ScoreNoteInspection | undefined) => void;
   onSelectedRangeChange: (range: ScoreSelectionRange | undefined) => void;
   onEventSeek?: (eventIndex: number) => void;
   onHandModeChange?: (mode: HandMode) => void;
@@ -164,6 +168,10 @@ export function ScoreRenderer({
   scoreTheme = "paper",
   showCorrectNoteNames,
   showWrongNoteNames,
+  seeNoteEnabled = false,
+  inspectedNote,
+  onSeeNoteToggle,
+  onInspectedNoteChange,
   onSelectedRangeChange,
   onEventSeek,
   onHandModeChange,
@@ -201,6 +209,7 @@ export function ScoreRenderer({
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("idle");
   const [usesGraphicEventPositions, setUsesGraphicEventPositions] = useState(false);
   const [playheadPosition, setPlayheadPosition] = useState<EventPosition | undefined>();
+  const [noteTargets, setNoteTargets] = useState<ScoreNoteInspection[]>([]);
 
   useEffect(() => {
     onRenderStateChangeRef.current = onRenderStateChange;
@@ -238,11 +247,13 @@ export function ScoreRenderer({
       setRestPositions([]);
       setOverlaySize({ width: 0, height: 0 });
       setUsesGraphicEventPositions(false);
+      setNoteTargets([]);
       return;
     }
 
     const shellRect = shell.getBoundingClientRect();
     const positionsFromGraphicSheet = eventPositionsFromGraphicSheet(osmdRef.current, shell, events);
+    setNoteTargets(noteInspectionsFromGraphicSheet(osmdRef.current, shell, events));
     if (positionsFromGraphicSheet.length === eventCount) {
       setEventPositions(positionsFromGraphicSheet);
       setRestPositions(eventPositionsFromGraphicSheet(osmdRef.current, shell, restEvents));
@@ -279,8 +290,13 @@ export function ScoreRenderer({
       height: Math.max(shell.scrollHeight, shell.clientHeight, shellRect.height),
     });
     setUsesGraphicEventPositions(false);
+    setNoteTargets([]);
     positionCursor(currentEventIndexRef.current);
   }, [eventCount, events, hideNativeCursor, positionCursor, restEvents]);
+
+  useEffect(() => {
+    if (!seeNoteEnabled || (playbackPhase !== "idle" && playbackPhase !== "paused")) onInspectedNoteChange?.(undefined);
+  }, [onInspectedNoteChange, playbackPhase, seeNoteEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -633,6 +649,17 @@ export function ScoreRenderer({
       onHandModeChange?.(nextMode);
     }
   };
+  const inspectionAvailable = playbackPhase === "idle" || playbackPhase === "paused";
+  const inspectAtPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!seeNoteEnabled || !inspectionAvailable || interactionModeRef.current !== "idle") return;
+    const shellRect = shellRef.current?.getBoundingClientRect();
+    if (!shellRect) return;
+    const x = event.clientX - shellRect.left;
+    const y = event.clientY - shellRect.top;
+    const hit = noteTargets.filter((target) => x >= target.anchor.left - 5 && x <= target.anchor.left + target.anchor.width + 5 && y >= target.anchor.top - 5 && y <= target.anchor.top + target.anchor.height + 5)
+      .sort((a, b) => distanceToRect(x, y, a.anchor) - distanceToRect(x, y, b.anchor))[0];
+    if (hit?.sourceNoteId !== inspectedNote?.sourceNoteId || hit?.eventIndex !== inspectedNote?.eventIndex) onInspectedNoteChange?.(hit);
+  };
 
   return (
     <div ref={shellRef} className="score-renderer-shell">
@@ -658,9 +685,10 @@ export function ScoreRenderer({
         className={`score-selection-layer${playbackPhase === "idle" ? "" : " playback-active"}`}
         aria-label="Score selection layer"
         onPointerDown={beginSelection}
-        onPointerMove={updatePointerSelection}
+        onPointerMove={(event) => { inspectAtPointer(event); updatePointerSelection(event); }}
         onPointerUp={finishPointerSelection}
         onPointerCancel={finishPointerSelection}
+        onPointerLeave={() => onInspectedNoteChange?.(undefined)}
       >
         {startHandleRect && endHandleRect && selectedRange && interactionMode === "idle" && playbackPhase === "idle" ? (
           <>
@@ -712,6 +740,7 @@ export function ScoreRenderer({
             onClick={() => toggleHand("left")}
           >LH</button>
           <div className="score-practice-toolbar" style={{ left: Math.max(8, controlBoundaryLeft), top: toolbarTop }} role="toolbar" aria-label="Practice toolbar">
+            <button type="button" className={seeNoteEnabled ? "active" : ""} aria-label="See Note" aria-pressed={seeNoteEnabled} disabled={!inspectionAvailable} title="Identify written notes" onClick={onSeeNoteToggle}><EyeIcon /></button>
             <div className="play-control-group"><button type="button" aria-label={playbackPhase === "idle" ? "Play score" : playbackPhase === "paused" ? "Resume score" : "Pause playback"} title={playbackPhase === "idle" ? "Play" : playbackPhase === "paused" ? "Resume" : "Pause"} disabled={!canPlay} onClick={onTogglePlayback}>{playbackPhase === "idle" || playbackPhase === "paused" ? <PlayIcon /> : <TransportPauseIcon />}</button><button type="button" className="toolbar-icon-button toolbar-options-button" aria-label="Choose play mode" title="Play mode" aria-haspopup="dialog" onClick={() => setPlayModeOpen(true)}><ChevronDownIcon /></button></div>
             <button type="button" aria-label="Stop score playback" title="Stop" disabled={!canStop(playbackPhase)} onClick={onStop}><StopIcon /></button>
             <button
@@ -753,6 +782,7 @@ export function ScoreRenderer({
         ))}
         {missedNoteFeedbackMarkers.map((marker) => <span key={`missed-${marker.id}`} className="missed-note-feedback" style={{ left: marker.left, top: marker.top }} aria-label={`Missed note ${marker.name}`}>×</span>)}
       </div>
+      {seeNoteEnabled && inspectedNote && inspectionAvailable ? <div className="see-note-tooltip" role="tooltip" style={tooltipStyle(inspectedNote.anchor, overlaySize)}>{inspectedNote.writtenPitch}</div> : null}
       {playbackPhase === "countdown" ? <div className="playback-overlay countdown" role="status" aria-live="assertive"><div className="playback-message"><small>{countdownBar ? `Bar ${countdownBar}` : "Count in"}</small><strong>{countdownValue ?? ""}</strong></div></div> : null}
       {showStartCue ? <div className="playback-overlay start-cue" role="status" aria-live="assertive"><div className="playback-message"><strong>Go</strong></div></div> : null}
       {playbackPhase === "waiting-note" && !showStartCue ? <div className="playback-overlay note-wait" role="status" aria-live="polite"><div className="playback-message"><span>Waiting for</span><strong>{waitingForNotes.map(midiNoteToName).join(" + ")}</strong></div></div> : null}
@@ -769,6 +799,8 @@ function LoopIcon() {
     </svg>
   );
 }
+
+function EyeIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.5 0 9.5 5.2 9.5 7s-4 7-9.5 7S2.5 13.8 2.5 12 6.5 5 12 5Zm0 2c-3.7 0-6.6 3.2-7.4 5 .8 1.8 3.7 5 7.4 5s6.6-3.2 7.4-5c-.8-1.8-3.7-5-7.4-5Zm0 2.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6Z" /></svg>; }
 
 function ChevronDownIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 7 7 7-7-2-2-5 5-5-5-2 2Z" /></svg>; }
 
@@ -823,7 +855,11 @@ type GraphicalStaffEntryLike = {
   relInMeasureTimestamp?: { RealValue?: number };
   PositionAndShape?: BoundingBoxLike;
   getAbsoluteStartAndEnd?: () => [number, number];
+  graphicalVoiceEntries?: GraphicalVoiceEntryLike[];
 };
+
+type GraphicalVoiceEntryLike = { notes?: GraphicalNoteLike[] };
+type GraphicalNoteLike = { PositionAndShape?: BoundingBoxLike; sourceNote?: { halfTone?: number } };
 
 type BoundingBoxLike = {
   AbsolutePosition?: { x?: number; y?: number };
@@ -841,6 +877,66 @@ function eventPositionsFromGraphicSheet(osmd: OpenSheetMusicDisplay | null, shel
 
   const positions = events.map((event, index) => positionForEvent(graphicSheet, shell, event, index));
   return positions.every((position): position is EventPosition => position !== undefined) ? positions : [];
+}
+
+export function writtenPitchForNote(note: ScoreEventNote): string {
+  if (!note.pitchStep || note.pitchOctave === undefined) return midiNoteToName(note.midiNote);
+  const alter = note.pitchAlter ?? 0;
+  const accidental = alter > 0 ? "#".repeat(alter) : alter < 0 ? "b".repeat(-alter) : "";
+  return `${note.pitchStep.toUpperCase()}${accidental}${note.pitchOctave}`;
+}
+
+function noteInspectionsFromGraphicSheet(osmd: OpenSheetMusicDisplay | null, shell: HTMLElement, events: ScoreEvent[]): ScoreNoteInspection[] {
+  const graphicSheet = osmd?.GraphicSheet as GraphicalSheetLike | undefined;
+  if (!graphicSheet) return [];
+  const targets: ScoreNoteInspection[] = [];
+  events.forEach((event, eventIndex) => {
+    const used = new Set<number>();
+    for (const staffNumber of new Set(event.noteDetails.map((note) => note.staffNumber))) {
+      const entry = graphicalEntryForEvent(graphicSheet, event, staffNumber);
+      if (!entry) continue;
+      const graphicalNotes = entry?.graphicalVoiceEntries?.flatMap((voice) => voice.notes ?? []) ?? [];
+      for (const graphicalNote of graphicalNotes) {
+        const midi = graphicalNote.sourceNote?.halfTone;
+        const staffCandidates = event.noteDetails.map((detail, index) => ({ detail, index })).filter(({ detail, index }) => !used.has(index) && detail.staffNumber === staffNumber);
+        const noteIndex = staffCandidates.find(({ detail }) => midi !== undefined && detail.midiNote === midi)?.index ?? staffCandidates[0]?.index ?? -1;
+        if (noteIndex < 0) continue;
+        const detail = event.noteDetails[noteIndex];
+        const rect = rectForGraphicalNote(graphicSheet, shell, graphicalNote, entry);
+        if (!rect) continue;
+        used.add(noteIndex);
+        targets.push({ midiNote: detail.midiNote, writtenPitch: writtenPitchForNote(detail), eventIndex, noteIndex, sourceNoteId: detail.sourceNoteId, staffNumber, anchor: rect });
+      }
+    }
+  });
+  return targets;
+}
+
+function rectForGraphicalNote(graphicSheet: GraphicalSheetLike, shell: HTMLElement, note: GraphicalNoteLike, entry: GraphicalStaffEntryLike): OverlayRect | undefined {
+  const bounds = note.PositionAndShape;
+  const position = bounds?.AbsolutePosition ?? bounds?.Center;
+  if (position?.x !== undefined && position.y !== undefined) {
+    const point = pointToShellPosition(graphicSheet, shell, position.x, position.y);
+    const width = Math.max(9, (bounds?.Size?.width ?? 1.2) * OSMD_UNIT_TO_CSS_PIXEL);
+    const height = Math.max(9, (bounds?.Size?.height ?? 1) * OSMD_UNIT_TO_CSS_PIXEL);
+    return { left: point.left - width / 2, top: point.top - height / 2, width, height };
+  }
+  return rectForGraphicalEntry(graphicSheet, shell, entry);
+}
+
+function distanceToRect(x: number, y: number, rect: OverlayRect): number {
+  return Math.hypot(x - (rect.left + rect.width / 2), y - (rect.top + rect.height / 2));
+}
+
+function tooltipStyle(anchor: OverlayRect, overlay: OverlaySize): React.CSSProperties {
+  const width = 74;
+  const height = 34;
+  let left = anchor.left + anchor.width / 2 - width / 2;
+  let top = anchor.top - height - 9;
+  if (top < 6) { top = anchor.top + anchor.height + 9; }
+  left = Math.max(6, Math.min(left, Math.max(6, overlay.width - width - 6)));
+  top = Math.max(6, Math.min(top, Math.max(6, overlay.height - height - 6)));
+  return { left, top };
 }
 
 function interpolatedPositionForQuarter(quarter: number, events: ScoreEvent[], positions: EventPosition[], restEvents: ScoreEvent[], restPositions: EventPosition[]): EventPosition | undefined {

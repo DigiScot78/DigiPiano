@@ -15,6 +15,7 @@ export function usePianoSettings() {
     expectedColor: DEFAULT_PIANO_COLORS.expected,
     correctColor: DEFAULT_PIANO_COLORS.correct,
     wrongColor: DEFAULT_PIANO_COLORS.wrong,
+    seeNoteColor: DEFAULT_PIANO_COLORS.seeNote,
     playRightColor: DEFAULT_PIANO_COLORS.playRight,
     playLeftColor: DEFAULT_PIANO_COLORS.playLeft,
     synthesiaRightColor: DEFAULT_PIANO_COLORS.synthesiaRight,

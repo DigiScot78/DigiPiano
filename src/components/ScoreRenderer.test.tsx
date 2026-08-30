@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ScoreRenderer } from "./ScoreRenderer";
+import { ScoreRenderer, writtenPitchForNote } from "./ScoreRenderer";
 import type { ScoreEvent } from "../music/scoreTypes";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -98,6 +98,11 @@ const currentEvent: ScoreEvent = {
 };
 
 describe("ScoreRenderer", () => {
+  it("formats the written MusicXML spelling including double accidentals", () => {
+    const base = { midiNote: 63, staffNumber: 1, voiceNumber: "1", sourceNoteId: "n" };
+    expect(writtenPitchForNote({ ...base, pitchStep: "E", pitchAlter: -1, pitchOctave: 4 })).toBe("Eb4");
+    expect(writtenPitchForNote({ ...base, pitchStep: "F", pitchAlter: 2, pitchOctave: 5 })).toBe("F##5");
+  });
   let root: Root | undefined;
   let container: HTMLDivElement | undefined;
 

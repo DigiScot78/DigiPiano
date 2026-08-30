@@ -46,6 +46,7 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Debug panel shows loaded file, selected MIDI device, last MIDI message, held notes, ignored carried notes, expected event, event index, selected-hand playability, next playable index, parser warnings, import diagnostics, comparison results, and practice-attempt diagnostics.
 
 ## Recently Completed
+- Added a session-only See Note inspection tool to both synchronized toolbars. In idle or paused states it resolves individual OSMD graphical noteheads to their written MusicXML pitch spelling, shows a clamped note-anchored tooltip, and overlays a configurable striped highlight on the matching piano key. Hidden or range-limited pianos expand temporarily without changing saved presentation settings.
 - Added meter-aware metronome playback, musical count-in bars, proportional score-tempo adjustment, independent click volume, and tempo-specific performance history.
 - Replaced the legacy sidebar Simulate/Release pair with one silent contextual simulation action on the expected-event card. It advances the current hand-filtered note, chord, or arpeggiated event and releases its on-screen held-key pulse automatically after 180ms.
 - Changed on-screen piano audition from fixed one-shot clicks to held pointer gestures: a key sustains while pressed, dragging creates a glissando, and leaving then returning to a key starts and sustains it again.
@@ -91,6 +92,8 @@ The project is a browser-based piano learning proof of concept. The current mile
 - Localhost/127.0.0.1 is sufficient for Web MIDI development because it is treated as a secure context.
 - The user will handle remote pushes.
 - `Samples/` may contain copyrighted or third-party music and should remain local-only unless explicitly approved for commit.
+
+- See Note has automated coverage for written accidentals, colour validation, and temporary piano reveal/range expansion, but still needs manual desktop-Chromium hover validation on single notes, chords, both staves, edge-positioned tooltips, hidden piano, and out-of-range pitches.
 
 ## Recommended Next Steps
 - Extract `out/Piano-Learning-0.1.0-win-portable.zip` on the destination Windows computer, start it through `Start Piano.bat`, and validate Edge/Chrome launch, MIDI permission/device access, score import, audio, persisted settings, and shutdown/relaunch behavior. Report issues with the included `VERSION.txt` details.

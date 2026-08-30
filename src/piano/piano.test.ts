@@ -35,6 +35,7 @@ describe("piano state and persistence", () => {
     const settings = readPianoSettings({ getItem: (key) => key === PIANO_SETTINGS_KEY ? JSON.stringify({ rangePreset: "nope", expectedColor: "red" }) : null });
     expect(settings.rangePreset).toBe("88");
     expect(settings.expectedColor).toBe(DEFAULT_PIANO_SETTINGS.expectedColor);
+    expect(settings.seeNoteColor).toBe(DEFAULT_PIANO_SETTINGS.seeNoteColor);
     expect(settings.synthesiaEnabled).toBe(false);
     expect(settings.synthesiaHeight).toBe(DEFAULT_PIANO_SETTINGS.synthesiaHeight);
     expect(settings.synthesiaOpaque).toBe(false);
@@ -43,6 +44,10 @@ describe("piano state and persistence", () => {
     expect(settings.playLeftColor).toBe(DEFAULT_PIANO_SETTINGS.playLeftColor);
     expect(settings.synthesiaRightColor).toBe(DEFAULT_PIANO_SETTINGS.synthesiaRightColor);
     expect(settings.synthesiaLeftColor).toBe(DEFAULT_PIANO_SETTINGS.synthesiaLeftColor);
+  });
+  it("persists a valid See Note colour and rejects an invalid one", () => {
+    expect(readPianoSettings({ getItem: () => JSON.stringify({ seeNoteColor: "#7654ab" }) }).seeNoteColor).toBe("#7654ab");
+    expect(readPianoSettings({ getItem: () => JSON.stringify({ seeNoteColor: "purple" }) }).seeNoteColor).toBe(DEFAULT_PIANO_SETTINGS.seeNoteColor);
   });
   it("migrates the legacy expanded preference and prefers the new field", () => {
     expect(readPianoSettings({ getItem: () => JSON.stringify({ expanded: false }) }).pianoVisible).toBe(false);

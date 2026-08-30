@@ -105,6 +105,15 @@ describe("PianoPanel", () => {
     expect(onChange).toHaveBeenCalledWith({ pianoVisible: true });
   });
 
+  it("temporarily reveals and extends the piano for See Note without changing settings", async () => {
+    const onChange = vi.fn();
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={{ ...DEFAULT_PIANO_SETTINGS, pianoVisible: false, rangePreset: "49" }} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} seeNoteEnabled inspectedMidiNote={100} onSeeNoteToggle={vi.fn()} onSettingsChange={onChange} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onClearPerformance={vi.fn()} />));
+    expect(container.querySelector('[data-midi-note="100"]')?.className).toContain("inspected");
+    expect(container.querySelector('[data-midi-note="100"]')?.getAttribute("aria-label")).toContain("inspected score note");
+    expect(container.querySelector('.piano-panel')?.className).not.toContain("piano-hidden");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("warns about and reveals expected notes outside the range", async () => {
     const onChange = await render({ ...DEFAULT_PIANO_SETTINGS, rangePreset: "49" }, [100]);
     expect(container.querySelector(".piano-warning")?.textContent).toContain("E7");

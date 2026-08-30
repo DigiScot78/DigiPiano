@@ -10,6 +10,16 @@ export interface ScoreEventNote {
   arpeggio?: ScoreArpeggio;
 }
 
+export interface ScoreNoteInspection {
+  midiNote: number;
+  writtenPitch: string;
+  eventIndex: number;
+  noteIndex: number;
+  sourceNoteId: string;
+  staffNumber: number;
+  anchor: { left: number; top: number; width: number; height: number };
+}
+
 export interface ScoreArpeggio {
   direction: "up" | "down";
   number?: number;

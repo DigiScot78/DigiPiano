@@ -23,7 +23,7 @@ import {
 import { midiNoteToName } from "./music/note";
 import { loadScoreFile } from "./music/musicXmlLoader";
 import { parseMusicXmlTimeline } from "./music/musicXmlParser";
-import type { LoadedScore, ParsedScore, ScoreEvent } from "./music/scoreTypes";
+import type { LoadedScore, ParsedScore, ScoreEvent, ScoreNoteInspection } from "./music/scoreTypes";
 import { useMidiInput } from "./hooks/useMidiInput";
 import { resolvedScoreMarkerColor, type AppTheme, type ScoreMarkerSettings, type ScoreTheme } from "./theme/appearance";
 import { useAppearanceSettings } from "./theme/useAppearanceSettings";
@@ -87,6 +87,8 @@ function App() {
   const [scoreError, setScoreError] = useState<string | undefined>();
   const [scoreStatus, setScoreStatus] = useState<"empty" | "loading" | "ready" | "error">("empty");
   const [renderError, setRenderError] = useState<string | undefined>();
+  const [seeNoteEnabled, setSeeNoteEnabled] = useState(false);
+  const [inspectedNote, setInspectedNote] = useState<ScoreNoteInspection | undefined>();
   const [simulatedHeldNotes, setSimulatedHeldNotes] = useState<number[]>([]);
   const [selectedRange, setSelectedRange] = useState<ScoreSelectionRange | undefined>();
   const [handMode, setHandMode] = useState<HandMode>("both");
@@ -117,6 +119,19 @@ function App() {
   const scoreAudio = useScoreAudio({ plan: playback.plan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, audioStartElapsedMs: playback.audioStartElapsedMs, runId: playback.runId, pauseOnNotes, nextPendingGateOnsetMs: playback.nextPendingGateOnsetMs, settings: audioSettings.settings });
   const metronome = useMetronome({ plan: playback.plan, countInPlan: playback.countInPlan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, runId: playback.runId, settings: audioSettings.settings });
   const { phase: playbackPhase, handleHeldNotesChange, handleMidiNoteOn } = playback;
+
+  useEffect(() => {
+    if (playbackPhase !== "idle" && playbackPhase !== "paused") setInspectedNote(undefined);
+  }, [playbackPhase]);
+
+  useEffect(() => { setInspectedNote(undefined); }, [loadedScore?.xmlText]);
+
+  const toggleSeeNote = useCallback(() => {
+    setSeeNoteEnabled((enabled) => {
+      if (enabled) setInspectedNote(undefined);
+      return !enabled;
+    });
+  }, []);
   const currentExerciseKey = useMemo(() => loadedScore ? exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, selectedRange, handMode, play.settings.playMode, tempoPercent) : undefined, [handMode, loadedScore, play.settings.playMode, selectedRange, tempoPercent]);
   const currentPerformanceHistory = currentExerciseKey ? performanceHistory.get(currentExerciseKey) : undefined;
 
@@ -619,6 +634,10 @@ function App() {
             scoreTheme={appearance.scoreTheme}
             showCorrectNoteNames={showCorrectNoteNames}
             showWrongNoteNames={showWrongNoteNames}
+            seeNoteEnabled={seeNoteEnabled}
+            inspectedNote={inspectedNote}
+            onSeeNoteToggle={toggleSeeNote}
+            onInspectedNoteChange={setInspectedNote}
             onSelectedRangeChange={handleSelectionChange}
             onEventSeek={seekToEvent}
             onHandModeChange={handleHandModeChange}
@@ -714,6 +733,9 @@ function App() {
         writtenTempoBpm={writtenTempoBpm}
         tempoVaries={tempoVaries}
         countInBars={play.settings.countInBars}
+        seeNoteEnabled={seeNoteEnabled}
+        inspectedMidiNote={inspectedNote?.midiNote}
+        onSeeNoteToggle={toggleSeeNote}
         onSettingsChange={piano.setSettings}
         onTogglePlayback={togglePlaybackWithAudio}
         onStop={stopPlayback}
@@ -875,6 +897,7 @@ function SettingsDialog({
             <label>Expected <input type="color" value={pianoSettings.expectedColor} onChange={(event) => onPianoSettingsChange({ expectedColor: event.target.value })} /></label>
             <label>Correct <input type="color" value={pianoSettings.correctColor} onChange={(event) => onPianoSettingsChange({ correctColor: event.target.value })} /></label>
             <label>Wrong <input type="color" value={pianoSettings.wrongColor} onChange={(event) => onPianoSettingsChange({ wrongColor: event.target.value })} /></label>
+            <label>See Note <input aria-label="See Note colour" type="color" value={pianoSettings.seeNoteColor} onChange={(event) => onPianoSettingsChange({ seeNoteColor: event.target.value })} /></label>
           </div>
           <h4>Play expectations</h4>
           <div className="piano-color-settings">

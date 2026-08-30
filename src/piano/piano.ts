@@ -24,6 +24,7 @@ export interface PianoSettings {
   expectedColor: string;
   correctColor: string;
   wrongColor: string;
+  seeNoteColor: string;
   playRightColor: string;
   playLeftColor: string;
   synthesiaRightColor: string;
@@ -50,6 +51,7 @@ export const DEFAULT_PIANO_COLORS = {
   expected: "#28b8d7",
   correct: "#239b56",
   wrong: "#d64545",
+  seeNote: "#8b5cf6",
   playRight: "#f0a63a",
   playLeft: "#df62aa",
   synthesiaRight: "#20d7f2",
@@ -71,6 +73,7 @@ export const DEFAULT_PIANO_SETTINGS: PianoSettings = {
   expectedColor: DEFAULT_PIANO_COLORS.expected,
   correctColor: DEFAULT_PIANO_COLORS.correct,
   wrongColor: DEFAULT_PIANO_COLORS.wrong,
+  seeNoteColor: DEFAULT_PIANO_COLORS.seeNote,
   playRightColor: DEFAULT_PIANO_COLORS.playRight,
   playLeftColor: DEFAULT_PIANO_COLORS.playLeft,
   synthesiaRightColor: DEFAULT_PIANO_COLORS.synthesiaRight,
@@ -165,6 +168,7 @@ export function readPianoSettings(storage: Pick<Storage, "getItem"> | undefined)
     expectedColor: validColor(candidate.expectedColor, DEFAULT_PIANO_COLORS.expected),
     correctColor: validColor(candidate.correctColor, DEFAULT_PIANO_COLORS.correct),
     wrongColor: validColor(candidate.wrongColor, DEFAULT_PIANO_COLORS.wrong),
+    seeNoteColor: validColor(candidate.seeNoteColor, DEFAULT_PIANO_COLORS.seeNote),
     playRightColor: validColor(candidate.playRightColor, DEFAULT_PIANO_COLORS.playRight),
     playLeftColor: validColor(candidate.playLeftColor, DEFAULT_PIANO_COLORS.playLeft),
     synthesiaRightColor: validColor(candidate.synthesiaRightColor, DEFAULT_PIANO_COLORS.synthesiaRight),
