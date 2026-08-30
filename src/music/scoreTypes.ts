@@ -43,6 +43,18 @@ export interface TempoChange {
   source: "sound" | "metronome";
 }
 
+export interface MeterSignature {
+  beats: number;
+  beatType: number;
+}
+
+export interface MeasureTiming extends MeterSignature {
+  index: number;
+  measureNumber: number;
+  startQuarter: number;
+  endQuarter: number;
+}
+
 export interface ScoreMeasureDiagnostic {
   measureNumber: number;
   pitchedByStaff: Record<string, number>;
@@ -61,7 +73,9 @@ export interface ScoreDiagnostics {
 
 export interface ParsedScore {
   events: ScoreEvent[];
+  restEvents: ScoreEvent[];
   tempoChanges: TempoChange[];
+  measureTimings: MeasureTiming[];
   warnings: string[];
   diagnostics?: ScoreDiagnostics;
 }

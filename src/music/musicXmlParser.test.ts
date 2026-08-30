@@ -74,6 +74,7 @@ describe("parseMusicXmlTimeline", () => {
       measureNumber: 2,
       midiNotes: [67],
     });
+    expect(parsed.restEvents).toEqual([expect.objectContaining({ measureNumber: 1, startQuarter: 2, durationQuarters: 1, isRest: true })]);
   });
 
   it("tracks independent clefs and mid-score clef changes on each note", () => {
@@ -246,6 +247,13 @@ describe("parseMusicXmlTimeline", () => {
     expect(parsed.tempoChanges).toEqual([
       { quarter: 0, bpm: 90, source: "sound" },
       { quarter: 2, bpm: 90, source: "metronome" },
+    ]);
+  });
+  it("records inherited meter and measure timing from the primary part", () => {
+    const parsed = parseMusicXmlTimeline(`<?xml version="1.0"?><score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1"><measure number="1"><attributes><divisions>2</divisions><time><beats>6</beats><beat-type>8</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>6</duration></note></measure><measure number="2"><note><pitch><step>D</step><octave>4</octave></pitch><duration>6</duration></note></measure></part></score-partwise>`);
+    expect(parsed.measureTimings).toEqual([
+      { index: 0, measureNumber: 1, startQuarter: 0, endQuarter: 3, beats: 6, beatType: 8 },
+      { index: 1, measureNumber: 2, startQuarter: 3, endQuarter: 6, beats: 6, beatType: 8 },
     ]);
   });
 });

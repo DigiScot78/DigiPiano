@@ -49,7 +49,7 @@ Acceptance criteria:
 - User can reset to range start, loop continuously, or play selected range once.
 - Current hand mode and run mode are visible in the main practice panel.
 - Debug panel exposes selected range, filtered expected event, selected-hand playability, next playable event, and completion state.
-- Soundless Play follows MusicXML tempo over the full score or selection, with a configurable countdown and fallback tempo.
+- Timed Play follows MusicXML tempo over the full score or selection, with a configurable fallback, session-only 40–200% proportional tempo scaling, and a persisted 0/1/2-bar meter-aware count-in.
 - Loop playback waits for keyboard or MIDI confirmation before beginning the next countdown.
 - Timestamped MIDI note-ons produce one deduplicated green completion per written note plus individual red mistake attempts at their played score-time positions; results default to appearing after playback and remain until cleared or a new run starts.
 - Pause-at-each-note is selected before a run and freezes timed playback at each hand-filtered onset until fresh MIDI input completes the note or chord without compressing later rhythm; gated wrong notes and accepted pitches are retained as red/green timed results with ordinary Play visibility rules.
@@ -58,6 +58,7 @@ Acceptance criteria:
 - Untimed scored Practice advances immediately after each correct note/chord/arpeggio without tempo pressure while retaining Play-style red mistakes, green completions, marker visibility, selections, hand filters, Stop/Reset, and loops.
 - A persisted, resizable Synthesia overlay shares piano geometry and playback time, remains independently visible without piano keys, clamps below the fixed header, and aligns staff-coloured duration blocks with its keyboard or toolbar strike edge.
 - Score and Synthesia Play controls produce synchronized piano-like browser audio, with shared persisted mute/volume controls and Pause-gate-aware scheduling.
+- Both toolbars provide a persisted metronome toggle, independent click volume, accented MusicXML-meter beats, and attached tempo/count-in controls. Performance aggregates remain distinct by tempo percentage.
 - Both toolbars and Space share Play/Pause/countdown-Resume behavior. Pause owns exact-position continuation; Stop returns to the active plan start while preserving recorded markers, and Reset also clears them.
 - Timed and untimed cursor movement auto-follows notation systems, and Synthesia exposes a selection-relative event-snapped timeline below the keyboard.
 - The timeline remains full width below the permanent toolbar without Synthesia or visible piano keys; score clicks provide the same event-snapped navigation while preserving active selection bounds.
@@ -84,12 +85,20 @@ Status: deferred.
 
 Goals:
 - Save useful selected ranges as reusable practice items.
+- Add durable bookmarks, completed-attempt summaries, and cross-device progress after account and private-library foundations exist.
 
-Deferred decisions:
-- Local-only storage versus account-backed storage.
-- Training item schema.
-- Import/export format.
-- User accounts and sync.
+Direction:
+- Use account-backed persistence while retaining the current no-account local-file practice path.
+- Build private score libraries before any public sharing.
+- Preserve selections and bookmarks against immutable score versions with durable musical anchors rather than event indexes alone.
+- Store completed attempt summaries initially, not raw MIDI or note-level attempt history.
+- Introduce platform-curated ordered-mastery courses before user-authored courses.
+- Follow the phased architecture and launch gates in [`docs/PLATFORM_ROADMAP.md`](PLATFORM_ROADMAP.md).
+
+Still deferred:
+- Exact freemium limits and pricing.
+- Public-content licensing and moderation policy.
+- User-authored courses, teacher/family features, additional score formats, and note-level history.
 
 ## Current Defaults
 - Renderer: OpenSheetMusicDisplay with app-owned overlays; OSMD is configured to honor MusicXML `new-system` and `new-page` breaks when present.

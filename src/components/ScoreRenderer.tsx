@@ -3,12 +3,13 @@ import { Fraction, OpenSheetMusicDisplay, PointF2D } from "opensheetmusicdisplay
 import { midiNoteToName } from "../music/note";
 import type { HandMode, NoteFeedbackMarker, PracticeRunMode, ScoreSelectionRange } from "../learning/matcher";
 import { normalizeSelectionRange } from "../learning/matcher";
-import type { ScoreEvent } from "../music/scoreTypes";
-import type { MissedPerformanceNote, PerformanceResult, PlaybackPhase } from "../playback/playback";
+import type { MeasureTiming, ScoreEvent } from "../music/scoreTypes";
+import type { MissedPerformanceNote, PerformanceResult, PlaybackPhase, VisualPlayheadAnchor } from "../playback/playback";
 import { SCORE_THEME_PRESETS, type ScoreTheme } from "../theme/appearance";
 import type { AudioSettings } from "../audio/settings";
 import { AudioControls } from "./AudioControls";
 import { PlayModeDialog } from "./PlayModeDialog";
+import { MetronomeControls } from "./MetronomeControls";
 import type { PlayMode } from "../playback/settings";
 
 type CursorLike = {
@@ -25,13 +26,21 @@ interface ScoreRendererProps {
   currentEvent?: ScoreEvent;
   eventCount: number;
   events?: ScoreEvent[];
+  restEvents?: ScoreEvent[];
+  measureTimings?: MeasureTiming[];
   selectedRange?: ScoreSelectionRange;
   feedbackMarkers: NoteFeedbackMarker[];
   completedFeedback?: CompletedNoteFeedback;
   performanceResults?: PerformanceResult[];
   missedPerformanceNotes?: MissedPerformanceNote[];
   playbackPhase?: PlaybackPhase;
+  playbackPreparing?: boolean;
+  playheadAnchor?: VisualPlayheadAnchor;
+  markerColor?: string;
+  markerOpacity?: number;
+  markerRestOpacity?: number;
   countdownValue?: number;
+  countdownBar?: number;
   showStartCue?: boolean;
   canPlay?: boolean;
   handMode?: HandMode;
@@ -42,6 +51,10 @@ interface ScoreRendererProps {
   waitingForNotes?: number[];
   audioSettings?: AudioSettings;
   audioError?: string;
+  tempoPercent?: number;
+  writtenTempoBpm?: number;
+  tempoVaries?: boolean;
+  countInBars?: 0 | 1 | 2;
   scoreTheme?: ScoreTheme;
   showCorrectNoteNames: boolean;
   showWrongNoteNames: boolean;
@@ -57,6 +70,8 @@ interface ScoreRendererProps {
   onReset?: () => void;
   onClearPerformance?: () => void;
   onAudioSettingsChange?: (update: Partial<AudioSettings>) => void;
+  onTempoPercentChange?: (percent: number) => void;
+  onCountInBarsChange?: (bars: 0 | 1 | 2) => void;
   onRenderStateChange: (state: { status: "empty" | "loading" | "ready" | "error"; error?: string }) => void;
 }
 
@@ -105,7 +120,6 @@ type InteractionMode = "idle" | "pending" | "selecting" | "resizing-start" | "re
 const SYSTEM_WRAP_LEFT_TOLERANCE = 48;
 const SYSTEM_WRAP_TOP_TOLERANCE = 28;
 const GRAPHICAL_EVENT_ANCHOR_HEIGHT = 48;
-const CURRENT_EVENT_MARKER_HEIGHT = 192;
 const FALLBACK_FEEDBACK_HALF_LINE_SPACING = 4.5;
 const FALLBACK_FEEDBACK_MIDDLE_C_OFFSET = 96;
 const FEEDBACK_HORIZONTAL_OFFSET = 32;
@@ -119,13 +133,21 @@ export function ScoreRenderer({
   currentEvent,
   eventCount,
   events = EMPTY_SCORE_EVENTS,
+  restEvents = EMPTY_SCORE_EVENTS,
+  measureTimings = [],
   selectedRange,
   feedbackMarkers,
   completedFeedback,
   performanceResults = [],
   missedPerformanceNotes = [],
   playbackPhase = "idle",
-  countdownValue,
+    playbackPreparing = false,
+    playheadAnchor,
+    markerColor = "#1d5f74",
+    markerOpacity = 9,
+    markerRestOpacity = 4,
+    countdownValue,
+    countdownBar,
   showStartCue = false,
   canPlay = false,
   handMode = "both",
@@ -133,8 +155,12 @@ export function ScoreRenderer({
   playMode = "play",
   showProgressWhilePlaying = false,
   waitingForNotes = [],
-  audioSettings,
-  audioError,
+    audioSettings,
+    audioError,
+    tempoPercent = 100,
+    writtenTempoBpm = 120,
+    tempoVaries = false,
+    countInBars = 1,
   scoreTheme = "paper",
   showCorrectNoteNames,
   showWrongNoteNames,
@@ -148,7 +174,9 @@ export function ScoreRenderer({
   onStop,
   onReset,
   onClearPerformance,
-  onAudioSettingsChange,
+    onAudioSettingsChange,
+    onTempoPercentChange,
+    onCountInBarsChange,
   onRenderStateChange,
 }: ScoreRendererProps) {
   const [playModeOpen, setPlayModeOpen] = useState(false);
@@ -165,12 +193,14 @@ export function ScoreRenderer({
   const currentEventIndexRef = useRef(currentEventIndex);
   const onRenderStateChangeRef = useRef(onRenderStateChange);
   const [eventPositions, setEventPositions] = useState<EventPosition[]>([]);
+  const [restPositions, setRestPositions] = useState<EventPosition[]>([]);
   const [overlaySize, setOverlaySize] = useState<OverlaySize>({ width: 0, height: 0 });
   const [draftRange, setDraftRange] = useState<ScoreSelectionRange | undefined>();
   const [dragStartPoint, setDragStartPoint] = useState<DragPoint | undefined>();
   const [dragEndPoint, setDragEndPoint] = useState<DragPoint | undefined>();
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("idle");
   const [usesGraphicEventPositions, setUsesGraphicEventPositions] = useState(false);
+  const [playheadPosition, setPlayheadPosition] = useState<EventPosition | undefined>();
 
   useEffect(() => {
     onRenderStateChangeRef.current = onRenderStateChange;
@@ -205,6 +235,7 @@ export function ScoreRenderer({
 
     if (!shell || !cursor || !cursorElement || eventCount <= 0) {
       setEventPositions([]);
+      setRestPositions([]);
       setOverlaySize({ width: 0, height: 0 });
       setUsesGraphicEventPositions(false);
       return;
@@ -214,6 +245,7 @@ export function ScoreRenderer({
     const positionsFromGraphicSheet = eventPositionsFromGraphicSheet(osmdRef.current, shell, events);
     if (positionsFromGraphicSheet.length === eventCount) {
       setEventPositions(positionsFromGraphicSheet);
+      setRestPositions(eventPositionsFromGraphicSheet(osmdRef.current, shell, restEvents));
       setOverlaySize({
         width: Math.max(shell.scrollWidth, shell.clientWidth, shellRect.width),
         height: Math.max(shell.scrollHeight, shell.clientHeight, shellRect.height),
@@ -241,13 +273,14 @@ export function ScoreRenderer({
     }
 
     setEventPositions(positions);
+    setRestPositions([]);
     setOverlaySize({
       width: Math.max(shell.scrollWidth, shell.clientWidth, shellRect.width),
       height: Math.max(shell.scrollHeight, shell.clientHeight, shellRect.height),
     });
     setUsesGraphicEventPositions(false);
     positionCursor(currentEventIndexRef.current);
-  }, [eventCount, events, hideNativeCursor, positionCursor]);
+  }, [eventCount, events, hideNativeCursor, positionCursor, restEvents]);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,6 +293,7 @@ export function ScoreRenderer({
     container.innerHTML = "";
     osmdRef.current = null;
     setEventPositions([]);
+    setRestPositions([]);
     setOverlaySize({ width: 0, height: 0 });
     setUsesGraphicEventPositions(false);
     setDraftRange(undefined);
@@ -323,6 +357,7 @@ export function ScoreRenderer({
   useEffect(() => {
     if (eventCount === 0) {
       setEventPositions([]);
+      setRestPositions([]);
       return;
     }
 
@@ -394,15 +429,43 @@ export function ScoreRenderer({
   const isDragging = isPointerPreview;
   const currentPosition = eventPositions.find((position) => position.index === currentEventIndex);
   useEffect(() => {
-    if (!currentPosition) return;
-    const rowIndex = nearestRowIndexForPoint(currentPosition, systemRows);
+    if (!playheadAnchor) {
+      setPlayheadPosition(undefined);
+      return;
+    }
+    const noteIndex = playheadAnchor.eventIndex ?? events.findIndex((event) => Math.abs(event.startQuarter - playheadAnchor.quarter) < 0.001);
+    const exactNote = noteIndex >= 0 ? eventPositions.find((position) => position.index === noteIndex) : undefined;
+    if (exactNote) {
+      setPlayheadPosition(exactNote);
+      return;
+    }
+    const restIndex = restEvents.findIndex((event) => Math.abs(event.startQuarter - playheadAnchor.quarter) < 0.001);
+    const exactRest = restIndex >= 0 ? restPositions.find((position) => position.index === restIndex) : undefined;
+    setPlayheadPosition(exactRest ?? interpolatedPositionForQuarter(playheadAnchor.quarter, events, eventPositions, restEvents, restPositions) ?? positionForScoreQuarter(osmdRef.current, shellRef.current, measureTimings, playheadAnchor.quarter));
+  }, [eventPositions, events, measureTimings, playheadAnchor, restEvents, restPositions]);
+  const markerPosition = playheadPosition ?? currentPosition;
+  const markerRect = markerPosition ? currentMarkerRect(markerPosition, systemRows) : undefined;
+  const activeMarkerOpacity = playheadAnchor?.kind === "rest" ? markerRestOpacity : markerOpacity;
+  useEffect(() => {
+    if (!markerPosition) return;
+    const rowIndex = nearestRowIndexForPoint(markerPosition, systemRows);
     const row = systemRows[rowIndex];
     if (!row) return;
     const systemKey = `${Math.round(row.top)}:${Math.round(row.left)}`;
+    if (playbackPreparing) {
+      followedSystemRef.current = systemKey;
+      currentMarkerRef.current?.scrollIntoView?.({ behavior: "auto", block: "start", inline: "nearest" });
+      return;
+    }
+    if (playbackPhase === "countdown") {
+      followedSystemRef.current = systemKey;
+      currentMarkerRef.current?.scrollIntoView?.({ behavior: "auto", block: "start", inline: "nearest" });
+      return;
+    }
     if (followedSystemRef.current === systemKey) return;
     followedSystemRef.current = systemKey;
     currentMarkerRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start", inline: "nearest" });
-  }, [currentPosition, systemRows]);
+  }, [markerPosition, playbackPhase, playbackPreparing, systemRows]);
   const noteFeedbackMarkers = useMemo(
     () => feedbackMarkers.map((feedback) => markerForNoteFeedback(feedback, currentPosition, currentEvent)),
     [currentEvent, currentPosition, feedbackMarkers],
@@ -573,6 +636,7 @@ export function ScoreRenderer({
 
   return (
     <div ref={shellRef} className="score-renderer-shell">
+      {markerRect ? <div className="score-playhead-underlay" aria-hidden="true"><div className="score-current-event-wash" style={{ ...rectStyle(markerRect), backgroundColor: markerColor, opacity: Math.min(100, Math.max(0, activeMarkerOpacity)) / 100 }} /></div> : null}
       <div ref={containerRef} className="score-renderer" aria-label="Rendered sheet music" />
       <div className="score-selection-visual-layer" aria-hidden="true">
         {rangeDimRects.map((rect, index) => (
@@ -588,7 +652,7 @@ export function ScoreRenderer({
             style={rectStyle(rect)}
           />
         ))}
-        {currentPosition ? <div ref={currentMarkerRef} className={`score-current-event-marker${showStartCue ? " playback-onset" : ""}`} style={rectStyle(currentMarkerRect(currentPosition))} /> : null}
+        {markerRect ? <div ref={currentMarkerRef} className={`score-current-event-marker${showStartCue ? " playback-onset" : ""}`} style={rectStyle(markerRect)} /> : null}
       </div>
       <div
         className={`score-selection-layer${playbackPhase === "idle" ? "" : " playback-active"}`}
@@ -663,6 +727,7 @@ export function ScoreRenderer({
             </button>
             <button type="button" aria-label="Clear performance markers" title="Clear performance" disabled={performanceResults.length === 0 && missedPerformanceNotes.length === 0} onClick={onClearPerformance}><ClearIcon /></button>
             <button type="button" aria-label="Reset score progress" title="Reset" disabled={!canPlay} onClick={onReset}><ResetIcon /></button>
+            {audioSettings && onAudioSettingsChange && onTempoPercentChange && onCountInBarsChange ? <MetronomeControls settings={audioSettings} tempoPercent={tempoPercent} tempoDisabled={playbackPhase !== "idle"} writtenTempoBpm={writtenTempoBpm} tempoVaries={tempoVaries} countInBars={countInBars} onAudioSettingsChange={onAudioSettingsChange} onTempoPercentChange={onTempoPercentChange} onCountInBarsChange={onCountInBarsChange} /> : null}
             {audioSettings && onAudioSettingsChange ? <AudioControls settings={audioSettings} error={audioError} onSettingsChange={onAudioSettingsChange} compact /> : null}
           </div>
           {playModeOpen ? <PlayModeDialog value={playMode} showProgress={showProgressWhilePlaying} onChange={(mode) => { onPlayModeChange?.(mode); setPlayModeOpen(false); }} onShowProgressChange={(enabled) => onShowProgressWhilePlayingChange?.(enabled)} onClose={() => setPlayModeOpen(false)} /> : null}
@@ -688,7 +753,7 @@ export function ScoreRenderer({
         ))}
         {missedNoteFeedbackMarkers.map((marker) => <span key={`missed-${marker.id}`} className="missed-note-feedback" style={{ left: marker.left, top: marker.top }} aria-label={`Missed note ${marker.name}`}>×</span>)}
       </div>
-      {playbackPhase === "countdown" ? <div className="playback-overlay countdown" role="status" aria-live="assertive"><div className="playback-message"><strong>{countdownValue ?? ""}</strong></div></div> : null}
+      {playbackPhase === "countdown" ? <div className="playback-overlay countdown" role="status" aria-live="assertive"><div className="playback-message"><small>{countdownBar ? `Bar ${countdownBar}` : "Count in"}</small><strong>{countdownValue ?? ""}</strong></div></div> : null}
       {showStartCue ? <div className="playback-overlay start-cue" role="status" aria-live="assertive"><div className="playback-message"><strong>Go</strong></div></div> : null}
       {playbackPhase === "waiting-note" && !showStartCue ? <div className="playback-overlay note-wait" role="status" aria-live="polite"><div className="playback-message"><span>Waiting for</span><strong>{waitingForNotes.map(midiNoteToName).join(" + ")}</strong></div></div> : null}
       {playbackPhase === "paused" ? <div className="playback-overlay paused" role="status" aria-live="polite"><div className="playback-message"><span>Playback</span><strong>Paused</strong></div></div> : null}
@@ -776,6 +841,65 @@ function eventPositionsFromGraphicSheet(osmd: OpenSheetMusicDisplay | null, shel
 
   const positions = events.map((event, index) => positionForEvent(graphicSheet, shell, event, index));
   return positions.every((position): position is EventPosition => position !== undefined) ? positions : [];
+}
+
+function interpolatedPositionForQuarter(quarter: number, events: ScoreEvent[], positions: EventPosition[], restEvents: ScoreEvent[], restPositions: EventPosition[]): EventPosition | undefined {
+  const anchors = [
+    ...positions.map((position) => ({ quarter: events[position.index]?.startQuarter, position })),
+    ...restPositions.map((position) => ({ quarter: restEvents[position.index]?.startQuarter, position })),
+  ].filter((anchor): anchor is { quarter: number; position: EventPosition } => anchor.quarter !== undefined)
+    .sort((a, b) => a.quarter - b.quarter);
+  const before = [...anchors].reverse().find((anchor) => anchor.quarter < quarter);
+  const after = anchors.find((anchor) => anchor.quarter > quarter);
+  if (!before || !after || Math.abs(before.position.top - after.position.top) > SYSTEM_WRAP_TOP_TOLERANCE) return undefined;
+  const progress = (quarter - before.quarter) / (after.quarter - before.quarter);
+  const anchorX = before.position.anchorX + (after.position.anchorX - before.position.anchorX) * progress;
+  return { ...before.position, index: -1, anchorX, left: anchorX - before.position.width / 2 };
+}
+
+function positionForScoreQuarter(osmd: OpenSheetMusicDisplay | null, shell: HTMLElement | null, measures: MeasureTiming[], quarter: number): EventPosition | undefined {
+  const graphicSheet = osmd?.GraphicSheet as GraphicalSheetLike | undefined;
+  if (!graphicSheet || !shell) return undefined;
+  const timing = measures.find((measure) => quarter >= measure.startQuarter - 0.001 && quarter < measure.endQuarter - 0.001)
+    ?? [...measures].reverse().find((measure) => quarter >= measure.startQuarter - 0.001);
+  if (!timing) return undefined;
+  const measure = graphicSheet.findGraphicalMeasureByMeasureNumber?.(timing.measureNumber, 0);
+  if (!measure) return undefined;
+  const relativeWhole = Math.max(0, quarter - timing.startQuarter) / 4;
+  const exactEntry = measure.findGraphicalStaffEntryFromTimestamp?.(fractionFromQuarters(Math.max(0, quarter - timing.startQuarter)));
+  const exactRect = exactEntry ? rectForGraphicalEntry(graphicSheet, shell, exactEntry) : undefined;
+  if (exactRect) {
+    const staffLineTops = staffLineTopsForMeasure(graphicSheet, shell, timing.measureNumber, 1);
+    return { index: -1, left: exactRect.left, anchorX: exactRect.left + exactRect.width / 2, top: staffLineTops?.[0] ?? exactRect.top, width: exactRect.width, height: exactRect.height, ...(staffLineTops ? { staffLineTops: { 1: staffLineTops } } : {}) };
+  }
+  const entries = (measure.staffEntries ?? [])
+    .map((entry) => ({ entry, time: entry.relInMeasureTimestamp?.RealValue, position: entry.PositionAndShape?.AbsolutePosition ?? entry.PositionAndShape?.Center }))
+    .filter((item): item is { entry: GraphicalStaffEntryLike; time: number; position: { x: number; y: number } } => item.time !== undefined && item.position?.x !== undefined && item.position.y !== undefined)
+    .sort((a, b) => a.time - b.time);
+  if (entries.length === 0) return undefined;
+  const before = [...entries].reverse().find((item) => item.time <= relativeWhole + 0.0001);
+  const after = entries.find((item) => item.time >= relativeWhole - 0.0001);
+  let x: number;
+  let y: number;
+  if (before && after && after.time > before.time + 0.0001) {
+    const progress = (relativeWhole - before.time) / (after.time - before.time);
+    x = before.position.x + (after.position.x - before.position.x) * progress;
+    y = before.position.y + (after.position.y - before.position.y) * progress;
+  } else if (before && after) {
+    ({ x, y } = before.position);
+  } else {
+    const nearest = before ?? after ?? entries[0];
+    const bounds = measure.PositionAndShape;
+    const durationWhole = Math.max(0.0001, timing.endQuarter - timing.startQuarter) / 4;
+    x = bounds?.AbsolutePosition?.x !== undefined && bounds.Size?.width !== undefined
+      ? bounds.AbsolutePosition.x + bounds.Size.width * Math.min(1, relativeWhole / durationWhole)
+      : nearest.position.x;
+    y = nearest.position.y;
+  }
+  const point = pointToShellPosition(graphicSheet, shell, x, y);
+  const staffLineTops = staffLineTopsForMeasure(graphicSheet, shell, timing.measureNumber, 1);
+  const top = staffLineTops?.[0] ?? Math.max(0, point.top - GRAPHICAL_EVENT_ANCHOR_HEIGHT * 0.25);
+  return { index: -1, left: Math.max(0, point.left - 12), anchorX: point.left, top, width: 24, height: GRAPHICAL_EVENT_ANCHOR_HEIGHT, ...(staffLineTops ? { staffLineTops: { 1: staffLineTops } } : {}) };
 }
 
 function positionForEvent(graphicSheet: GraphicalSheetLike, shell: HTMLElement, event: ScoreEvent, index: number): EventPosition | undefined {
@@ -1317,12 +1441,16 @@ function clefReferencePitch(sign: string | undefined, octaveChange: number): Pit
   return undefined;
 }
 
-function currentMarkerRect(position: EventPosition): OverlayRect {
+function currentMarkerRect(position: EventPosition, rows: ScoreRow[]): OverlayRect {
+  const row = rows[nearestRowIndexForPoint(position, rows)];
+  const staffLines = row?.positions.flatMap((candidate) => Object.values(candidate.staffLineTops ?? {}).flatMap((lines) => lines ?? [])) ?? [];
+  const contentTop = staffLines.length > 0 ? Math.min(...staffLines) : row?.top ?? systemTopForPosition(position);
+  const contentBottom = staffLines.length > 0 ? Math.max(...staffLines) : row?.bottom ?? position.top + position.height;
   return {
-    left: position.left,
-    top: systemTopForPosition(position),
-    width: 24,
-    height: CURRENT_EVENT_MARKER_HEIGHT,
+    left: Math.max(0, position.left - 6),
+    top: Math.max(0, contentTop - 40),
+    width: 30,
+    height: Math.max(80, contentBottom - contentTop + 80),
   };
 }
 

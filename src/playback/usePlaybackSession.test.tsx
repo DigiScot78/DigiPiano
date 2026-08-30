@@ -28,7 +28,7 @@ describe("usePlaybackSession", () => {
 
   async function render(countdownSeconds = 0, runMode: "once" | "loop" = "once", pauseOnNotes = false, events = scoreEvents, untimedPractice = false, range?: ScoreSelectionRange) {
     function Harness() {
-      session = usePlaybackSession({ events, tempoChanges: [], handMode: "both", range, runMode, pauseOnNotes, untimedPractice, settings: { playMode: untimedPractice ? "practice" : "play", countdownSeconds, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
+      session = usePlaybackSession({ events, tempoChanges: [], handMode: "both", range, runMode, pauseOnNotes, untimedPractice, settings: { playMode: untimedPractice ? "practice" : "play", countInBars: countdownSeconds === 0 ? 0 : 1, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
       return null;
     }
     await act(async () => root.render(<Harness />));
@@ -51,21 +51,21 @@ describe("usePlaybackSession", () => {
     await render(1, "loop");
     await act(async () => session.start());
     expect(session.phase).toBe("countdown");
-    expect(session.rollElapsedMs).toBe(-1000);
-    await act(async () => nextFrame?.(1800));
+    expect(session.rollElapsedMs).toBe(-2000);
+    await act(async () => nextFrame?.(2800));
     expect(session.phase).toBe("countdown");
     expect(session.countdownValue).toBe(1);
     expect(session.rollElapsedMs).toBe(-200);
-    await act(async () => nextFrame?.(2000));
+    await act(async () => nextFrame?.(3000));
     expect(session.phase).toBe("playing");
     expect(session.showStartCue).toBe(true);
-    await act(async () => nextFrame?.(2301));
+    await act(async () => nextFrame?.(3301));
     expect(session.phase).toBe("playing");
     expect(session.showStartCue).toBe(false);
-    await act(async () => nextFrame?.(2501));
+    await act(async () => nextFrame?.(3501));
     expect(session.phase).toBe("waiting-restart");
     expect(session.completedRun).toMatchObject({ id: 1, playMode: "play", handMode: "both" });
-    await act(async () => session.handleMidiNoteOn(60, 2600));
+    await act(async () => session.handleMidiNoteOn(60, 3600));
     expect(session.phase).toBe("countdown");
     expect(session.results).toHaveLength(0);
   });
@@ -196,7 +196,7 @@ describe("usePlaybackSession", () => {
     function Harness() {
       const [pauseOnNotes, setPause] = useState(false);
       setPauseOnNotes = setPause;
-      session = usePlaybackSession({ events: repeated, tempoChanges: [], handMode: "both", runMode: "once", pauseOnNotes, settings: { playMode: "play", countdownSeconds: 0, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
+      session = usePlaybackSession({ events: repeated, tempoChanges: [], handMode: "both", runMode: "once", pauseOnNotes, settings: { playMode: "play", countInBars: 0, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
       return null;
     }
     await act(async () => root.render(<Harness />));
@@ -216,21 +216,21 @@ describe("usePlaybackSession", () => {
     const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 2 }];
     await render(1, "once", false, repeated);
     await act(async () => session.start());
-    await act(async () => nextFrame?.(2000));
-    await act(async () => nextFrame?.(2400));
+    await act(async () => nextFrame?.(3000));
+    await act(async () => nextFrame?.(3400));
     expect(session.elapsedMs).toBe(400);
 
     await act(async () => session.pause());
     expect(session.phase).toBe("paused");
     expect(session.elapsedMs).toBe(400);
 
-    vi.mocked(performance.now).mockReturnValue(3000);
+    vi.mocked(performance.now).mockReturnValue(4000);
     await act(async () => session.resume());
     expect(session.phase).toBe("countdown");
-    expect(session.rollElapsedMs).toBe(-600);
-    await act(async () => nextFrame?.(4000));
+    expect(session.rollElapsedMs).toBe(-1600);
+    await act(async () => nextFrame?.(6000));
     expect(session.phase).toBe("playing");
-    await act(async () => nextFrame?.(4250));
+    await act(async () => nextFrame?.(6250));
     expect(session.elapsedMs).toBe(650);
   });
 
@@ -238,9 +238,9 @@ describe("usePlaybackSession", () => {
     const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 2 }];
     await render(1, "once", false, repeated);
     await act(async () => session.start());
-    await act(async () => nextFrame?.(2000));
-    await act(async () => session.handleMidiNoteOn(60, 2050));
-    await act(async () => nextFrame?.(2400));
+    await act(async () => nextFrame?.(3000));
+    await act(async () => session.handleMidiNoteOn(60, 3050));
+    await act(async () => nextFrame?.(3400));
     expect(session.elapsedMs).toBe(400);
 
     await act(async () => session.stopAtPlanStart());
@@ -249,14 +249,14 @@ describe("usePlaybackSession", () => {
     expect(session.results).toHaveLength(1);
     expect(session.completedRun).toBeUndefined();
 
-    vi.mocked(performance.now).mockReturnValue(3000);
+    vi.mocked(performance.now).mockReturnValue(4000);
     await act(async () => session.togglePlayback());
     expect(session.phase).toBe("countdown");
-    expect(session.rollElapsedMs).toBe(-1000);
+    expect(session.rollElapsedMs).toBe(-2000);
     expect(session.results).toHaveLength(0);
-    await act(async () => nextFrame?.(4000));
+    await act(async () => nextFrame?.(6000));
     expect(session.phase).toBe("playing");
-    await act(async () => nextFrame?.(4200));
+    await act(async () => nextFrame?.(6200));
     expect(session.elapsedMs).toBe(200);
   });
 
@@ -291,16 +291,16 @@ describe("usePlaybackSession", () => {
   it("suspends a note gate while manually paused and restores it after the resume countdown", async () => {
     await render(1, "once", true);
     await act(async () => session.start());
-    await act(async () => nextFrame?.(2000));
+    await act(async () => nextFrame?.(3000));
     expect(session.phase).toBe("waiting-note");
     await act(async () => session.pause());
     await act(async () => session.handleMidiNoteOn(60, 2100));
     expect(session.results).toHaveLength(0);
 
-    vi.mocked(performance.now).mockReturnValue(2200);
+    vi.mocked(performance.now).mockReturnValue(3200);
     await act(async () => session.resume());
     expect(session.phase).toBe("countdown");
-    await act(async () => nextFrame?.(3200));
+    await act(async () => nextFrame?.(5200));
     expect(session.phase).toBe("waiting-note");
     expect(session.gate?.expectedNotes).toEqual([60]);
   });
@@ -328,8 +328,8 @@ describe("usePlaybackSession", () => {
     expect(session.phase).toBe("countdown");
     expect(session.elapsedMs).toBe(1000);
     expect(session.currentEventIndex).toBe(1);
-    expect(session.rollElapsedMs).toBe(0);
-    await act(async () => nextFrame?.(2000));
+    expect(session.rollElapsedMs).toBe(-1000);
+    await act(async () => nextFrame?.(3000));
     expect(session.phase).toBe("playing");
     expect(session.elapsedMs).toBe(1000);
   });

@@ -1,5 +1,5 @@
 import { pitchToMidi } from "./note";
-import type { ParsedScore, ScoreClef, ScoreDiagnostics, ScoreEvent, ScoreEventNote, ScoreMeasureDiagnostic, TempoChange } from "./scoreTypes";
+import type { MeasureTiming, ParsedScore, ScoreClef, ScoreDiagnostics, ScoreEvent, ScoreEventNote, ScoreMeasureDiagnostic, TempoChange } from "./scoreTypes";
 import { parseXml } from "./musicXmlLoader";
 
 interface PartCursorState {
@@ -8,6 +8,8 @@ interface PartCursorState {
   measureStartQuarter: number;
   keyFifths: number;
   clefsByStaff: Map<number, ScoreClef>;
+  beats: number;
+  beatType: number;
 }
 
 interface ParsedPitch {
@@ -37,10 +39,11 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
   const warnings = collectGlobalWarnings(doc);
   const events = new Map<string, PendingEvent>();
   const tempoChanges: TempoChange[] = [];
+  const measureTimings: MeasureTiming[] = [];
   const measureDiagnostics: ScoreMeasureDiagnostic[] = [];
   const firstPitchedMeasureByStaff: Record<string, number> = {};
 
-  for (const part of Array.from(doc.querySelectorAll("score-partwise > part, part"))) {
+  for (const [partIndex, part] of Array.from(doc.querySelectorAll("score-partwise > part, part")).entries()) {
     const partId = part.getAttribute("id") ?? "part";
     const state: PartCursorState = {
       currentQuarter: 0,
@@ -48,6 +51,8 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
       measureStartQuarter: 0,
       keyFifths: 0,
       clefsByStaff: new Map(),
+      beats: 4,
+      beatType: 4,
     };
     let divisions = 1;
     let measureIndex = 0;
@@ -74,6 +79,16 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
             const nextKeyFifths = numberText(child.querySelector("key > fifths"));
             if (nextKeyFifths !== undefined) {
               state.keyFifths = nextKeyFifths;
+            }
+            const nextBeats = numberText(child.querySelector("time > beats"));
+            const nextBeatType = numberText(child.querySelector("time > beat-type"));
+            if (nextBeats !== undefined || nextBeatType !== undefined) {
+              if (nextBeats && nextBeats > 0 && nextBeatType && nextBeatType > 0) {
+                state.beats = nextBeats;
+                state.beatType = nextBeatType;
+              } else {
+                warnings.push(`Measure ${measureNumber}: unsupported time signature; continuing with ${state.beats}/${state.beatType}.`);
+              }
             }
             for (const clef of Array.from(child.querySelectorAll(":scope > clef"))) {
               const staff = numberAttribute(clef, "number") ?? 1;
@@ -120,6 +135,12 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
       if (state.currentQuarter < state.measureStartQuarter) {
         warnings.push(`Measure ${measureNumber}: timeline moved before the measure start after backup/forward processing.`);
       }
+      if (partIndex === 0) {
+        measureTimings.push({ index: measureIndex - 1, measureNumber, startQuarter: state.measureStartQuarter, endQuarter: Math.max(state.measureStartQuarter, state.currentQuarter), beats: state.beats, beatType: state.beatType });
+      } else {
+        const primary = measureTimings[measureIndex - 1];
+        if (primary && (primary.beats !== state.beats || primary.beatType !== state.beatType)) warnings.push(`Measure ${measureNumber}: part ${partId} uses ${state.beats}/${state.beatType}, conflicting with the primary ${primary.beats}/${primary.beatType} meter.`);
+      }
     }
   }
 
@@ -135,7 +156,9 @@ export function parseMusicXmlTimeline(xmlText: string): ParsedScore {
 
   return {
     events: normalized.filter((event) => !event.isRest),
+    restEvents: normalized.filter((event) => event.isRest),
     tempoChanges: normalizeTempoChanges(tempoChanges),
+    measureTimings,
     warnings,
     diagnostics,
   };

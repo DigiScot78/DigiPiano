@@ -17,6 +17,7 @@ export interface PerformanceScore {
 export interface CompletedPerformance extends PerformanceScore {
   playMode: PlayMode;
   handMode: HandMode;
+  tempoPercent: number;
   range?: ScoreSelectionRange;
 }
 
@@ -75,12 +76,12 @@ export function addPerformanceToHistory(current: ExercisePerformanceHistory | un
   };
 }
 
-export function exercisePerformanceKey(scoreContent: string, fileName: string, range: ScoreSelectionRange | undefined, handMode: HandMode, playMode: PlayMode): string {
+export function exercisePerformanceKey(scoreContent: string, fileName: string, range: ScoreSelectionRange | undefined, handMode: HandMode, playMode: PlayMode, tempoPercent = 100): string {
   let hash = 2166136261;
   for (let index = 0; index < scoreContent.length; index += 1) {
     hash ^= scoreContent.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
   const scope = range ? `${range.startIndex}-${range.endIndex}` : "full";
-  return `${fileName}:${(hash >>> 0).toString(36)}:${scope}:${handMode}:${playMode}`;
+  return `${fileName}:${(hash >>> 0).toString(36)}:${scope}:${handMode}:${playMode}:${tempoPercent}`;
 }

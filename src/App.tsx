@@ -25,7 +25,7 @@ import { loadScoreFile } from "./music/musicXmlLoader";
 import { parseMusicXmlTimeline } from "./music/musicXmlParser";
 import type { LoadedScore, ParsedScore, ScoreEvent } from "./music/scoreTypes";
 import { useMidiInput } from "./hooks/useMidiInput";
-import type { AppTheme, ScoreTheme } from "./theme/appearance";
+import { resolvedScoreMarkerColor, type AppTheme, type ScoreMarkerSettings, type ScoreTheme } from "./theme/appearance";
 import { useAppearanceSettings } from "./theme/useAppearanceSettings";
 import { usePianoSettings } from "./piano/usePianoSettings";
 import { pianoExpectationsForEvents, type PianoSettings } from "./piano/piano";
@@ -37,6 +37,8 @@ import { shouldShowPerformanceResults } from "./playback/playback";
 import { addPerformanceToHistory, calculatePerformanceScore, exercisePerformanceKey, type ExercisePerformanceHistory } from "./playback/performanceScore";
 import { useAudioSettings } from "./audio/useAudioSettings";
 import { useScoreAudio } from "./audio/useScoreAudio";
+import { useMetronome } from "./audio/metronome";
+import { effectiveTempoAtQuarter } from "./playback/playback";
 import { useWorkspaceLayoutSettings } from "./layout/useWorkspaceLayoutSettings";
 import { isSidebarVisible, scoreMarginForLayout, SCORE_MARGIN_MAX, SCORE_MARGIN_MIN, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, type WorkspaceLayoutSettings } from "./layout/workspace";
 import "./styles.css";
@@ -60,6 +62,15 @@ interface PracticeAttemptDiagnostic {
 }
 
 const COMPLETED_FEEDBACK_DURATION_MS = 450;
+const SIMULATION_PULSE_DURATION_MS = 180;
+
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
+function waitForScoreLayout(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 250));
+}
 
 function App() {
   const midi = useMidiInput();
@@ -69,7 +80,8 @@ function App() {
   const audioSettings = useAudioSettings();
   const workspace = useWorkspaceLayoutSettings();
   const [loadedScore, setLoadedScore] = useState<LoadedScore | null>(null);
-  const [parsedScore, setParsedScore] = useState<ParsedScore>({ events: [], tempoChanges: [], warnings: [] });
+  const [parsedScore, setParsedScore] = useState<ParsedScore>({ events: [], restEvents: [], tempoChanges: [], measureTimings: [], warnings: [] });
+  const [tempoPercent, setTempoPercent] = useState(100);
   const [learningState, setLearningState] = useState<LearningState>(initialLearningState());
   const learningStateRef = useRef<LearningState>(learningState);
   const [scoreError, setScoreError] = useState<string | undefined>();
@@ -92,6 +104,7 @@ function App() {
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | undefined>(undefined);
   const [draftSidebarWidth, setDraftSidebarWidth] = useState<number | undefined>();
   const [sidebarHiddenForPlayback, setSidebarHiddenForPlayback] = useState(false);
+  const [playbackPreparing, setPlaybackPreparing] = useState(false);
   const [fullscreenNotice, setFullscreenNotice] = useState<string | undefined>();
   const [performanceHistory, setPerformanceHistory] = useState<Map<string, ExercisePerformanceHistory>>(() => new Map());
   const processedCompletionIdRef = useRef(0);
@@ -100,10 +113,11 @@ function App() {
 
   const pauseOnNotes = play.settings.playMode === "pause-each-note";
   const untimedPractice = play.settings.playMode === "practice";
-  const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, handMode, range: selectedRange, runMode, pauseOnNotes, untimedPractice, settings: play.settings });
+  const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, measureTimings: parsedScore.measureTimings, tempoPercent, handMode, range: selectedRange, runMode, pauseOnNotes, untimedPractice, settings: play.settings });
   const scoreAudio = useScoreAudio({ plan: playback.plan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, audioStartElapsedMs: playback.audioStartElapsedMs, runId: playback.runId, pauseOnNotes, nextPendingGateOnsetMs: playback.nextPendingGateOnsetMs, settings: audioSettings.settings });
+  const metronome = useMetronome({ plan: playback.plan, countInPlan: playback.countInPlan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, runId: playback.runId, settings: audioSettings.settings });
   const { phase: playbackPhase, handleHeldNotesChange, handleMidiNoteOn } = playback;
-  const currentExerciseKey = useMemo(() => loadedScore ? exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, selectedRange, handMode, play.settings.playMode) : undefined, [handMode, loadedScore, play.settings.playMode, selectedRange]);
+  const currentExerciseKey = useMemo(() => loadedScore ? exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, selectedRange, handMode, play.settings.playMode, tempoPercent) : undefined, [handMode, loadedScore, play.settings.playMode, selectedRange, tempoPercent]);
   const currentPerformanceHistory = currentExerciseKey ? performanceHistory.get(currentExerciseKey) : undefined;
 
   useEffect(() => {
@@ -111,8 +125,8 @@ function App() {
     if (!completed || !loadedScore || completed.id === processedCompletionIdRef.current) return;
     processedCompletionIdRef.current = completed.id;
     const score = calculatePerformanceScore(completed.plan, completed.results);
-    const summary = { ...score, playMode: completed.playMode, handMode: completed.handMode, ...(completed.range ? { range: completed.range } : {}) };
-    const key = exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, completed.range, completed.handMode, completed.playMode);
+    const summary = { ...score, playMode: completed.playMode, handMode: completed.handMode, tempoPercent: completed.tempoPercent, ...(completed.range ? { range: completed.range } : {}) };
+    const key = exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, completed.range, completed.handMode, completed.playMode, completed.tempoPercent);
     setPerformanceHistory((current) => {
       const next = new Map(current);
       next.set(key, addPerformanceToHistory(current.get(key), summary));
@@ -149,20 +163,32 @@ function App() {
     setSimulatedHeldNotes([]);
     setCarriedCompletedNotes([]);
     clearCompletedFeedback();
-    if (playback.phase === "idle") {
+    const isFreshStart = playback.phase === "idle";
+    if (isFreshStart) {
+      setPlaybackPreparing(true);
       setSidebarHiddenForPlayback(true);
       setFullscreenNotice(undefined);
-      if (play.settings.playFullscreen) {
-        void fullscreenControllerRef.current.enter(document).then((result) => {
-          if (result === "unavailable" || result === "failed") showFullscreenNotice();
-        });
-      }
     }
-    const continuePlayback = playback.phase === "idle"
+    const audioReady = Promise.all([scoreAudio.prepare(), metronome.prepare()]);
+    const presentationReady = isFreshStart
+      ? (async () => {
+        if (play.settings.playFullscreen) {
+          const result = await fullscreenControllerRef.current.enter(document);
+          if (result === "unavailable" || result === "failed") showFullscreenNotice();
+        }
+        await waitForScoreLayout();
+        await nextPaint();
+        await nextPaint();
+      })()
+      : Promise.resolve();
+    const continuePlayback = isFreshStart
       ? () => playback.startAtEvent(learningState.currentIndex)
       : playback.togglePlayback;
-    void scoreAudio.prepare().finally(continuePlayback);
-  }, [clearCompletedFeedback, learningState.currentIndex, play.settings.playFullscreen, playback, scoreAudio, showFullscreenNotice]);
+    void Promise.all([audioReady, presentationReady]).finally(() => {
+      setPlaybackPreparing(false);
+      continuePlayback();
+    });
+  }, [clearCompletedFeedback, learningState.currentIndex, metronome, play.settings.playFullscreen, playback, scoreAudio, showFullscreenNotice]);
 
   useEffect(() => {
     if (playbackPhase === "idle") finishPlaybackPresentation();
@@ -175,6 +201,11 @@ function App() {
   }, []);
 
   useEffect(() => clearCompletedFeedback, [clearCompletedFeedback]);
+  useEffect(() => {
+    if (simulatedHeldNotes.length === 0) return;
+    const timer = window.setTimeout(() => setSimulatedHeldNotes([]), SIMULATION_PULSE_DURATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [simulatedHeldNotes]);
   useEffect(() => () => {
     if (fullscreenNoticeTimerRef.current !== undefined) window.clearTimeout(fullscreenNoticeTimerRef.current);
     void fullscreenControllerRef.current.exit(document);
@@ -263,6 +294,7 @@ function App() {
     setLearningState(resetState);
     setSimulatedHeldNotes([]);
     setSelectedRange(undefined);
+    setTempoPercent(100);
     playback.stop();
     playback.clearResults();
     clearCompletedFeedback();
@@ -278,7 +310,7 @@ function App() {
       setLearningState(nextState);
     } catch (error) {
       setLoadedScore(null);
-      setParsedScore({ events: [], tempoChanges: [], warnings: [] });
+      setParsedScore({ events: [], restEvents: [], tempoChanges: [], measureTimings: [], warnings: [] });
       setScoreStatus("error");
       setScoreError(error instanceof Error ? error.message : "Score loading failed.");
     }
@@ -400,7 +432,7 @@ function App() {
     if (!expectedEvent || expectedEvent.midiNotes.length === 0) {
       return;
     }
-    setSimulatedHeldNotes(expectedEvent.midiNotes);
+    setSimulatedHeldNotes([...expectedEvent.midiNotes]);
     advanceWithNotes(expectedEvent.midiNotes, {
       source: "simulation",
       heldNotesBefore: combinedHeldNotes,
@@ -434,6 +466,13 @@ function App() {
     setCarriedCompletedNotes([]);
     clearCompletedFeedback();
   }, [clearCompletedFeedback, finishPlaybackPresentation, handMode, parsedScore.events, playback, selectedRange]);
+
+  const handleTempoPercentChange = useCallback((percent: number) => {
+    const next = Math.min(200, Math.max(40, Math.round(percent / 5) * 5));
+    if (next === tempoPercent) return;
+    resetAllProgress();
+    setTempoPercent(next);
+  }, [resetAllProgress, tempoPercent]);
 
   const handlePlayModeChange = useCallback((playMode: PlayMode) => {
     if (playMode === play.settings.playMode) return;
@@ -510,6 +549,8 @@ function App() {
   const sidebarWidth = draftSidebarWidth ?? workspace.settings.sidebarWidth;
   const sidebarVisible = isSidebarVisible(workspace.settings, sidebarHiddenForPlayback);
   const scoreMargin = scoreMarginForLayout(workspace.settings, sidebarVisible);
+  const writtenTempoBpm = effectiveTempoAtQuarter(playback.plan?.startQuarter ?? 0, parsedScore.tempoChanges, play.settings.fallbackBpm);
+  const tempoVaries = parsedScore.tempoChanges.some((change) => Math.abs(change.bpm - writtenTempoBpm) > 0.001);
   const selectSidebarTabFromKey = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -546,13 +587,21 @@ function App() {
             currentEvent={displayedEvent}
             eventCount={parsedScore.events.length}
             events={parsedScore.events}
+            restEvents={parsedScore.restEvents}
+            measureTimings={parsedScore.measureTimings}
             selectedRange={selectedRange}
             feedbackMarkers={playback.phase === "idle" ? scoreFeedbackMarkers : playback.phase === "waiting-note" ? gateFeedbackMarkers : []}
             completedFeedback={completedFeedback}
             performanceResults={shouldShowPerformanceResults(playback.phase, play.settings.showHitsWhilePlaying) ? playback.results : []}
             missedPerformanceNotes={playback.missedNotes}
             playbackPhase={playback.phase}
+            playbackPreparing={playbackPreparing}
+            playheadAnchor={playback.playheadAnchor}
+            markerColor={resolvedScoreMarkerColor(appearance.scoreMarkerSettings, appearance.scoreTheme)}
+            markerOpacity={appearance.scoreMarkerSettings.opacity}
+            markerRestOpacity={appearance.scoreMarkerSettings.restOpacity}
             countdownValue={playback.countdownValue}
+            countdownBar={playback.countdownBar}
             showStartCue={playback.showStartCue}
             canPlay={Boolean(playback.plan)}
             handMode={handMode}
@@ -562,7 +611,11 @@ function App() {
             showProgressWhilePlaying={play.settings.showHitsWhilePlaying}
             waitingForNotes={waitingForGateNotes}
             audioSettings={audioSettings.settings}
-            audioError={scoreAudio.error}
+            audioError={scoreAudio.error ?? metronome.error}
+            tempoPercent={tempoPercent}
+            writtenTempoBpm={writtenTempoBpm}
+            tempoVaries={tempoVaries}
+            countInBars={play.settings.countInBars}
             scoreTheme={appearance.scoreTheme}
             showCorrectNoteNames={showCorrectNoteNames}
             showWrongNoteNames={showWrongNoteNames}
@@ -577,6 +630,8 @@ function App() {
             onReset={resetAllProgress}
             onClearPerformance={playback.clearResults}
             onAudioSettingsChange={audioSettings.setSettings}
+            onTempoPercentChange={handleTempoPercentChange}
+            onCountInBarsChange={(countInBars) => play.setSettings({ countInBars })}
             onRenderStateChange={(next) => {
               setScoreStatus(next.status);
               setRenderError(next.error);
@@ -605,10 +660,8 @@ function App() {
               <label><input type="checkbox" checked={showWrongNoteNames} onChange={(event) => setShowWrongNoteNames(event.target.checked)} /> Wrong names</label>
             </div>
             <SelectionSummary range={selectedRange} events={parsedScore.events} />
-            {sidebarExpectedEvent ? <ExpectedEvent event={sidebarExpectedEvent} index={displayedEventIndex} total={parsedScore.events.length} isComplete={playback.phase === "idle" && learningState.isComplete} /> : <p className="muted">Load a score to begin.</p>}
+            {sidebarExpectedEvent ? <ExpectedEvent event={sidebarExpectedEvent} index={displayedEventIndex} total={parsedScore.events.length} isComplete={playback.phase === "idle" && learningState.isComplete} simulationDisabled={playback.phase !== "idle" || !expectedEvent || expectedEvent.midiNotes.length === 0 || learningState.isComplete} onSimulate={simulateCurrentEvent} /> : <p className="muted">Load a score to begin.</p>}
             <div className="button-row compact-actions">
-              <button type="button" onClick={simulateCurrentEvent} disabled={playback.phase !== "idle" || !expectedEvent || expectedEvent.midiNotes.length === 0 || learningState.isComplete}>Simulate</button>
-              <button type="button" onClick={() => { setSimulatedHeldNotes([]); setCarriedCompletedNotes([]); }} disabled={playback.phase !== "idle"}>Release</button>
               <button type="button" onClick={clearSelection} disabled={playback.phase !== "idle" || !selectedRange}>Clear range</button>
             </div>
             <ComparisonSummary state={learningState} />
@@ -656,7 +709,11 @@ function App() {
         showProgressWhilePlaying={play.settings.showHitsWhilePlaying}
         canClearPerformance={playback.results.length > 0 || playback.missedNotes.length > 0}
         audioSettings={audioSettings.settings}
-        audioError={scoreAudio.error}
+        audioError={scoreAudio.error ?? metronome.error}
+        tempoPercent={tempoPercent}
+        writtenTempoBpm={writtenTempoBpm}
+        tempoVaries={tempoVaries}
+        countInBars={play.settings.countInBars}
         onSettingsChange={piano.setSettings}
         onTogglePlayback={togglePlaybackWithAudio}
         onStop={stopPlayback}
@@ -667,17 +724,22 @@ function App() {
         onShowProgressWhilePlayingChange={(showHitsWhilePlaying) => play.setSettings({ showHitsWhilePlaying })}
         onClearPerformance={playback.clearResults}
         onAudioSettingsChange={audioSettings.setSettings}
+        onTempoPercentChange={handleTempoPercentChange}
+        onCountInBarsChange={(countInBars) => play.setSettings({ countInBars })}
       />
       {midiSettingsOpen ? (
         <SettingsDialog
           midi={midi}
           appTheme={appearance.appTheme}
           scoreTheme={appearance.scoreTheme}
+          scoreMarkerSettings={appearance.scoreMarkerSettings}
           pianoSettings={piano.settings}
           playSettings={play.settings}
           workspaceSettings={workspace.settings}
           onAppThemeChange={appearance.setAppTheme}
           onScoreThemeChange={appearance.setScoreTheme}
+          onScoreMarkerSettingsChange={appearance.setScoreMarkerSettings}
+          onResetScoreMarkerSettings={appearance.resetScoreMarkerSettings}
           onPianoSettingsChange={piano.setSettings}
           onResetPianoColors={piano.resetColors}
           onPlaySettingsChange={play.setSettings}
@@ -708,11 +770,14 @@ function SettingsDialog({
   midi,
   appTheme,
   scoreTheme,
+  scoreMarkerSettings,
   pianoSettings,
   playSettings,
   workspaceSettings,
   onAppThemeChange,
   onScoreThemeChange,
+  onScoreMarkerSettingsChange,
+  onResetScoreMarkerSettings,
   onPianoSettingsChange,
   onResetPianoColors,
   onPlaySettingsChange,
@@ -722,11 +787,14 @@ function SettingsDialog({
   midi: ReturnType<typeof useMidiInput>;
   appTheme: AppTheme;
   scoreTheme: ScoreTheme;
+  scoreMarkerSettings: ScoreMarkerSettings;
   pianoSettings: PianoSettings;
   playSettings: PlaySettings;
   workspaceSettings: WorkspaceLayoutSettings;
   onAppThemeChange: (theme: AppTheme) => void;
   onScoreThemeChange: (theme: ScoreTheme) => void;
+  onScoreMarkerSettingsChange: (update: Partial<ScoreMarkerSettings>) => void;
+  onResetScoreMarkerSettings: () => void;
   onPianoSettingsChange: (update: Partial<PianoSettings>) => void;
   onResetPianoColors: () => void;
   onPlaySettingsChange: (update: Partial<PlaySettings>) => void;
@@ -788,6 +856,16 @@ function SettingsDialog({
           </div><div className="settings-card"><span className="settings-label">Score width</span><p className="settings-card-copy">Use independent paper spacing for an open panel and focused play.</p>
           <label className="score-margin-setting">Panel open margins <strong>{workspaceSettings.panelOpenScoreMargin}px</strong><input aria-label="Score paper margins with panel open" type="range" min={SCORE_MARGIN_MIN} max={SCORE_MARGIN_MAX} step="1" value={workspaceSettings.panelOpenScoreMargin} onChange={(event) => onWorkspaceSettingsChange({ panelOpenScoreMargin: Number(event.target.value) })} /></label>
           <label className="score-margin-setting">Panel docked margins <strong>{workspaceSettings.panelDockedScoreMargin}px</strong><input aria-label="Score paper margins with panel docked" type="range" min={SCORE_MARGIN_MIN} max={SCORE_MARGIN_MAX} step="1" value={workspaceSettings.panelDockedScoreMargin} onChange={(event) => onWorkspaceSettingsChange({ panelDockedScoreMargin: Number(event.target.value) })} /></label>
+          </div><div className="settings-card score-marker-settings"><span className="settings-label">Current note marker</span><p className="settings-card-copy">The translucent wash sits behind the notation while the solid leading line stays visible.</p>
+          <div className="score-marker-preview" aria-label="Current note and rest marker preview">
+            <div className="score-marker-preview-lines" aria-hidden="true" />
+            <div className="score-marker-preview-example note"><span>Note</span><div className="score-marker-preview-wash" style={{ backgroundColor: resolvedScoreMarkerColor(scoreMarkerSettings, scoreTheme), opacity: scoreMarkerSettings.opacity / 100 }} /><div className="score-marker-preview-line" /><b aria-hidden="true">&#9834;</b></div>
+            <div className="score-marker-preview-example rest"><span>Rest</span><div className="score-marker-preview-wash" style={{ backgroundColor: resolvedScoreMarkerColor(scoreMarkerSettings, scoreTheme), opacity: scoreMarkerSettings.restOpacity / 100 }} /><div className="score-marker-preview-line" /><b aria-hidden="true">&#119102;</b></div>
+          </div>
+          <label className="score-marker-settings-row">Highlight colour <input aria-label="Current note marker colour" type="color" value={resolvedScoreMarkerColor(scoreMarkerSettings, scoreTheme)} onChange={(event) => onScoreMarkerSettingsChange({ color: event.target.value as `#${string}` })} /></label>
+          <label className="score-marker-settings-row">Opacity <input aria-label="Current note marker opacity" type="range" min="0" max="100" step="1" value={scoreMarkerSettings.opacity} onChange={(event) => onScoreMarkerSettingsChange({ opacity: Number(event.target.value) })} /><strong>{scoreMarkerSettings.opacity}%</strong></label>
+          <label className="score-marker-settings-row">Rest opacity <input aria-label="Current rest marker opacity" type="range" min="0" max="100" step="1" value={scoreMarkerSettings.restOpacity} onChange={(event) => onScoreMarkerSettingsChange({ restOpacity: Number(event.target.value) })} /><strong>{scoreMarkerSettings.restOpacity}%</strong></label>
+          <button type="button" onClick={onResetScoreMarkerSettings}>Reset marker</button>
           </div></div>
         </section> : null}
         {activeTab === "piano" ? <section id="settings-panel-piano" className="settings-section" role="tabpanel" aria-labelledby="settings-tab-piano">
@@ -815,12 +893,11 @@ function SettingsDialog({
           <h3 id="play-settings-title">Play</h3>
           <div className="settings-card">
           <div className="play-settings-grid">
-            <label>Countdown (seconds)<input type="number" min="0" max="10" step="1" value={playSettings.countdownSeconds} onChange={(event) => onPlaySettingsChange({ countdownSeconds: clampSetting(event.target.value, 0, 10) })} /></label>
             <label>Fallback tempo (BPM)<input type="number" min="30" max="300" step="1" value={playSettings.fallbackBpm} onChange={(event) => onPlaySettingsChange({ fallbackBpm: clampSetting(event.target.value, 30, 300) })} /></label>
             <label>Hit tolerance (ms)<input type="number" min="0" max="1000" step="25" value={playSettings.hitToleranceMs} onChange={(event) => onPlaySettingsChange({ hitToleranceMs: clampSetting(event.target.value, 0, 1000) })} /></label>
             <label className="play-checkbox-setting">Play fullscreen<input type="checkbox" checked={playSettings.playFullscreen} onChange={(event) => onPlaySettingsChange({ playFullscreen: event.target.checked })} /></label>
           </div>
-          <p className="settings-hint">Embedded score tempo is used when available. The fallback applies before the first tempo marking or when none is supplied. Play always hides the side panel; fullscreen uses the browser display and Escape leaves it without stopping playback.</p>
+          <p className="settings-hint">Embedded score tempo is used when available. The fallback applies before the first tempo marking or when none is supplied. Tempo percentage and musical count-in are controlled from the metronome toolbar options. Play always hides the side panel; fullscreen uses the browser display and Escape leaves it without stopping playback.</p>
           </div>
         </section> : null}
         {activeTab === "general" ? <section id="settings-panel-general" className="settings-section midi-settings-section" role="tabpanel" aria-labelledby="settings-tab-general">
@@ -870,15 +947,17 @@ function SelectionSummary({ range, events }: { range?: ScoreSelectionRange; even
   );
 }
 
-function ExpectedEvent({ event, index, total, isComplete }: { event: ScoreEvent; index: number; total: number; isComplete: boolean }) {
+function ExpectedEvent({ event, index, total, isComplete, simulationDisabled, onSimulate }: { event: ScoreEvent; index: number; total: number; isComplete: boolean; simulationDisabled: boolean; onSimulate: () => void }) {
   const arpeggio = arpeggioSequenceForEvent(event);
   const chordNotes = arpeggio ? event.midiNotes.filter((note) => !arpeggio.includes(note)) : [];
+  const simulationLabel = arpeggio ? "Simulate current event" : event.midiNotes.length === 1 ? "Simulate current note" : "Simulate current chord";
   const arpeggioLabel = arpeggio ? `Arpeggio ${event.noteDetails.find((note) => note.arpeggio)?.arpeggio?.direction === "down" ? "↓" : "↑"}: ${formatNotes(arpeggio)}` : undefined;
   return (
     <div className="expected-event">
       <p className="event-count">Event {index + 1} of {total}{isComplete ? " complete" : ""}</p>
       <p className="note-set">{arpeggioLabel ? `${chordNotes.length ? `Chord ${formatNotes(chordNotes)} + ` : ""}${arpeggioLabel}` : formatNotes(event.midiNotes)}</p>
       <p className="muted">Measure {event.measureNumber}; start {event.startQuarter.toFixed(2)} quarters; duration {event.durationQuarters.toFixed(2)} quarters.</p>
+      <button type="button" className="simulate-event-button" onClick={onSimulate} disabled={simulationDisabled}>{simulationLabel}</button>
     </div>
   );
 }

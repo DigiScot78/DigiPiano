@@ -15,11 +15,13 @@ export function AudioControls({ settings, error, onSettingsChange, compact = fal
 
   const level = settings.muted || settings.volume === 0 ? "muted" : settings.volume < 45 ? "low" : "normal";
   return <div className={`audio-controls${compact ? " compact" : ""}`} ref={shellRef}>
-    <button type="button" className={settings.muted ? "active" : ""} aria-label="Score audio controls" aria-expanded={open} aria-haspopup="dialog" title={settings.muted ? "Score audio muted" : `Score audio ${settings.volume}%`} onClick={() => setOpen((current) => !current)}><SpeakerIcon level={level} /></button>
-    {open ? <div className="audio-popover" role="dialog" aria-label="Score audio settings">
-      <div className="audio-popover-heading"><strong>Score audio</strong><span>{settings.muted ? "Muted" : `${settings.volume}%`}</span></div>
-      <label>Volume<input aria-label="Score audio volume" type="range" min="0" max="100" step="1" value={settings.volume} onInput={(event) => onSettingsChange({ volume: Number(event.currentTarget.value), muted: false })} /></label>
+    <button type="button" className={settings.muted ? "active" : ""} aria-label="Sound controls" aria-expanded={open} aria-haspopup="dialog" title={settings.muted ? "Score and piano sound muted" : `Score and piano sound ${settings.volume}%`} onClick={() => setOpen((current) => !current)}><SpeakerIcon level={level} /></button>
+    {open ? <div className="audio-popover" role="dialog" aria-label="Sound settings">
+      <div className="audio-popover-heading"><strong>Score and piano</strong><span>{settings.muted ? "Muted" : `${settings.volume}%`}</span></div>
+      <label>Volume<input aria-label="Score and piano volume" type="range" min="0" max="100" step="1" value={settings.volume} onInput={(event) => onSettingsChange({ volume: Number(event.currentTarget.value), muted: false })} /></label>
       <button type="button" className="audio-mute-button" aria-pressed={settings.muted} onClick={() => onSettingsChange({ muted: !settings.muted })}>{settings.muted ? "Unmute" : "Mute"}</button>
+      <div className="audio-popover-heading audio-section-heading"><strong>Metronome</strong><span>{settings.metronomeEnabled ? `${settings.metronomeVolume}%` : "Off"}</span></div>
+      <label>Volume<input aria-label="Metronome volume" type="range" min="0" max="100" step="1" value={settings.metronomeVolume} onInput={(event) => onSettingsChange({ metronomeVolume: Number(event.currentTarget.value) })} /></label>
       {error ? <p className="audio-error" role="status">{error}</p> : null}
     </div> : null}
   </div>;

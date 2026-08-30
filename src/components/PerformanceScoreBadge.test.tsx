@@ -5,7 +5,7 @@ import type { ExercisePerformanceHistory } from "../playback/performanceScore";
 import { PerformanceScoreBadge } from "./PerformanceScoreBadge";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const completed = { score: 82, totalNotes: 20, hits: 18, misses: 2, badNotes: 6, wrongPitches: 4, mistimedNotes: 2, hitRate: 90, averageTimingErrorMs: 44, playMode: "play" as const, handMode: "right" as const, range: { startIndex: 2, endIndex: 8 } };
+const completed = { score: 82, totalNotes: 20, hits: 18, misses: 2, badNotes: 6, wrongPitches: 4, mistimedNotes: 2, hitRate: 90, averageTimingErrorMs: 44, playMode: "play" as const, handMode: "right" as const, tempoPercent: 75, range: { startIndex: 2, endIndex: 8 } };
 const history: ExercisePerformanceHistory = { attempts: 3, last: completed, best: { ...completed, score: 91 }, averageScore: 84, scoreTotal: 252, totalNotes: 60, hits: 52, misses: 8, badNotes: 10 };
 
 describe("PerformanceScoreBadge", () => {

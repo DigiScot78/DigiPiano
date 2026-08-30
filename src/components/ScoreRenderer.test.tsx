@@ -447,8 +447,8 @@ describe("ScoreRenderer", () => {
     const selectedRect = container.querySelector<HTMLElement>(".score-selection-rect.committed");
 
     expect(currentMarker).not.toBeNull();
-    expect(parseFloat(currentMarker?.style.width ?? "0")).toBe(24);
-    expect(parseFloat(currentMarker?.style.height ?? "0")).toBe(192);
+    expect(parseFloat(currentMarker?.style.width ?? "0")).toBe(30);
+    expect(parseFloat(currentMarker?.style.height ?? "0")).toBe(128);
     expect(parseFloat(selectedRect?.style.width ?? "0")).toBeLessThan(80);
   });
   it("anchors the current marker to graphical event positions after skipped hand events", async () => {

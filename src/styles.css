@@ -292,6 +292,16 @@ dd {
   font-weight: 700;
 }
 
+.simulate-event-button {
+  width: 100%;
+  margin-top: 0.35rem;
+  border-color: var(--app-border);
+  padding: 0.48rem 0.65rem;
+  background: var(--app-surface-muted);
+  color: var(--app-text);
+  font-size: 0.84rem;
+}
+
 .comparison {
   display: grid;
   gap: 0.25rem;
@@ -426,7 +436,7 @@ dd {
   z-index: 100;
   display: grid;
   place-items: center;
-  padding: 1rem;
+  padding: 20px;
   background: rgba(5, 10, 12, 0.58);
   backdrop-filter: blur(2px);
 }
@@ -440,7 +450,8 @@ dd {
   padding: 1rem;
   background: var(--app-surface-raised);
   box-shadow: 0 18px 55px var(--app-shadow);
-  max-height: min(48rem, calc(100vh - 2rem));
+  height: calc(100dvh - 40px);
+  max-height: calc(100dvh - 40px);
   overflow: hidden;
 }
 
@@ -473,7 +484,7 @@ dd {
   margin-bottom: 1rem;
 }
 
-.settings-workspace { display: grid; grid-template-columns: 13rem minmax(0, 1fr); min-height: 0; overflow: hidden; border: 1px solid var(--app-border); border-radius: 12px; background: color-mix(in srgb, var(--app-surface-muted) 56%, transparent); }
+.settings-workspace { display: grid; flex: 1 1 auto; grid-template-columns: 13rem minmax(0, 1fr); min-height: 0; overflow: hidden; border: 1px solid var(--app-border); border-radius: 12px; background: color-mix(in srgb, var(--app-surface-muted) 56%, transparent); }
 .settings-tabs { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.65rem; border-right: 1px solid var(--app-border); background: color-mix(in srgb, var(--app-surface-muted) 76%, transparent); }
 .settings-tabs button { display: grid; gap: 0.18rem; padding: 0.7rem 0.75rem; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--app-muted); text-align: left; }
 .settings-tabs button strong { color: var(--app-text); font-size: 0.9rem; }
@@ -674,11 +685,23 @@ dd {
 }
 
 .score-renderer {
+  position: relative;
+  z-index: 2;
   min-height: 36rem;
   box-sizing: border-box;
   padding: 1rem;
   background: transparent;
 }
+
+.score-playhead-underlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.score-current-event-wash { position: absolute; border-radius: 4px; pointer-events: none; }
 
 .score-selection-visual-layer,
 .score-selection-layer,
@@ -731,6 +754,7 @@ dd {
 }
 
 .playback-overlay.restart::before,
+.playback-overlay.countdown::before,
 .playback-overlay.note-wait::before,
 .playback-overlay.paused::before,
 .playback-overlay.start-cue::before { display: none; }
@@ -920,9 +944,18 @@ dd {
 .score-current-event-marker {
   border-left: 4px solid var(--score-outline);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--score-outline) 9%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--score-page) 88%, transparent), 0 2px 8px rgba(0, 0, 0, 0.2);
 }
+
+.score-marker-preview { position: relative; display: grid; grid-template-columns: 1fr 1fr; height: 8rem; overflow: hidden; border: 1px solid var(--app-border); border-radius: 10px; background: var(--score-page); color: var(--score-ink); }
+.score-marker-preview-lines { position: absolute; z-index: 2; top: 2.35rem; right: 1rem; left: 1rem; height: 3.2rem; background: repeating-linear-gradient(to bottom, currentColor 0 1px, transparent 1px .78rem); }
+.score-marker-preview-example { position: relative; }
+.score-marker-preview-example > span { position: absolute; z-index: 5; top: .45rem; left: 50%; color: var(--score-ink); font-size: .7rem; font-weight: 800; text-transform: uppercase; transform: translateX(-50%); }
+.score-marker-preview-wash { position: absolute; z-index: 1; top: .8rem; left: 50%; width: 2.5rem; height: 6.3rem; border-radius: 4px; transform: translateX(-60%); }
+.score-marker-preview-line { position: absolute; z-index: 4; top: .8rem; left: calc(50% - 1.5rem); width: 4px; height: 6.3rem; border-radius: 4px 0 0 4px; background: var(--score-outline); }
+.score-marker-preview-example b { position: absolute; z-index: 3; top: 3rem; left: 50%; font-size: 2rem; line-height: 1; transform: translateX(-30%); }
+.score-marker-settings { display: grid; gap: .75rem; }
+.score-marker-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.score-marker-settings-row input[type="range"] { flex: 1; }
 
 .score-event-hit-zone {
   position: absolute;
@@ -1117,7 +1150,7 @@ pre {
 .piano-toolbar-section { display: flex; align-items: center; min-width: 0; }
 .toolbar-left { justify-self: start; gap: 0.5rem; }
 .toolbar-centre { justify-self: center; }
-.toolbar-right { justify-self: end; }
+.toolbar-right { justify-self: end; gap: 0.25rem; }
 .toolbar-control-group { position: relative; display: flex; }
 .toolbar-icon-button { display: grid; width: 32px; height: 28px; place-items: center; padding: 0; border: 0; border-radius: 6px 0 0 6px; background: transparent; color: var(--app-text); }
 .toolbar-icon-button:hover { background: var(--app-surface-muted); }
@@ -1153,6 +1186,16 @@ pre {
 .toolbar-options-popover select { width: 100%; margin: 0; padding: 0.35rem 1.6rem 0.35rem 0.45rem; }
 .toolbar-options-popover .toolbar-checkbox { display: flex; align-items: center; gap: 0.4rem; }
 .toolbar-options-popover input[type="checkbox"] { width: auto; margin: 0; }
+.metronome-options-popover { left: auto; right: 0; width: 285px; }
+.score-practice-toolbar .metronome-options-popover { top: calc(100% + 8px); bottom: auto; }
+.metronome-options-heading { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.82rem; }
+.metronome-options-heading span { color: var(--app-accent); font-weight: 800; }
+.metronome-options-popover input[type="range"] { width: 100%; margin: 0; accent-color: var(--piano-expected); }
+.metronome-options-popover .tempo-reset-button { width: 100%; padding: 0.4rem 0.5rem; font-size: 0.76rem; }
+.count-in-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.3rem; margin: 0; border: 0; padding: 0; }
+.count-in-options legend { grid-column: 1 / -1; margin-bottom: 0.25rem; color: var(--app-muted); font-size: 0.76rem; }
+.count-in-options button { min-width: 0; padding: 0.38rem 0.25rem; font-size: 0.72rem; }
+.count-in-options button.selected { border-color: var(--app-accent); background: color-mix(in srgb, var(--app-accent) 16%, var(--app-surface)); color: var(--app-accent); }
 
 .piano-transport-controls { display: flex; gap: 3px; }
 .piano-transport-controls button {
@@ -1194,6 +1237,7 @@ pre {
 .score-practice-toolbar .audio-popover { top: calc(100% + 8px); bottom: auto; }
 .audio-popover-heading { display: flex; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.55rem; font-size: 0.78rem; }
 .audio-popover-heading span { color: var(--app-muted); }
+.audio-section-heading { margin-top: 0.75rem; border-top: 1px solid var(--app-border); padding-top: 0.65rem; }
 .audio-popover label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0.55rem; color: var(--app-muted); font-size: 0.76rem; }
 .audio-popover input[type="range"] { width: 100%; margin: 0; accent-color: var(--piano-expected); }
 .audio-popover .audio-mute-button { width: 100%; height: auto; margin-top: 0.55rem; padding: 0.35rem 0.5rem; border: 1px solid var(--app-border); background: var(--app-surface-muted); }
@@ -1213,7 +1257,7 @@ pre {
 .piano-warning button { padding: 0.25rem 0.5rem; }
 .piano-viewport { position: relative; z-index: 3; order: 1; overflow-x: auto; overflow-y: hidden; background: #11171a; scrollbar-gutter: stable; }
 .piano-viewport.width-fit { overflow-x: hidden; }
-.piano-keyboard { position: relative; height: 100%; }
+.piano-keyboard { position: relative; height: 100%; touch-action: none; user-select: none; }
 .height-small .piano-viewport { height: 112px; }
 .height-medium .piano-viewport { height: 168px; }
 .height-large .piano-viewport { height: 236px; }

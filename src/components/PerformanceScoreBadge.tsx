@@ -48,6 +48,7 @@ export function PerformanceScoreBadge({ history }: { history: ExercisePerformanc
       <dl className="performance-score-summary"><Stat label="Last" value={`${last.score}%`} /><Stat label="Best" value={`${history.best.score}%`} /><Stat label="Average" value={`${history.averageScore}%`} /></dl>
       <p className="performance-score-context">{MODE_LABELS[last.playMode]} · {HAND_LABELS[last.handMode]} · {last.range ? `Events ${last.range.startIndex + 1}–${last.range.endIndex + 1}` : "Full score"}</p>
       <dl className="performance-score-stats">
+        <Stat label="Tempo" value={`${last.tempoPercent}%`} />
         <Stat label="Completed attempts" value={history.attempts} />
         <Stat label="Expected notes" value={last.totalNotes} />
         <Stat label="Hits" value={last.hits} />

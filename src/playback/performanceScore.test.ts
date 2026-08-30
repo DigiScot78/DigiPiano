@@ -11,8 +11,8 @@ describe("performance scoring", () => {
   it("uses the balanced formula and separates pitch from timing mistakes", () => expect(calculatePerformanceScore(plan, [result(1, 60, 60, "correct", 0, -40), result(2, 64, 65, "wrong"), result(3, 62, 62, "wrong", 1, 400)])).toEqual({ score: 33, totalNotes: 3, hits: 1, misses: 2, badNotes: 2, wrongPitches: 1, mistimedNotes: 1, hitRate: 33.3, averageTimingErrorMs: 40 }));
   it("deduplicates written slots and correct completions", () => expect(calculatePerformanceScore({ ...plan, events: [event(0, [60, 60])] }, [result(1, 60, 60, "correct"), result(2, 60, 60, "correct")])).toMatchObject({ totalNotes: 1, hits: 1, score: 100 }));
   it("tracks last, best, averages, and cumulative totals", () => {
-    const first = { ...calculatePerformanceScore(plan, []), playMode: "play" as const, handMode: "both" as const };
-    const second = { ...calculatePerformanceScore(plan, [result(1, 60, 60, "correct")]), playMode: "play" as const, handMode: "both" as const };
+    const first = { ...calculatePerformanceScore(plan, []), playMode: "play" as const, handMode: "both" as const, tempoPercent: 100 };
+    const second = { ...calculatePerformanceScore(plan, [result(1, 60, 60, "correct")]), playMode: "play" as const, handMode: "both" as const, tempoPercent: 100 };
     const history = addPerformanceToHistory(addPerformanceToHistory(undefined, first), second);
     expect(history).toMatchObject({ attempts: 2, last: second, best: second, averageScore: 25, totalNotes: 6, hits: 1, misses: 5 });
   });
@@ -21,6 +21,7 @@ describe("performance scoring", () => {
     expect(exercisePerformanceKey("xml", "score.mxl", { startIndex: 1, endIndex: 2 }, "both", "play")).not.toBe(base);
     expect(exercisePerformanceKey("xml", "score.mxl", undefined, "right", "play")).not.toBe(base);
     expect(exercisePerformanceKey("xml", "score.mxl", undefined, "both", "practice")).not.toBe(base);
+    expect(exercisePerformanceKey("xml", "score.mxl", undefined, "both", "play", 75)).not.toBe(base);
     expect(exercisePerformanceKey("other", "score.mxl", undefined, "both", "play")).not.toBe(base);
   });
 });

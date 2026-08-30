@@ -62,22 +62,35 @@ describe("PianoPanel", () => {
     expect(container.querySelector('[data-midi-note="60"]')?.className).not.toContain("state-wrong");
   });
 
-  it("auditions clicked keys through an isolated audio engine", async () => {
+  it("sustains a held key and retriggers it after leaving and re-entering", async () => {
     const auditionEngine: ScoreAudioEngine = {
       prepare: vi.fn().mockResolvedValue(undefined),
       setOutput: vi.fn(),
       scheduleNote: vi.fn(),
+      stopNote: vi.fn(),
       cancelFuture: vi.fn(),
       stopAll: vi.fn(),
       close: vi.fn(),
     };
-    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={false} runMode="once" pauseOnNotes={false} canClearPerformance={false} audioSettings={{ muted: false, volume: 42 }} auditionEngine={auditionEngine} onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onPauseOnNotesChange={vi.fn()} onClearPerformance={vi.fn()} />));
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={false} runMode="once" pauseOnNotes={false} canClearPerformance={false} audioSettings={{ muted: false, volume: 42, metronomeEnabled: false, metronomeVolume: 55 }} auditionEngine={auditionEngine} onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onPauseOnNotesChange={vi.fn()} onClearPerformance={vi.fn()} />));
     const middleC = container.querySelector<HTMLElement>('[data-midi-note="60"]');
-    await act(async () => middleC?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })));
+    const d = container.querySelector<HTMLElement>('[data-midi-note="62"]');
+    await act(async () => middleC?.dispatchEvent(pointerEvent("pointerdown", 7, 0)));
     expect(auditionEngine.prepare).toHaveBeenCalledOnce();
     expect(auditionEngine.setOutput).toHaveBeenLastCalledWith(42, false);
-    expect(auditionEngine.scheduleNote).toHaveBeenCalledWith(expect.stringMatching(/^pointer:1:60$/), 60, 0, 650);
+    expect(auditionEngine.scheduleNote).toHaveBeenCalledWith(expect.stringMatching(/^pointer:1:60$/), 60, 0, 600_000);
     expect(middleC?.className).toContain("auditioning");
+    await act(async () => d?.dispatchEvent(pointerEvent("pointerover", 7)));
+    expect(auditionEngine.stopNote).toHaveBeenCalledWith(expect.stringMatching(/^pointer:1:60$/));
+    expect(auditionEngine.scheduleNote).toHaveBeenLastCalledWith(expect.stringMatching(/^pointer:2:62$/), 62, 0, 600_000);
+    await act(async () => middleC?.dispatchEvent(pointerEvent("pointerover", 7)));
+    expect(auditionEngine.scheduleNote).toHaveBeenLastCalledWith(expect.stringMatching(/^pointer:3:60$/), 60, 0, 600_000);
+    expect(auditionEngine.scheduleNote).toHaveBeenCalledTimes(3);
+    expect(auditionEngine.stopNote).toHaveBeenCalledTimes(2);
+    expect(middleC?.className).toContain("auditioning");
+    await act(async () => d?.dispatchEvent(pointerEvent("pointerup", 7)));
+    expect(auditionEngine.stopNote).toHaveBeenLastCalledWith(expect.stringMatching(/^pointer:3:60$/));
+    expect(d?.className).not.toContain("auditioning");
   });
 
   it("keeps the permanent toolbar when the piano is hidden", async () => {
@@ -146,7 +159,7 @@ describe("PianoPanel", () => {
     const onRunModeChange = vi.fn();
     const onPlayModeChange = vi.fn();
     const onClearPerformance = vi.fn();
-    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="paused" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} playMode="play" canClearPerformance={true} audioSettings={{ muted: false, volume: 65 }} onSettingsChange={vi.fn()} onTogglePlayback={onPlay} onStop={onStop} onReset={onReset} onSeek={vi.fn()} onRunModeChange={onRunModeChange} onPlayModeChange={onPlayModeChange} onClearPerformance={onClearPerformance} onAudioSettingsChange={vi.fn()} />));
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="paused" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} playMode="play" canClearPerformance={true} audioSettings={{ muted: false, volume: 65, metronomeEnabled: false, metronomeVolume: 55 }} onSettingsChange={vi.fn()} onTogglePlayback={onPlay} onStop={onStop} onReset={onReset} onSeek={vi.fn()} onRunModeChange={onRunModeChange} onPlayModeChange={onPlayModeChange} onClearPerformance={onClearPerformance} onAudioSettingsChange={vi.fn()} />));
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[aria-label="Resume score from piano"]')?.click();
       container.querySelector<HTMLButtonElement>('[aria-label="Stop score playback from piano"]')?.click();
@@ -210,3 +223,9 @@ describe("PianoPanel", () => {
     expect(container.querySelectorAll(".piano-key")).toHaveLength(0);
   });
 });
+
+function pointerEvent(type: string, pointerId: number, button = -1): MouseEvent {
+  const event = new MouseEvent(type, { bubbles: true, button });
+  Object.defineProperty(event, "pointerId", { value: pointerId });
+  return event;
+}

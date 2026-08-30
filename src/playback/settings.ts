@@ -2,7 +2,7 @@ export type PlayMode = "play" | "pause-each-note" | "practice";
 
 export interface PlaySettings {
   playMode: PlayMode;
-  countdownSeconds: number;
+  countInBars: 0 | 1 | 2;
   fallbackBpm: number;
   hitToleranceMs: number;
   showHitsWhilePlaying: boolean;
@@ -10,16 +10,19 @@ export interface PlaySettings {
 }
 
 export const PLAY_SETTINGS_KEY = "piano.play-settings";
-export const DEFAULT_PLAY_SETTINGS: PlaySettings = { playMode: "play", countdownSeconds: 3, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false };
+export const DEFAULT_PLAY_SETTINGS: PlaySettings = { playMode: "play", countInBars: 1, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false };
 
 export function readPlaySettings(storage: Pick<Storage, "getItem"> | undefined): PlaySettings {
   let value: unknown;
   try { value = JSON.parse(storage?.getItem(PLAY_SETTINGS_KEY) ?? "null"); } catch { return DEFAULT_PLAY_SETTINGS; }
   if (!value || typeof value !== "object") return DEFAULT_PLAY_SETTINGS;
-  const candidate = value as Partial<PlaySettings> & { autoHideSidebarOnPlay?: unknown };
+  const candidate = value as Partial<PlaySettings> & { autoHideSidebarOnPlay?: unknown; countdownSeconds?: unknown };
+  const countInBars = candidate.countInBars === 0 || candidate.countInBars === 1 || candidate.countInBars === 2
+    ? candidate.countInBars
+    : typeof candidate.countdownSeconds === "number" ? (candidate.countdownSeconds === 0 ? 0 : 1) : DEFAULT_PLAY_SETTINGS.countInBars;
   return {
     playMode: candidate.playMode === "pause-each-note" || candidate.playMode === "practice" ? candidate.playMode : "play",
-    countdownSeconds: integerInRange(candidate.countdownSeconds, 0, 10, 3),
+    countInBars,
     fallbackBpm: integerInRange(candidate.fallbackBpm, 30, 300, 120),
     hitToleranceMs: integerInRange(candidate.hitToleranceMs, 0, 1000, 250),
     showHitsWhilePlaying: typeof candidate.showHitsWhilePlaying === "boolean" ? candidate.showHitsWhilePlaying : false,

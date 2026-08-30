@@ -8,6 +8,7 @@ import type { AudioSettings } from "../audio/settings";
 import { PianoSynthEngine, type ScoreAudioEngine } from "../audio/pianoSynth";
 import { AudioControls } from "./AudioControls";
 import { PlayModeDialog } from "./PlayModeDialog";
+import { MetronomeControls } from "./MetronomeControls";
 import type { PlayMode } from "../playback/settings";
 
 export interface PianoPanelProps {
@@ -30,6 +31,10 @@ export interface PianoPanelProps {
   canClearPerformance: boolean;
   audioSettings?: AudioSettings;
   audioError?: string;
+  tempoPercent?: number;
+  writtenTempoBpm?: number;
+  tempoVaries?: boolean;
+  countInBars?: 0 | 1 | 2;
   auditionEngine?: ScoreAudioEngine;
   onPanelHeightChange?: (height: number) => void;
   onSettingsChange: (update: Partial<PianoSettings> | ((current: PianoSettings) => PianoSettings)) => void;
@@ -43,6 +48,8 @@ export interface PianoPanelProps {
   onPauseOnNotesChange?: (enabled: boolean) => void;
   onClearPerformance: () => void;
   onAudioSettingsChange?: (update: Partial<AudioSettings>) => void;
+  onTempoPercentChange?: (percent: number) => void;
+  onCountInBarsChange?: (bars: 0 | 1 | 2) => void;
 }
 
 const HEIGHT_LABELS: Record<PianoHeight, string> = { small: "Small", medium: "Medium", large: "Large" };
@@ -50,7 +57,7 @@ const WIDTH_LABELS: Record<PianoWidthMode, string> = { auto: "Auto", fit: "Fit",
 const SPEED_LABELS: Record<SynthesiaSpeed, string> = { 70: "Slow", 100: "Normal", 140: "Fast" };
 const ACTIVE_ROLL_PHASES = new Set<PlaybackPhase>(["countdown", "playing", "waiting-note", "paused"]);
 
-export function PianoPanel({ expectations, expectedNotes = [], heldNotes, ignoredCarriedNotes, settings, playbackPlan, playbackPhase, rollElapsedMs, playbackElapsedMs, displayedEventIndex, canPlay, runMode, pauseOnNotes, playMode = pauseOnNotes ? "pause-each-note" : "play", showProgressWhilePlaying = false, canClearPerformance, audioSettings, audioError, auditionEngine: providedAuditionEngine, onPanelHeightChange, onSettingsChange, onTogglePlayback, onStop, onReset, onSeek, onRunModeChange, onPlayModeChange, onShowProgressWhilePlayingChange, onClearPerformance, onAudioSettingsChange }: PianoPanelProps) {
+export function PianoPanel({ expectations, expectedNotes = [], heldNotes, ignoredCarriedNotes, settings, playbackPlan, playbackPhase, rollElapsedMs, playbackElapsedMs, displayedEventIndex, canPlay, runMode, pauseOnNotes, playMode = pauseOnNotes ? "pause-each-note" : "play", showProgressWhilePlaying = false, canClearPerformance, audioSettings, audioError, tempoPercent = 100, writtenTempoBpm = 120, tempoVaries = false, countInBars = 1, auditionEngine: providedAuditionEngine, onPanelHeightChange, onSettingsChange, onTogglePlayback, onStop, onReset, onSeek, onRunModeChange, onPlayModeChange, onShowProgressWhilePlayingChange, onClearPerformance, onAudioSettingsChange, onTempoPercentChange, onCountInBarsChange }: PianoPanelProps) {
   const range = rangeForSettings(settings);
   const keys = useMemo(() => generatePianoLayout(range.low, range.high), [range.high, range.low]);
   const blocks = useMemo(() => createSynthesiaBlocks(playbackPlan, keys), [keys, playbackPlan]);
@@ -63,7 +70,7 @@ export function PianoPanel({ expectations, expectedNotes = [], heldNotes, ignore
   const synthesiaControlRef = useRef<HTMLDivElement>(null);
   const resizeStartRef = useRef<{ y: number; height: number } | undefined>(undefined);
   const auditionIdRef = useRef(0);
-  const auditionTimersRef = useRef(new Map<number, number>());
+  const auditionGestureRef = useRef<{ pointerId: number; activeMidiNote?: number; activeVoiceId?: string } | undefined>(undefined);
   const [auditionEngine] = useState<ScoreAudioEngine>(() => providedAuditionEngine ?? new PianoSynthEngine());
   const [auditioningNotes, setAuditioningNotes] = useState<number[]>([]);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -106,8 +113,6 @@ export function PianoPanel({ expectations, expectedNotes = [], heldNotes, ignore
   }, [audioSettings?.muted, audioSettings?.volume, auditionEngine]);
 
   useEffect(() => () => {
-    for (const timer of auditionTimersRef.current.values()) window.clearTimeout(timer);
-    auditionTimersRef.current.clear();
     auditionEngine.close();
   }, [auditionEngine]);
 
@@ -123,20 +128,61 @@ export function PianoPanel({ expectations, expectedNotes = [], heldNotes, ignore
     return () => { document.removeEventListener("pointerdown", closeOnPointer); document.removeEventListener("keydown", closeOnEscape); };
   }, [openOptions]);
 
+  const releaseAuditionVoice = useCallback(() => {
+    const voiceId = auditionGestureRef.current?.activeVoiceId;
+    if (voiceId) {
+      if (auditionEngine.stopNote) auditionEngine.stopNote(voiceId);
+      else auditionEngine.stopAll();
+    }
+    if (auditionGestureRef.current) {
+      auditionGestureRef.current.activeMidiNote = undefined;
+      auditionGestureRef.current.activeVoiceId = undefined;
+    }
+    setAuditioningNotes([]);
+  }, [auditionEngine]);
+
   const auditionNote = useCallback((midiNote: number) => {
+    const gesture = auditionGestureRef.current;
+    if (!gesture || gesture.activeMidiNote === midiNote) return;
+    releaseAuditionVoice();
     const id = ++auditionIdRef.current;
-    setAuditioningNotes((current) => current.includes(midiNote) ? current : [...current, midiNote]);
-    const previousTimer = auditionTimersRef.current.get(midiNote);
-    if (previousTimer !== undefined) window.clearTimeout(previousTimer);
-    auditionTimersRef.current.set(midiNote, window.setTimeout(() => {
-      auditionTimersRef.current.delete(midiNote);
-      setAuditioningNotes((current) => current.filter((note) => note !== midiNote));
-    }, 160));
+    const voiceId = `pointer:${id}:${midiNote}`;
+    gesture.activeMidiNote = midiNote;
+    gesture.activeVoiceId = voiceId;
+    setAuditioningNotes([midiNote]);
     void auditionEngine.prepare().then(() => {
+      if (auditionGestureRef.current?.activeVoiceId !== voiceId) return;
       auditionEngine.setOutput(audioSettings?.volume ?? 65, audioSettings?.muted ?? false);
-      auditionEngine.scheduleNote(`pointer:${id}:${midiNote}`, midiNote, 0, 650);
+      auditionEngine.scheduleNote(voiceId, midiNote, 0, 600_000);
     }).catch(() => undefined);
-  }, [audioSettings?.muted, audioSettings?.volume, auditionEngine]);
+  }, [audioSettings?.muted, audioSettings?.volume, auditionEngine, releaseAuditionVoice]);
+
+  const beginAudition = useCallback((pointerId: number, midiNote: number) => {
+    if (auditionGestureRef.current) return;
+    auditionGestureRef.current = { pointerId };
+    auditionNote(midiNote);
+  }, [auditionNote]);
+
+  const enterAuditionKey = useCallback((pointerId: number, midiNote: number) => {
+    if (auditionGestureRef.current?.pointerId !== pointerId) return;
+    auditionNote(midiNote);
+  }, [auditionNote]);
+
+  const finishAudition = useCallback((pointerId: number) => {
+    if (auditionGestureRef.current?.pointerId !== pointerId) return;
+    releaseAuditionVoice();
+    auditionGestureRef.current = undefined;
+  }, [releaseAuditionVoice]);
+
+  useEffect(() => {
+    const finish = (event: PointerEvent) => finishAudition(event.pointerId);
+    document.addEventListener("pointerup", finish);
+    document.addEventListener("pointercancel", finish);
+    return () => {
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+    };
+  }, [finishAudition]);
 
   const measurePiano = useCallback(() => {
     const panel = panelRef.current;
@@ -288,6 +334,7 @@ export function PianoPanel({ expectations, expectedNotes = [], heldNotes, ignore
             <button type="button" aria-label="Reset score progress from piano" title="Reset" disabled={!canPlay} onClick={onReset}><ResetIcon /></button>
         </div>
         <div className="piano-toolbar-section toolbar-right">
+          {audioSettings && onAudioSettingsChange && onTempoPercentChange && onCountInBarsChange ? <MetronomeControls settings={audioSettings} tempoPercent={tempoPercent} tempoDisabled={playbackPhase !== "idle"} writtenTempoBpm={writtenTempoBpm} tempoVaries={tempoVaries} countInBars={countInBars} onAudioSettingsChange={onAudioSettingsChange} onTempoPercentChange={onTempoPercentChange} onCountInBarsChange={onCountInBarsChange} /> : null}
           {audioSettings && onAudioSettingsChange ? <AudioControls settings={audioSettings} error={audioError} onSettingsChange={onAudioSettingsChange} compact /> : null}
         </div>
       </div>
@@ -304,7 +351,7 @@ export function PianoPanel({ expectations, expectedNotes = [], heldNotes, ignore
             const state = correctHeldNotes.includes(key.midiNote) ? "correct" : resolvePianoKeyState(key.midiNote, visualExpected, visualHeld, visualCarried);
             const name = midiNoteToName(key.midiNote);
             const strikingHand = showBlocks ? strikingHandByNote.get(key.midiNote) : undefined;
-            return <div key={key.midiNote} data-midi-note={key.midiNote} className={`piano-key ${key.isBlack ? "black" : "white"} state-${state}${expectation && state === "expected" ? ` play-expected hand-${expectation.hand} expectation-${expectation.strength}` : ""}${strikingHand && !(expectation && state === "expected") ? ` synthesia-active hand-${strikingHand}` : ""}${auditioningNotes.includes(key.midiNote) ? " auditioning" : ""}`} style={{ left: `${key.x * 100}%`, width: `${key.width * 100}%` }} role="button" tabIndex={-1} aria-label={`${name}, ${state === "neutral" ? "not active" : state}`} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); auditionNote(key.midiNote); }}>
+            return <div key={key.midiNote} data-midi-note={key.midiNote} className={`piano-key ${key.isBlack ? "black" : "white"} state-${state}${expectation && state === "expected" ? ` play-expected hand-${expectation.hand} expectation-${expectation.strength}` : ""}${strikingHand && !(expectation && state === "expected") ? ` synthesia-active hand-${strikingHand}` : ""}${auditioningNotes.includes(key.midiNote) ? " auditioning" : ""}`} style={{ left: `${key.x * 100}%`, width: `${key.width * 100}%` }} role="button" tabIndex={-1} aria-label={`${name}, ${state === "neutral" ? "not active" : state}`} onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); beginAudition(event.pointerId, key.midiNote); }} onPointerEnter={(event) => enterAuditionKey(event.pointerId, key.midiNote)} onPointerUp={(event) => finishAudition(event.pointerId)} onPointerCancel={(event) => finishAudition(event.pointerId)}>
               {settings.showLabels ? <span>{name}</span> : null}
             </div>;
           })}

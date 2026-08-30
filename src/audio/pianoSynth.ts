@@ -2,6 +2,7 @@ export interface ScoreAudioEngine {
   prepare(): Promise<void>;
   setOutput(volume: number, muted: boolean): void;
   scheduleNote(id: string, midiNote: number, delayMs: number, durationMs: number): void;
+  stopNote?(id: string): void;
   cancelFuture(): void;
   stopAll(): void;
   close(): void;
@@ -102,6 +103,16 @@ export class PianoSynthEngine implements ScoreAudioEngine {
       for (const oscillator of voice.oscillators) safelyStop(oscillator, now + 0.05);
     }
     this.voices.clear();
+  }
+
+  stopNote(id: string): void {
+    const voice = this.voices.get(id);
+    if (!voice) return;
+    const now = this.context?.currentTime ?? 0;
+    voice.gain.gain.cancelScheduledValues(now);
+    voice.gain.gain.setTargetAtTime(0.0001, now, 0.012);
+    for (const oscillator of voice.oscillators) safelyStop(oscillator, now + 0.05);
+    this.voices.delete(id);
   }
 
   close(): void {

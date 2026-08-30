@@ -1,10 +1,12 @@
 export interface AudioSettings {
   muted: boolean;
   volume: number;
+  metronomeEnabled: boolean;
+  metronomeVolume: number;
 }
 
 export const AUDIO_SETTINGS_KEY = "piano.audio-settings";
-export const DEFAULT_AUDIO_SETTINGS: AudioSettings = { muted: false, volume: 65 };
+export const DEFAULT_AUDIO_SETTINGS: AudioSettings = { muted: false, volume: 65, metronomeEnabled: false, metronomeVolume: 55 };
 
 export function readAudioSettings(storage: Pick<Storage, "getItem"> | undefined): AudioSettings {
   let value: unknown;
@@ -14,6 +16,8 @@ export function readAudioSettings(storage: Pick<Storage, "getItem"> | undefined)
   return {
     muted: typeof candidate.muted === "boolean" ? candidate.muted : false,
     volume: integerInRange(candidate.volume, 0, 100, DEFAULT_AUDIO_SETTINGS.volume),
+    metronomeEnabled: typeof candidate.metronomeEnabled === "boolean" ? candidate.metronomeEnabled : false,
+    metronomeVolume: integerInRange(candidate.metronomeVolume, 0, 100, DEFAULT_AUDIO_SETTINGS.metronomeVolume),
   };
 }
 

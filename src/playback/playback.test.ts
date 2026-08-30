@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScoreEvent } from "../music/scoreTypes";
-import { activeExpectedNotes, activePlaybackEvent, createPlaybackPlan, gatePreviewStartMs, millisecondsBetweenQuarters, missedPerformanceNotes, playbackGates, scorePerformanceAttempt, scoreQuarterAtElapsed, shouldShowPerformanceResults } from "./playback";
+import { activeExpectedNotes, activePlaybackEvent, countInDisplayValue, createCountInPlan, createPlaybackPlan, gatePreviewStartMs, millisecondsBetweenQuarters, missedPerformanceNotes, playbackGates, scorePerformanceAttempt, scoreQuarterAtElapsed, shouldShowPerformanceResults, visualPlayheadAnchor } from "./playback";
 
 const events: ScoreEvent[] = [
   event("a", 0, 1, [60], 1),
@@ -10,6 +10,30 @@ const events: ScoreEvent[] = [
 
 describe("playback timing", () => {
   it("integrates elapsed time across tempo changes", () => expect(millisecondsBetweenQuarters(0, 4, [{ quarter: 2, bpm: 60, source: "sound" }], 120)).toBe(3000));
+  it("scales every written tempo without flattening changes", () => expect(millisecondsBetweenQuarters(0, 4, [{ quarter: 2, bpm: 60, source: "sound" }], 120, 50)).toBe(6000));
+  it("builds accented simple and grouped compound metronome beats", () => {
+    const measures = [
+      { index: 0, measureNumber: 1, startQuarter: 0, endQuarter: 4, beats: 4, beatType: 4 },
+      { index: 1, measureNumber: 2, startQuarter: 4, endQuarter: 7, beats: 6, beatType: 8 },
+    ];
+    const plan = createPlaybackPlan([event("first", 0, 1, [60], 1), event("last", 6, 1, [62], 1)], [], 120, "both", undefined, measures)!;
+    expect(plan.metronomeBeats?.map((beat) => [beat.scoreQuarter, beat.accent])).toEqual([[0, true], [1, false], [2, false], [3, false], [4, true], [5.5, false]]);
+  });
+  it("creates one-bar count-ins from the local grouped meter", () => {
+    const countIn = createCountInPlan(2000, 4, 1, [{ index: 0, measureNumber: 2, startQuarter: 4, endQuarter: 7, beats: 6, beatType: 8 }], [], 120);
+    expect(countIn.durationMs).toBe(1500);
+    expect(countIn.beats.map((beat) => ({ onsetMs: beat.onsetMs, beat: beat.beat, accent: beat.accent }))).toEqual([{ onsetMs: 500, beat: 1, accent: true }, { onsetMs: 1250, beat: 2, accent: false }]);
+  });
+  it("displays count-in beats in descending order", () => {
+    expect([1, 2, 3, 4].map((beat) => countInDisplayValue({ beat, beatsPerBar: 4 }))).toEqual([4, 3, 2, 1]);
+    expect([1, 2, 3].map((beat) => countInDisplayValue({ beat, beatsPerBar: 3 }))).toEqual([3, 2, 1]);
+  });
+  it("moves the visual playhead through empty beats between notes", () => {
+    const plan = createPlaybackPlan([event("first", 0, 1, [60], 1), event("last", 4, 1, [62], 1)], [], 120, "both", undefined, [{ index: 0, measureNumber: 1, startQuarter: 0, endQuarter: 4, beats: 4, beatType: 4 }])!;
+    expect(visualPlayheadAnchor(plan, 1250)).toEqual({ quarter: 2, kind: "rest" });
+    expect(visualPlayheadAnchor(plan, 1750)).toEqual({ quarter: 3, kind: "rest" });
+    expect(visualPlayheadAnchor(plan, 0)).toEqual({ quarter: 0, kind: "note", eventIndex: 0 });
+  });
   it("creates a hand-filtered selection plan", () => {
     const plan = createPlaybackPlan(events, [], 120, "right", { startIndex: 0, endIndex: 2 });
     expect(plan?.events.map((item) => item.eventIndex)).toEqual([0, 1]);
