@@ -6,6 +6,7 @@ export interface ScoreEventNote {
   pitchStep?: string;
   pitchAlter?: number;
   pitchOctave?: number;
+  fingerings?: number[];
   clef?: ScoreClef;
   arpeggio?: ScoreArpeggio;
 }

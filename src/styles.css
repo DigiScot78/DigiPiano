@@ -433,7 +433,7 @@ dd {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 1200;
   display: grid;
   place-items: center;
   padding: 20px;
@@ -455,8 +455,8 @@ dd {
   overflow: hidden;
 }
 
-.play-mode-backdrop { z-index: 1300; }
-.play-mode-dialog { width: min(560px, calc(100vw - 2rem)); padding: 1.25rem; border: 1px solid var(--app-border); border-radius: 16px; background: var(--app-surface); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
+.play-mode-backdrop { z-index: 1300; pointer-events: auto; color: var(--app-text); }
+.play-mode-dialog { width: min(560px, calc(100vw - 2rem)); padding: 1.25rem; border: 1px solid var(--app-border); border-radius: 16px; background: var(--app-surface); color: var(--app-text); box-shadow: 0 24px 70px rgba(0,0,0,.35); pointer-events: auto; }
 .play-mode-dialog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .play-mode-dialog h2, .play-mode-dialog p { margin: 0; }
 .play-mode-dialog header p { margin-top: .25rem; color: var(--app-muted); }
@@ -1096,7 +1096,7 @@ pre {
   right: 0.75rem;
   bottom: 0.75rem;
   left: 0.75rem;
-  z-index: 80;
+  z-index: 120;
   overflow: visible;
   border: 1px solid var(--app-border);
   border-radius: 9px;
@@ -1160,6 +1160,7 @@ pre {
 .toolbar-options-button { width: 22px; border-left: 1px solid var(--app-border); border-radius: 0 6px 6px 0; }
 .toolbar-options-button[aria-expanded="true"] { background: var(--app-surface-muted); }
 .toolbar-icon-button svg { width: 19px; height: 19px; fill: currentColor; }
+.learning-toggle { border-radius: 6px; }
 .toolbar-options-button svg { width: 15px; height: 15px; }
 .piano-toggle { width: 36px; }
 .piano-toggle svg { width: 25px; height: 18px; fill: currentColor; }
@@ -1188,6 +1189,101 @@ pre {
 .toolbar-options-popover select { width: 100%; margin: 0; padding: 0.35rem 1.6rem 0.35rem 0.45rem; }
 .toolbar-options-popover .toolbar-checkbox { display: flex; align-items: center; gap: 0.4rem; }
 .toolbar-options-popover input[type="checkbox"] { width: auto; margin: 0; }
+
+.learning-obscured { visibility: hidden; }
+.learning-panel {
+  position: fixed;
+  top: calc(var(--app-header-top) + var(--app-header-height) + 0.5rem);
+  right: 0.75rem;
+  left: 0.75rem;
+  z-index: 95;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: 0 8px 28px var(--app-shadow);
+}
+.learning-panel-header {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--app-border);
+  padding: 0.55rem 0.75rem 0;
+  background: var(--app-surface-raised);
+}
+.learning-panel-header p { margin: 0 0 0.1rem auto; color: var(--app-muted); font-size: 0.78rem; }
+.learning-tabs { display: flex; align-self: stretch; gap: 0.25rem; }
+.learning-tabs button {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 6px 6px 0 0;
+  padding: 0.55rem 1rem 0.65rem;
+  background: transparent;
+  color: var(--app-muted);
+  font-weight: 800;
+}
+.learning-tabs button:hover { background: var(--app-hover); color: var(--app-text); }
+.learning-tabs button[aria-selected="true"] { border-bottom-color: var(--app-accent); color: var(--app-accent); }
+.learning-chart-scroll { min-height: 0; overflow: auto; scrollbar-gutter: stable; }
+.learning-chart { width: 100%; min-width: 1720px; border-spacing: 0; table-layout: fixed; }
+.learning-chart th,
+.learning-chart td { border-right: 1px solid var(--app-border); border-bottom: 1px solid var(--app-border); }
+.learning-chart thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 0.55rem;
+  background: var(--app-surface-raised);
+  color: var(--app-muted);
+  font-size: 0.76rem;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.055em;
+}
+.learning-chart thead th:first-child { left: 0; z-index: 12; width: 4.5rem; text-align: center; }
+.learning-chart tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 4.5rem;
+  padding: 0.6rem;
+  background: var(--app-surface-raised);
+  color: var(--app-accent);
+  font-size: 1.05rem;
+  text-align: center;
+}
+.learning-chart td { height: 146px; padding: 0.5rem 0.65rem; background: var(--app-surface); }
+.learning-chart tr:last-child > * { border-bottom: 0; }
+.learning-chart tr > *:last-child { border-right: 0; }
+
+.mini-piano-diagram { display: block; width: min(100%, 390px); margin: 0 auto; }
+.learning-score-button { display: block; width: 100%; border: 2px solid transparent; border-radius: 7px; padding: 3px; background: transparent; color: inherit; }
+.learning-score-button:hover { border-color: color-mix(in srgb, var(--app-accent) 60%, transparent); background: var(--app-hover); }
+.learning-score-button:focus-visible { border-color: var(--app-accent); outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.mini-piano-keyboard { position: relative; width: 100%; height: 130px; overflow: hidden; border: 1px solid #5d666b; border-radius: 4px; background: #f7f8f8; box-shadow: inset 0 -5px 8px rgba(0, 0, 0, 0.08); }
+.mini-piano-key { position: absolute; top: 0; bottom: 0; border-right: 2px solid #000; background: #f7f8f8; }
+.mini-piano-key.black { z-index: 2; bottom: 38%; border: 1px solid #050708; border-radius: 0 0 3px 3px; background: #15191b; box-shadow: 0 2px 3px rgba(0, 0, 0, 0.38); }
+.mini-piano-diagram.scale .mini-piano-key.highlighted,
+:root[data-app-theme="dark"] .mini-piano-diagram.scale .mini-piano-key.highlighted { background: var(--learning-right); box-shadow: inset 0 -7px 12px color-mix(in srgb, var(--learning-right) 44%, transparent); }
+.mini-piano-diagram.chord .mini-piano-key.highlighted,
+:root[data-app-theme="dark"] .mini-piano-diagram.chord .mini-piano-key.highlighted { background: var(--learning-right); box-shadow: inset 0 -7px 12px color-mix(in srgb, var(--learning-right) 44%, transparent); }
+.mini-piano-key.black.highlighted { border-color: #172025; box-shadow: 0 2px 3px rgba(0, 0, 0, 0.38); }
+.mini-piano-finger-number { position: absolute; right: 50%; bottom: 5px; z-index: 3; border: 0; background: transparent; font-size: 0.82rem; font-weight: 950; line-height: 1; transform: translateX(50%); }
+.mini-piano-finger-number.hand-right { color: white; -webkit-text-stroke: 1px #000; paint-order: stroke fill; text-shadow: 0 1px 1px #000; }
+.mini-piano-finger-number.hand-left { bottom: 24px; color: #000; -webkit-text-stroke: 1px white; paint-order: stroke fill; text-shadow: 0 1px 1px white; }
+.mini-piano-key.black .mini-piano-finger-number { bottom: 4px; font-size: 0.74rem; }
+.mini-piano-key.black .mini-piano-finger-number.hand-left { bottom: 21px; }
+
+:root[data-app-theme="dark"] .mini-piano-keyboard { border-color: #8d979c; background: #e4e8e9; }
+:root[data-app-theme="dark"] .mini-piano-key.white { background: #e4e8e9; }
+:root[data-app-theme="dark"] .mini-piano-key.black { background: #0d1113; }
 .metronome-options-popover { left: auto; right: 0; width: 285px; }
 .score-practice-toolbar .metronome-options-popover { top: calc(100% + 8px); bottom: auto; }
 .metronome-options-heading { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.82rem; }
@@ -1373,10 +1469,14 @@ pre {
   cursor: pointer;
   user-select: none;
 }
-.piano-key.white { z-index: 1; height: 100%; border: 1px solid var(--piano-white-edge); border-top: 0; border-radius: 0 0 5px 5px; background: linear-gradient(90deg, #fff, var(--piano-white) 70%); color: #2b3034; }
+.piano-key.white { z-index: 1; height: 100%; border: 1px solid var(--piano-white-edge); border-top: 0; border-right: 2px solid #000; border-radius: 0 0 5px 5px; background: linear-gradient(90deg, #fff, var(--piano-white) 70%); color: #2b3034; }
 .piano-key.black { z-index: 3; height: 63%; border: 1px solid var(--piano-black-edge); border-top: 0; border-radius: 0 0 4px 4px; background: linear-gradient(90deg, #090b0d, var(--piano-black) 65%); color: #f4f7f8; box-shadow: 0 5px 7px rgba(0, 0, 0, 0.38); }
-.piano-key span { max-width: 100%; overflow: hidden; font-size: clamp(0.5rem, 0.75vw, 0.72rem); font-weight: 800; white-space: nowrap; text-shadow: 0 1px 1px rgba(255,255,255,.45); }
-.piano-key.black span { text-shadow: 0 1px 2px #000; }
+.piano-key .piano-note-name { max-width: 100%; overflow: hidden; font-size: clamp(0.5rem, 0.75vw, 0.72rem); font-weight: 800; white-space: nowrap; text-shadow: 0 1px 1px rgba(255,255,255,.45); }
+.piano-key.black .piano-note-name { text-shadow: 0 1px 2px #000; }
+.piano-finger-number { position: absolute; right: 50%; bottom: 21px; z-index: 7; overflow: visible; color: white; font-size: clamp(0.82rem, 1vw, 1rem); font-weight: 950; line-height: 1; transform: translateX(50%); -webkit-text-stroke: 1px #000; paint-order: stroke fill; text-shadow: 0 1px 1px #000; pointer-events: none; }
+.piano-finger-number.hand-left { bottom: 41px; color: #000; -webkit-text-stroke-color: white; text-shadow: 0 1px 1px white; }
+.piano-key.black .piano-finger-number { bottom: 18px; font-size: clamp(0.72rem, 0.9vw, 0.9rem); }
+.piano-key.black .piano-finger-number.hand-left { bottom: 35px; }
 .piano-key.state-expected { outline: 3px solid var(--piano-expected); outline-offset: -4px; box-shadow: inset 0 0 13px color-mix(in srgb, var(--piano-expected) var(--piano-glow-strength), transparent), 0 0 10px var(--piano-expected); }
 .piano-key.black.state-expected { box-shadow: inset 0 0 13px var(--piano-expected), 0 0 10px var(--piano-expected); }
 .piano-key.play-expected.hand-right { --play-key-colour: var(--play-right); }

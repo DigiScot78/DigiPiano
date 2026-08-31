@@ -88,8 +88,8 @@ export function metronomeBeatsToSchedule(beats: readonly Pick<MetronomeBeat, "id
     : metronomeBeatsInWindow(beats, elapsedMs, scheduled);
 }
 
-export function useMetronome(options: { plan?: PlaybackPlan; countInPlan: CountInPlan; phase: PlaybackPhase; rollElapsedMs: number; runId: number; settings: AudioSettings; engine?: MetronomeAudioEngine }) {
-  const { plan, countInPlan, phase, rollElapsedMs, runId, settings } = options;
+export function useMetronome(options: { plan?: PlaybackPlan; countInPlan: CountInPlan; phase: PlaybackPhase; rollElapsedMs: number; runId: number; settings: AudioSettings; suppressed?: boolean; engine?: MetronomeAudioEngine }) {
+  const { plan, countInPlan, phase, rollElapsedMs, runId, settings, suppressed = false } = options;
   const [engine] = useState<MetronomeAudioEngine>(() => options.engine ?? new WebAudioMetronomeEngine());
   const scheduledRef = useRef(new Set<string>());
   const previousPhaseRef = useRef<PlaybackPhase>(phase);
@@ -97,6 +97,7 @@ export function useMetronome(options: { plan?: PlaybackPlan; countInPlan: CountI
   const beats = useMemo(() => phase === "countdown" ? countInPlan.beats : plan?.metronomeBeats ?? [], [countInPlan.beats, phase, plan?.metronomeBeats]);
 
   const prepare = useCallback(async () => {
+    if (suppressed) return;
     try {
       await engine.prepare();
       engine.setVolume(settings.metronomeVolume);
@@ -104,7 +105,7 @@ export function useMetronome(options: { plan?: PlaybackPlan; countInPlan: CountI
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Metronome audio could not be started.");
     }
-  }, [engine, settings.metronomeVolume]);
+  }, [engine, settings.metronomeVolume, suppressed]);
 
   useEffect(() => engine.setVolume(settings.metronomeVolume), [engine, settings.metronomeVolume]);
   useEffect(() => {
@@ -114,7 +115,7 @@ export function useMetronome(options: { plan?: PlaybackPlan; countInPlan: CountI
   useEffect(() => {
     const previousPhase = previousPhaseRef.current;
     previousPhaseRef.current = phase;
-    if (!settings.metronomeEnabled || (phase !== "countdown" && phase !== "playing")) {
+    if (suppressed || !settings.metronomeEnabled || (phase !== "countdown" && phase !== "playing")) {
       engine.stopAll();
       scheduledRef.current.clear();
       return;
@@ -127,7 +128,7 @@ export function useMetronome(options: { plan?: PlaybackPlan; countInPlan: CountI
       engine.scheduleClick(`${runId}:${beat.id}`, beat.onsetMs - rollElapsedMs, beat.accent);
       scheduledRef.current.add(beat.id);
     }
-  }, [beats, engine, phase, rollElapsedMs, runId, settings.metronomeEnabled]);
+  }, [beats, engine, phase, rollElapsedMs, runId, settings.metronomeEnabled, suppressed]);
   useEffect(() => () => engine.close(), [engine]);
   return { prepare, error };
 }

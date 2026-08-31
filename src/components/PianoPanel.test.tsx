@@ -137,10 +137,54 @@ describe("PianoPanel", () => {
     expect(container.querySelector('[role="dialog"][aria-label="Piano options"]')).toBeNull();
   });
 
+  it("enables training fingerings and renders both hand styles above note names", async () => {
+    const onChange = vi.fn();
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} fingerings={[{ midiNote: 60, hand: "left", finger: 1 }, { midiNote: 60, hand: "right", finger: 1 }, { midiNote: 62, hand: "right", finger: 2 }]} settings={{ ...DEFAULT_PIANO_SETTINGS, showLabels: true, showTrainingFingerings: true }} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} onSettingsChange={onChange} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onClearPerformance={vi.fn()} />));
+    const middleC = container.querySelector('[data-midi-note="60"]');
+    expect(middleC?.querySelector(".piano-finger-number.hand-left")?.textContent).toBe("1");
+    expect(middleC?.querySelector(".piano-finger-number.hand-right")?.textContent).toBe("1");
+    expect(middleC?.querySelector(".piano-note-name")?.textContent).toBe("C4");
+    expect(middleC?.getAttribute("aria-label")).toContain("left hand finger 1");
+    expect(middleC?.getAttribute("aria-label")).toContain("right hand finger 1");
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Piano options"]')?.click());
+    const checks = container.querySelectorAll<HTMLInputElement>('.piano-options-popover input[type="checkbox"]');
+    expect(checks[1]?.checked).toBe(true);
+    await act(async () => checks[1]?.click());
+    expect(onChange).toHaveBeenCalledWith({ showTrainingFingerings: false });
+  });
+
   it("keeps Synthesia visible independently when the piano is hidden", async () => {
     await render({ ...DEFAULT_PIANO_SETTINGS, pianoVisible: false, synthesiaEnabled: true });
     expect(container.querySelector(".synthesia-panel")).not.toBeNull();
     expect(container.querySelector('[aria-label="Toggle Synthesia"]')?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("keeps Learning idle-only and mutually exclusive with Synthesia", async () => {
+    const onSettingsChange = vi.fn();
+    const onLearningOpenChange = vi.fn();
+    const props = { expectedNotes: [], heldNotes: [], ignoredCarriedNotes: [], settings: { ...DEFAULT_PIANO_SETTINGS, synthesiaEnabled: true }, playbackPhase: "idle" as const, rollElapsedMs: 0, playbackElapsedMs: 0, displayedEventIndex: 0, canPlay: true, runMode: "once" as const, pauseOnNotes: false, canClearPerformance: false, onSettingsChange, onLearningOpenChange, onTogglePlayback: vi.fn(), onReset: vi.fn(), onSeek: vi.fn(), onRunModeChange: vi.fn(), onClearPerformance: vi.fn() };
+    await act(async () => root.render(<PianoPanel {...props} />));
+    const learning = container.querySelector<HTMLButtonElement>('[aria-label="Toggle Learning"]');
+    expect(learning?.getAttribute("aria-pressed")).toBe("false");
+    expect(learning?.disabled).toBe(false);
+    await act(async () => learning?.click());
+    expect(onSettingsChange).toHaveBeenCalledWith({ synthesiaEnabled: false });
+    expect(onLearningOpenChange).toHaveBeenCalledWith(true);
+
+    onSettingsChange.mockClear();
+    onLearningOpenChange.mockClear();
+    await act(async () => root.render(<PianoPanel {...props} settings={{ ...DEFAULT_PIANO_SETTINGS, synthesiaEnabled: false }} learningOpen />));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Toggle Synthesia"]')?.click());
+    expect(onLearningOpenChange).toHaveBeenCalledWith(false);
+    expect(onSettingsChange).toHaveBeenCalledWith({ synthesiaEnabled: true });
+
+    await act(async () => root.render(<PianoPanel {...props} settings={{ ...DEFAULT_PIANO_SETTINGS, pianoVisible: false, synthesiaEnabled: false }} learningOpen />));
+    expect(container.querySelectorAll(".piano-key")).toHaveLength(0);
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Toggle Learning"]')?.getAttribute("aria-pressed")).toBe("true");
+
+    await act(async () => root.render(<PianoPanel {...props} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="paused" learningOpen={false} />));
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Toggle Learning"]')?.disabled).toBe(true);
   });
 
   it("renders transparent lanes and toggles Synthesia from the piano toolbar", async () => {
@@ -193,6 +237,15 @@ describe("PianoPanel", () => {
     expect(container.querySelector(".toolbar-right .audio-controls")).not.toBeNull();
   });
 
+  it("keeps Stop available while a loop waits to restart", async () => {
+    const onStop = vi.fn();
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="waiting-restart" rollElapsedMs={500} playbackElapsedMs={500} displayedEventIndex={0} canPlay={true} runMode="loop" pauseOnNotes={false} canClearPerformance={true} onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onStop={onStop} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onClearPerformance={vi.fn()} />));
+    const stop = container.querySelector<HTMLButtonElement>('[aria-label="Stop score playback from piano"]');
+    expect(stop?.disabled).toBe(false);
+    await act(async () => stop?.click());
+    expect(onStop).toHaveBeenCalledOnce();
+  });
+
   it("allows active runs to change mode and exposes the live progress preference", async () => {
     const onPlayModeChange = vi.fn();
     const onShowProgressChange = vi.fn();
@@ -201,13 +254,13 @@ describe("PianoPanel", () => {
     expect(modeButton?.querySelector("path")).not.toBeNull();
     expect(modeButton?.querySelector("circle")).toBeNull();
     await act(async () => modeButton?.click());
-    const practice = container.querySelector<HTMLInputElement>('input[value="practice"]');
+    const practice = document.querySelector<HTMLInputElement>('input[value="practice"]');
     expect(practice?.disabled).toBe(false);
-    const progress = container.querySelector<HTMLInputElement>('.play-mode-toolbar input[type="checkbox"]');
+    const progress = document.querySelector<HTMLInputElement>('.play-mode-toolbar input[type="checkbox"]');
     expect(progress?.checked).toBe(false);
     await act(async () => progress?.click());
     expect(onShowProgressChange).toHaveBeenCalledWith(true);
-    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.querySelector('.play-mode-dialog[role="dialog"]')).not.toBeNull();
     await act(async () => practice?.click());
     expect(onPlayModeChange).toHaveBeenCalledWith("practice");
   });

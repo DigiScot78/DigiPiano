@@ -316,6 +316,7 @@ function handleNote(
       pitchAlter: pitch.alter,
       pitchOctave: pitch.octave,
       clef: { ...(context.state.clefsByStaff.get(staff) ?? defaultClefForStaff(staff)) },
+      ...fingeringsFromNote(note),
       ...arpeggioFromNote(note),
     });
   } else if (event.noteDetails.length === 0) {
@@ -328,6 +329,14 @@ function handleNote(
   if (!isChordMember) {
     context.state.currentQuarter += durationQuarters;
   }
+}
+
+function fingeringsFromNote(note: Element): { fingerings?: number[] } {
+  const fingerings = [...new Set(Array.from(note.querySelectorAll("notations technical fingering"))
+    .map((element) => element.textContent?.trim() ?? "")
+    .filter((value) => /^[1-5]$/.test(value))
+    .map(Number))];
+  return fingerings.length > 0 ? { fingerings } : {};
 }
 
 function arpeggioFromNote(note: Element): { arpeggio?: ScoreEventNote["arpeggio"] } {

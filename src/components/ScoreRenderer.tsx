@@ -810,7 +810,7 @@ function StopIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d
 function ResetIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.1 7.2A8 8 0 1 1 4 14h2.1a6 6 0 1 0 .8-5.2L10 12H2V4l3.1 3.2Z" /></svg>; }
 function ClearIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 6 1-2h8l1 2h4v2H3V6h4Zm1 4h8l-1 10H9L8 10Z" /></svg>; }
 
-function canStop(phase: PlaybackPhase | undefined): boolean { return phase === "countdown" || phase === "playing" || phase === "waiting-note" || phase === "paused"; }
+function canStop(phase: PlaybackPhase | undefined): boolean { return phase === "countdown" || phase === "playing" || phase === "waiting-note" || phase === "paused" || phase === "waiting-restart"; }
 
 function handModeAfterToggle(mode: HandMode, hand: "right" | "left"): HandMode {
   if (hand === "right") {

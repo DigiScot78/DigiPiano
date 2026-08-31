@@ -768,7 +768,7 @@ describe("ScoreRenderer", () => {
     expect(onHandModeChange).toHaveBeenCalledTimes(1);
     expect(onHandModeChange).toHaveBeenCalledWith("both");
     expect(onRunModeChange).toHaveBeenCalledWith("loop");
-    const practice = container.querySelector<HTMLInputElement>('input[value="practice"]');
+    const practice = document.querySelector<HTMLInputElement>('input[value="practice"]');
     await act(async () => practice?.click());
     expect(onPlayModeChange).toHaveBeenCalledWith("practice");
   });
@@ -782,6 +782,21 @@ describe("ScoreRenderer", () => {
       await Promise.resolve();
     });
     expect(container.querySelector(".playback-overlay.note-wait")?.textContent).toContain("Waiting forC4 + E4");
+  });
+
+  it("keeps the score Stop control available while a loop waits to restart", async () => {
+    const onStop = vi.fn();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} playbackPhase="waiting-restart" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onStop={onStop} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+    const stop = container.querySelector<HTMLButtonElement>('[aria-label="Stop score playback"]');
+    expect(stop?.disabled).toBe(false);
+    await act(async () => stop?.click());
+    expect(onStop).toHaveBeenCalledOnce();
   });
 
   it("configures OSMD with the selected score page colours", async () => {

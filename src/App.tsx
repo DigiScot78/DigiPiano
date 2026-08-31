@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScoreRenderer, type CompletedNoteFeedback } from "./components/ScoreRenderer";
 import { PianoPanel } from "./components/PianoPanel";
+import { LearningPanel, type LearningTab } from "./components/LearningPanel";
 import { PerformanceScoreBadge } from "./components/PerformanceScoreBadge";
 import {
   advanceWhenSatisfied,
@@ -24,11 +25,13 @@ import { midiNoteToName } from "./music/note";
 import { loadScoreFile } from "./music/musicXmlLoader";
 import { parseMusicXmlTimeline } from "./music/musicXmlParser";
 import type { LoadedScore, ParsedScore, ScoreEvent, ScoreNoteInspection } from "./music/scoreTypes";
+import type { LearningItem } from "./learning/catalog";
+import { generateLearningScore } from "./learning/generatedScore";
 import { useMidiInput } from "./hooks/useMidiInput";
 import { resolvedScoreMarkerColor, type AppTheme, type ScoreMarkerSettings, type ScoreTheme } from "./theme/appearance";
 import { useAppearanceSettings } from "./theme/useAppearanceSettings";
 import { usePianoSettings } from "./piano/usePianoSettings";
-import { pianoExpectationsForEvents, type PianoSettings } from "./piano/piano";
+import { pianoExpectationsForEvents, pianoFingeringsForEvents, type PianoSettings } from "./piano/piano";
 import { usePlaySettings } from "./playback/usePlaySettings";
 import { usePlaybackSession } from "./playback/usePlaybackSession";
 import type { PlayMode, PlaySettings } from "./playback/settings";
@@ -88,6 +91,9 @@ function App() {
   const [scoreStatus, setScoreStatus] = useState<"empty" | "loading" | "ready" | "error">("empty");
   const [renderError, setRenderError] = useState<string | undefined>();
   const [seeNoteEnabled, setSeeNoteEnabled] = useState(false);
+  const [learningOpen, setLearningOpen] = useState(false);
+  const [learningTab, setLearningTab] = useState<LearningTab>("chords");
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(44);
   const [inspectedNote, setInspectedNote] = useState<ScoreNoteInspection | undefined>();
   const [simulatedHeldNotes, setSimulatedHeldNotes] = useState<number[]>([]);
   const [selectedRange, setSelectedRange] = useState<ScoreSelectionRange | undefined>();
@@ -117,11 +123,15 @@ function App() {
   const untimedPractice = play.settings.playMode === "practice";
   const playback = usePlaybackSession({ events: parsedScore.events, tempoChanges: parsedScore.tempoChanges, measureTimings: parsedScore.measureTimings, tempoPercent, handMode, range: selectedRange, runMode, pauseOnNotes, untimedPractice, settings: play.settings });
   const scoreAudio = useScoreAudio({ plan: playback.plan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, audioStartElapsedMs: playback.audioStartElapsedMs, runId: playback.runId, pauseOnNotes, nextPendingGateOnsetMs: playback.nextPendingGateOnsetMs, settings: audioSettings.settings });
-  const metronome = useMetronome({ plan: playback.plan, countInPlan: playback.countInPlan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, runId: playback.runId, settings: audioSettings.settings });
+  const metronome = useMetronome({ plan: playback.plan, countInPlan: playback.countInPlan, phase: playback.phase, rollElapsedMs: playback.rollElapsedMs, runId: playback.runId, settings: audioSettings.settings, suppressed: untimedPractice });
   const { phase: playbackPhase, handleHeldNotesChange, handleMidiNoteOn } = playback;
 
   useEffect(() => {
     if (playbackPhase !== "idle" && playbackPhase !== "paused") setInspectedNote(undefined);
+  }, [playbackPhase]);
+
+  useEffect(() => {
+    if (playbackPhase !== "idle") setLearningOpen(false);
   }, [playbackPhase]);
 
   useEffect(() => { setInspectedNote(undefined); }, [loadedScore?.xmlText]);
@@ -176,6 +186,7 @@ function App() {
       return;
     }
     setSimulatedHeldNotes([]);
+    setLearningOpen(false);
     setCarriedCompletedNotes([]);
     clearCompletedFeedback();
     const isFreshStart = playback.phase === "idle";
@@ -257,7 +268,7 @@ function App() {
     const noteDetails = gatedEvents.flatMap((event) => event.noteDetails).filter((detail) => gate.expectedNotes.includes(detail.midiNote));
     return { ...first, id: `gate:${gate.onsetMs}`, midiNotes: gate.expectedNotes, noteDetails, staffNumbers: [...new Set(noteDetails.map((detail) => detail.staffNumber))], voiceNumbers: [...new Set(noteDetails.map((detail) => detail.voiceNumber))], sourceNoteIds: noteDetails.map((detail) => detail.sourceNoteId) };
   }, [playback.gate, playback.plan]);
-  const gateFeedbackMarkers = useMemo(() => feedbackMarkersForHeldNotes(combinedHeldNotes, gateFeedbackEvent, handMode), [combinedHeldNotes, gateFeedbackEvent, handMode]);
+  const gateFeedbackMarkers = useMemo(() => feedbackMarkersForHeldNotes(combinedHeldNotes, gateFeedbackEvent, handMode, playback.carriedNotes), [combinedHeldNotes, gateFeedbackEvent, handMode, playback.carriedNotes]);
   const waitingForGateNotes = useMemo(() => {
     const gate = playback.gate;
     if (!gate) return [];
@@ -281,6 +292,7 @@ function App() {
     const expectedEvents = playback.plan?.events.filter((item) => playback.expectedEventIndices.includes(item.eventIndex)).map((item) => item.event) ?? [];
     return pianoExpectationsForEvents(expectedEvents, playback.expectedNotes, playback.expectationStrength);
   }, [expectedEvent, playback.expectationStrength, playback.expectedEventIndices, playback.expectedNotes, playback.phase, playback.plan]);
+  const pianoFingerings = useMemo(() => pianoFingeringsForEvents(parsedScore.events, handMode), [handMode, parsedScore.events]);
 
   const practiceOptions = useMemo(() => ({ handMode, runMode, range: selectedRange }), [handMode, runMode, selectedRange]);
 
@@ -295,12 +307,7 @@ function App() {
     clearCompletedFeedback();
   }, [clearCompletedFeedback, handMode, parsedScore.events, selectedRange]);
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
+  const beginScoreReplacement = () => {
     setScoreError(undefined);
     setRenderError(undefined);
     setScoreStatus("loading");
@@ -310,24 +317,55 @@ function App() {
     setSimulatedHeldNotes([]);
     setSelectedRange(undefined);
     setTempoPercent(100);
+    setCarriedCompletedNotes([]);
+    setLastPracticeAttempt(undefined);
     playback.stop();
     playback.clearResults();
     clearCompletedFeedback();
+  };
+
+  const installScore = (score: LoadedScore, targetHandMode: HandMode) => {
+    const parsed = parseMusicXmlTimeline(score.xmlText);
+    console.debug("[score-import]", importDiagnosticsForDebug(parsed));
+    setHandMode(targetHandMode);
+    setLoadedScore(score);
+    setParsedScore(parsed);
+    const nextState = initialLearningState(firstPlayableIndex(parsed.events, targetHandMode) ?? 0);
+    learningStateRef.current = nextState;
+    setLearningState(nextState);
+  };
+
+  const failScoreReplacement = (error: unknown) => {
+    setLoadedScore(null);
+    setParsedScore({ events: [], restEvents: [], tempoChanges: [], measureTimings: [], warnings: [] });
+    setScoreStatus("error");
+    setScoreError(error instanceof Error ? error.message : "Score loading failed.");
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    beginScoreReplacement();
 
     try {
       const score = await loadScoreFile(file);
-      const parsed = parseMusicXmlTimeline(score.xmlText);
-      console.debug("[score-import]", importDiagnosticsForDebug(parsed));
-      setLoadedScore(score);
-      setParsedScore(parsed);
-      const nextState = initialLearningState(firstPlayableIndex(parsed.events, handMode) ?? 0);
-      learningStateRef.current = nextState;
-      setLearningState(nextState);
+      installScore(score, handMode);
     } catch (error) {
-      setLoadedScore(null);
-      setParsedScore({ events: [], restEvents: [], tempoChanges: [], measureTimings: [], warnings: [] });
-      setScoreStatus("error");
-      setScoreError(error instanceof Error ? error.message : "Score loading failed.");
+      failScoreReplacement(error);
+    }
+  };
+
+  const handleLearningItemActivate = (item: LearningItem) => {
+    const generated = generateLearningScore(item);
+    if (!generated) return;
+    beginScoreReplacement();
+    try {
+      installScore(generated.loadedScore, generated.handMode);
+      setLearningOpen(false);
+    } catch (error) {
+      failScoreReplacement(error);
+      setLearningOpen(false);
     }
   };
 
@@ -592,7 +630,7 @@ function App() {
       </header>
       {fullscreenNotice ? <div className="playback-notice" role="status">{fullscreenNotice}</div> : null}
 
-      <section className={`score-layout${sidebarVisible ? "" : " sidebar-collapsed"}`}>
+      <section className={`score-layout${sidebarVisible ? "" : " sidebar-collapsed"}${learningOpen ? " learning-obscured" : ""}`} aria-hidden={learningOpen || undefined} inert={learningOpen || undefined}>
         <div className="score-frame">
           {scoreStatus === "empty" ? <div className="score-placeholder">No score loaded.</div> : null}
           {scoreStatus === "loading" ? <div className="score-placeholder">Loading score...</div> : null}
@@ -710,11 +748,13 @@ function App() {
           </div>
         </aside> : null}
       </section>
-      {!sidebarVisible ? <button type="button" className="sidebar-restore-button" aria-label="Restore side panel" title="Restore side panel" onClick={() => { setSidebarHiddenForPlayback(false); workspace.setSettings({ sidebarOpen: true }); }}><SidebarRestoreIcon /><span>Panel</span></button> : null}
+      {!sidebarVisible && !learningOpen ? <button type="button" className="sidebar-restore-button" aria-label="Restore side panel" title="Restore side panel" onClick={() => { setSidebarHiddenForPlayback(false); workspace.setSettings({ sidebarOpen: true }); }}><SidebarRestoreIcon /><span>Panel</span></button> : null}
+      {learningOpen ? <LearningPanel tab={learningTab} bottomOffset={bottomPanelHeight + 20} rightColor={piano.settings.playRightColor} onTabChange={setLearningTab} onItemActivate={handleLearningItemActivate} onClose={() => setLearningOpen(false)} /> : null}
       <PianoPanel
         expectations={pianoExpectations}
+        fingerings={pianoFingerings}
         heldNotes={combinedHeldNotes}
-        ignoredCarriedNotes={playback.phase === "idle" ? carriedCompletedNotes : []}
+        ignoredCarriedNotes={playback.phase === "idle" ? carriedCompletedNotes : playback.carriedNotes}
         settings={piano.settings}
         playbackPlan={playback.plan}
         playbackPhase={playback.phase}
@@ -734,8 +774,11 @@ function App() {
         tempoVaries={tempoVaries}
         countInBars={play.settings.countInBars}
         seeNoteEnabled={seeNoteEnabled}
+        learningOpen={learningOpen}
         inspectedMidiNote={inspectedNote?.midiNote}
         onSeeNoteToggle={toggleSeeNote}
+        onLearningOpenChange={setLearningOpen}
+        onPanelHeightChange={setBottomPanelHeight}
         onSettingsChange={piano.setSettings}
         onTogglePlayback={togglePlaybackWithAudio}
         onStop={stopPlayback}

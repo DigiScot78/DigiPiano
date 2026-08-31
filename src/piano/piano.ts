@@ -1,4 +1,5 @@
 import type { ScoreEvent } from "../music/scoreTypes";
+import type { HandMode } from "../learning/matcher";
 
 export type PianoRangePreset = "88" | "76" | "61" | "49" | "custom";
 export type PianoHeight = "small" | "medium" | "large";
@@ -7,6 +8,7 @@ export type SynthesiaSpeed = 70 | 100 | 140;
 export type PianoKeyState = "neutral" | "expected" | "correct" | "wrong" | "carried";
 export type PianoExpectationStrength = "preview" | "active";
 export interface PianoExpectation { midiNote: number; hand: "right" | "left" | "both"; strength: PianoExpectationStrength }
+export interface PianoFingering { midiNote: number; hand: "right" | "left"; finger: number }
 
 export interface PianoSettings {
   pianoVisible: boolean;
@@ -16,6 +18,7 @@ export interface PianoSettings {
   synthesiaShowNoteLabels: boolean;
   synthesiaSpeed: SynthesiaSpeed;
   showLabels: boolean;
+  showTrainingFingerings: boolean;
   rangePreset: PianoRangePreset;
   customLow: number;
   customHigh: number;
@@ -65,6 +68,7 @@ export const DEFAULT_PIANO_SETTINGS: PianoSettings = {
   synthesiaShowNoteLabels: false,
   synthesiaSpeed: 100,
   showLabels: false,
+  showTrainingFingerings: false,
   rangePreset: "88",
   customLow: PIANO_MIN_NOTE,
   customHigh: PIANO_MAX_NOTE,
@@ -144,6 +148,19 @@ export function pianoExpectationsForEvents(events: readonly ScoreEvent[], expect
   return [...expected].sort((a, b) => a - b).map((midiNote) => ({ midiNote, hand: hands.get(midiNote) ?? "right", strength }));
 }
 
+export function pianoFingeringsForEvents(events: readonly ScoreEvent[], handMode: HandMode): PianoFingering[] {
+  const values = new Map<string, PianoFingering>();
+  for (const detail of events.flatMap((event) => event.noteDetails)) {
+    const hand = detail.staffNumber === 2 ? "left" : "right";
+    if (handMode !== "both" && handMode !== hand) continue;
+    for (const finger of detail.fingerings ?? []) {
+      if (!Number.isInteger(finger) || finger < 1 || finger > 5) continue;
+      values.set(`${detail.midiNote}:${hand}:${finger}`, { midiNote: detail.midiNote, hand, finger });
+    }
+  }
+  return [...values.values()].sort((a, b) => a.midiNote - b.midiNote || (a.hand === b.hand ? a.finger - b.finger : a.hand === "left" ? -1 : 1));
+}
+
 export function readPianoSettings(storage: Pick<Storage, "getItem"> | undefined): PianoSettings {
   let value: unknown;
   try { value = JSON.parse(storage?.getItem(PIANO_SETTINGS_KEY) ?? "null"); } catch { return DEFAULT_PIANO_SETTINGS; }
@@ -160,6 +177,7 @@ export function readPianoSettings(storage: Pick<Storage, "getItem"> | undefined)
     synthesiaShowNoteLabels: typeof candidate.synthesiaShowNoteLabels === "boolean" ? candidate.synthesiaShowNoteLabels : false,
     synthesiaSpeed: isOneOf(candidate.synthesiaSpeed, [70, 100, 140]) ? candidate.synthesiaSpeed : 100,
     showLabels: typeof candidate.showLabels === "boolean" ? candidate.showLabels : false,
+    showTrainingFingerings: typeof candidate.showTrainingFingerings === "boolean" ? candidate.showTrainingFingerings : false,
     rangePreset: isOneOf(candidate.rangePreset, ["88", "76", "61", "49", "custom"]) ? candidate.rangePreset : "88",
     customLow: range.low,
     customHigh: range.high,

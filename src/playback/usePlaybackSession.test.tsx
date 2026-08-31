@@ -190,6 +190,38 @@ describe("usePlaybackSession", () => {
     expect(session.completedRun).toMatchObject({ id: 1, results: [{ result: "wrong" }, { result: "correct" }, { result: "correct" }] });
   });
 
+  it("skips the configured countdown and start cue in untimed practice", async () => {
+    await render(1, "once", false, scoreEvents, true);
+    await act(async () => session.start());
+    expect(session.phase).toBe("waiting-note");
+    expect(session.countInPlan).toEqual({ durationMs: 0, beats: [] });
+    expect(session.countdownValue).toBeUndefined();
+    expect(session.showStartCue).toBe(false);
+  });
+
+  it("carries completed gate notes until they are physically released", async () => {
+    const next = { ...scoreEvent, id: "b", startQuarter: 1, midiNotes: [64], sourceNoteIds: ["64"], noteDetails: [{ ...scoreEvent.noteDetails[0], midiNote: 64, sourceNoteId: "64" }] };
+    await render(0, "once", false, [scoreEvent, next], true);
+    await act(async () => session.start());
+    await act(async () => session.handleMidiNoteOn(60, 1100, [60]));
+    expect(session.expectedNotes).toEqual([64]);
+    expect(session.carriedNotes).toEqual([60]);
+    await act(async () => session.handleHeldNotesChange([60]));
+    expect(session.carriedNotes).toEqual([60]);
+    await act(async () => session.handleHeldNotesChange([]));
+    expect(session.carriedNotes).toEqual([]);
+  });
+
+  it("can stop from loop restart waiting", async () => {
+    await render(0, "loop");
+    await act(async () => session.start());
+    await act(async () => nextFrame?.(1600));
+    expect(session.phase).toBe("waiting-restart");
+    await act(async () => session.stopAtPlanStart());
+    expect(session.phase).toBe("idle");
+    expect(session.elapsedMs).toBe(0);
+  });
+
   it("can enable for the next onset and disable an active gate", async () => {
     const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 1 }];
     let setPauseOnNotes!: (enabled: boolean) => void;

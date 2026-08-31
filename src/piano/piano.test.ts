@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PIANO_SETTINGS, generatePianoLayout, pianoExpectationsForEvents, PIANO_RANGES, PIANO_SETTINGS_KEY, rangeForSettings, readPianoSettings, resolvePianoKeyState, validateCustomRange } from "./piano";
+import { DEFAULT_PIANO_SETTINGS, generatePianoLayout, pianoExpectationsForEvents, pianoFingeringsForEvents, PIANO_RANGES, PIANO_SETTINGS_KEY, rangeForSettings, readPianoSettings, resolvePianoKeyState, validateCustomRange } from "./piano";
 
 describe("piano geometry", () => {
   it.each([["88", 21, 108, 88], ["76", 28, 103, 76], ["61", 36, 96, 61], ["49", 36, 84, 49]] as const)("builds the %s-key range", (preset, low, high, count) => {
@@ -24,6 +24,23 @@ describe("piano state and persistence", () => {
       { midiNote: 60, hand: "both", strength: "preview" },
     ]);
   });
+  it("collects, deduplicates, and filters whole-score fingerings by hand", () => {
+    const event = { id: "fingers", partId: "P1", measureNumber: 1, startQuarter: 0, durationQuarters: 1, midiNotes: [60, 62], staffNumbers: [1, 2], voiceNumbers: ["1", "2"], sourceNoteIds: ["rh", "lh", "repeat"], noteDetails: [
+      { midiNote: 60, staffNumber: 1, voiceNumber: "1", sourceNoteId: "rh", fingerings: [1, 3, 0] },
+      { midiNote: 60, staffNumber: 2, voiceNumber: "2", sourceNoteId: "lh", fingerings: [1, 5, 6] },
+      { midiNote: 60, staffNumber: 1, voiceNumber: "1", sourceNoteId: "repeat", fingerings: [1] },
+      { midiNote: 62, staffNumber: 1, voiceNumber: "1", sourceNoteId: "next", fingerings: [2] },
+    ] };
+    expect(pianoFingeringsForEvents([event], "both")).toEqual([
+      { midiNote: 60, hand: "left", finger: 1 },
+      { midiNote: 60, hand: "left", finger: 5 },
+      { midiNote: 60, hand: "right", finger: 1 },
+      { midiNote: 60, hand: "right", finger: 3 },
+      { midiNote: 62, hand: "right", finger: 2 },
+    ]);
+    expect(pianoFingeringsForEvents([event], "left").every((item) => item.hand === "left")).toBe(true);
+    expect(pianoFingeringsForEvents([event], "right").every((item) => item.hand === "right")).toBe(true);
+  });
   it("prioritises carried, correct, wrong, then expected states", () => {
     expect(resolvePianoKeyState(60, [60], [60], [60])).toBe("carried");
     expect(resolvePianoKeyState(60, [60], [60], [])).toBe("correct");
@@ -40,10 +57,15 @@ describe("piano state and persistence", () => {
     expect(settings.synthesiaHeight).toBe(DEFAULT_PIANO_SETTINGS.synthesiaHeight);
     expect(settings.synthesiaOpaque).toBe(false);
     expect(settings.synthesiaShowNoteLabels).toBe(false);
+    expect(settings.showTrainingFingerings).toBe(false);
     expect(settings.playRightColor).toBe(DEFAULT_PIANO_SETTINGS.playRightColor);
     expect(settings.playLeftColor).toBe(DEFAULT_PIANO_SETTINGS.playLeftColor);
     expect(settings.synthesiaRightColor).toBe(DEFAULT_PIANO_SETTINGS.synthesiaRightColor);
     expect(settings.synthesiaLeftColor).toBe(DEFAULT_PIANO_SETTINGS.synthesiaLeftColor);
+  });
+  it("persists the training fingering preference", () => {
+    expect(readPianoSettings({ getItem: () => JSON.stringify({ showTrainingFingerings: true }) }).showTrainingFingerings).toBe(true);
+    expect(readPianoSettings({ getItem: () => JSON.stringify({ showTrainingFingerings: "yes" }) }).showTrainingFingerings).toBe(false);
   });
   it("persists a valid See Note colour and rejects an invalid one", () => {
     expect(readPianoSettings({ getItem: () => JSON.stringify({ seeNoteColor: "#7654ab" }) }).seeNoteColor).toBe("#7654ab");
