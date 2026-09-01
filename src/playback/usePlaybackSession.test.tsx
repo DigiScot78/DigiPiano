@@ -15,6 +15,7 @@ describe("usePlaybackSession", () => {
   let root: Root;
   let session!: ReturnType<typeof usePlaybackSession>;
   let nextFrame: FrameRequestCallback | undefined;
+  let setHarnessRunMode!: (mode: "once" | "loop") => void;
 
   beforeEach(() => {
     container = document.createElement("div");
@@ -28,7 +29,9 @@ describe("usePlaybackSession", () => {
 
   async function render(countdownSeconds = 0, runMode: "once" | "loop" = "once", pauseOnNotes = false, events = scoreEvents, untimedPractice = false, range?: ScoreSelectionRange) {
     function Harness() {
-      session = usePlaybackSession({ events, tempoChanges: [], handMode: "both", range, runMode, pauseOnNotes, untimedPractice, settings: { playMode: untimedPractice ? "practice" : "play", countInBars: countdownSeconds === 0 ? 0 : 1, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
+      const [liveRunMode, setLiveRunMode] = useState(runMode);
+      setHarnessRunMode = setLiveRunMode;
+      session = usePlaybackSession({ events, tempoChanges: [], handMode: "both", range, runMode: liveRunMode, pauseOnNotes, untimedPractice, settings: { playMode: untimedPractice ? "practice" : "play", countInBars: countdownSeconds === 0 ? 0 : 1, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
       return null;
     }
     await act(async () => root.render(<Harness />));
@@ -68,6 +71,30 @@ describe("usePlaybackSession", () => {
     await act(async () => session.handleMidiNoteOn(60, 3600));
     expect(session.phase).toBe("countdown");
     expect(session.results).toHaveLength(0);
+  });
+
+  it("tracks active attempt time, excludes pauses, and scopes ideal time to the actual start", async () => {
+    const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 2 }];
+    await render(0, "once", true, repeated);
+    await act(async () => session.startAtEvent(1));
+    expect(session.idealDurationMs).toBe(500);
+    await act(async () => nextFrame?.(1400));
+    expect(session.activeDurationMs).toBe(400);
+    vi.mocked(performance.now).mockReturnValue(1400);
+    await act(async () => session.pause());
+    expect(session.activeDurationMs).toBe(400);
+    await act(async () => nextFrame?.(2400));
+    expect(session.activeDurationMs).toBe(400);
+  });
+
+  it("leaves loop restart waiting immediately when loop is switched off", async () => {
+    await render(0, "loop");
+    await act(async () => session.start());
+    await act(async () => nextFrame?.(1501));
+    expect(session.phase).toBe("waiting-restart");
+    await act(async () => setHarnessRunMode("once"));
+    expect(session.phase).toBe("idle");
+    expect(session.completedRun).toBeDefined();
   });
 
   it("records wrong and correct attempts while waiting at a note gate", async () => {
@@ -134,6 +161,69 @@ describe("usePlaybackSession", () => {
     expect(session.phase).toBe("waiting-note");
     expect(session.elapsedMs).toBe(500);
     expect(session.gate?.expectedNotes).toEqual([60]);
+  });
+
+  it("uses a correct early green hit to pass the next single-note gate after release", async () => {
+    const repeated = [scoreEvent, { ...scoreEvent, id: "b", startQuarter: 1 }];
+    await render(0, "once", true, repeated);
+    await act(async () => session.start());
+    await act(async () => session.handleMidiNoteOn(60, 1000, [60]));
+    await act(async () => session.handleHeldNotesChange([]));
+
+    await act(async () => session.handleMidiNoteOn(60, 1400, [60]));
+    expect(session.results.at(-1)).toMatchObject({ eventIndex: 1, result: "correct", timingErrorMs: -100 });
+    expect(session.nextPendingGateOnsetMs).toBeUndefined();
+    await act(async () => session.handleHeldNotesChange([]));
+    await act(async () => nextFrame?.(1501));
+
+    expect(session.phase).toBe("playing");
+    expect(session.gate).toBeUndefined();
+  });
+
+  it("does not let a wrong or too-early note bypass the upcoming gate", async () => {
+    const next = { ...scoreEvent, id: "b", startQuarter: 1, midiNotes: [64], sourceNoteIds: ["64"], noteDetails: [{ ...scoreEvent.noteDetails[0], midiNote: 64, sourceNoteId: "64" }] };
+    await render(0, "once", true, [scoreEvent, next]);
+    await act(async () => session.start());
+    await act(async () => session.handleMidiNoteOn(60, 1000, [60]));
+    await act(async () => session.handleMidiNoteOn(64, 1200, [64]));
+    expect(session.results.at(-1)?.result).toBe("wrong");
+    await act(async () => nextFrame?.(1501));
+    expect(session.phase).toBe("waiting-note");
+    expect(session.gate?.expectedNotes).toEqual([64]);
+  });
+
+  it("carries only held early chord progress into the gate", async () => {
+    const chord = { ...scoreEvent, id: "chord", startQuarter: 1, midiNotes: [64, 67], sourceNoteIds: ["64", "67"], noteDetails: [64, 67].map((midiNote) => ({ ...scoreEvent.noteDetails[0], midiNote, sourceNoteId: String(midiNote) })) };
+    await render(0, "once", true, [scoreEvent, chord]);
+    await act(async () => session.start());
+    await act(async () => session.handleMidiNoteOn(60, 1000, [60]));
+    await act(async () => session.handleMidiNoteOn(64, 1350, [64]));
+    await act(async () => session.handleHeldNotesChange([]));
+    await act(async () => session.handleMidiNoteOn(67, 1400, [67]));
+    await act(async () => nextFrame?.(1501));
+
+    expect(session.phase).toBe("waiting-note");
+    expect(session.gate?.satisfiedNotes).toEqual([67]);
+    await act(async () => session.handleMidiNoteOn(64, 1550, [64, 67]));
+    expect(session.phase).toBe("playing");
+  });
+
+  it("accepts an ordered early arpeggio across released notes", async () => {
+    const rolled = { ...scoreEvent, id: "rolled", startQuarter: 1, midiNotes: [64, 67, 71], sourceNoteIds: ["64", "67", "71"], noteDetails: [64, 67, 71].map((midiNote) => ({ ...scoreEvent.noteDetails[0], midiNote, sourceNoteId: String(midiNote), arpeggio: { direction: "up" as const } })) };
+    await render(0, "once", true, [scoreEvent, rolled]);
+    await act(async () => session.start());
+    await act(async () => session.handleMidiNoteOn(60, 1000, [60]));
+    await act(async () => session.handleMidiNoteOn(64, 1300, [64]));
+    await act(async () => session.handleHeldNotesChange([]));
+    await act(async () => session.handleMidiNoteOn(67, 1350, [67]));
+    await act(async () => session.handleHeldNotesChange([]));
+    await act(async () => session.handleMidiNoteOn(71, 1400, [71]));
+    await act(async () => session.handleHeldNotesChange([]));
+    await act(async () => nextFrame?.(1501));
+
+    expect(session.phase).toBe("playing");
+    expect(session.gate).toBeUndefined();
+    expect(session.results.slice(-3).every((result) => result.result === "correct")).toBe(true);
   });
 
   it("previews only the next unopened gate after completing a sustained note", async () => {

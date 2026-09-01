@@ -1,5 +1,6 @@
 export interface ScoreEventNote {
   midiNote: number;
+  durationQuarters?: number;
   staffNumber: number;
   voiceNumber: string;
   sourceNoteId: string;

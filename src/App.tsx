@@ -3,6 +3,7 @@ import { ScoreRenderer, type CompletedNoteFeedback } from "./components/ScoreRen
 import { PianoPanel } from "./components/PianoPanel";
 import { LearningPanel, type LearningTab } from "./components/LearningPanel";
 import { PerformanceScoreBadge } from "./components/PerformanceScoreBadge";
+import { ScoreTimeDisplay } from "./components/ScoreTimeDisplay";
 import {
   advanceWhenSatisfied,
   advanceArpeggioProgress,
@@ -37,7 +38,7 @@ import { usePlaybackSession } from "./playback/usePlaybackSession";
 import type { PlayMode, PlaySettings } from "./playback/settings";
 import { PlaybackFullscreenController } from "./playback/fullscreen";
 import { shouldShowPerformanceResults } from "./playback/playback";
-import { addPerformanceToHistory, calculatePerformanceScore, exercisePerformanceKey, type ExercisePerformanceHistory } from "./playback/performanceScore";
+import { addPerformanceToHistory, calculatePerformanceScore, exercisePerformanceKey, paceGraceMs, type ExercisePerformanceHistory } from "./playback/performanceScore";
 import { useAudioSettings } from "./audio/useAudioSettings";
 import { useScoreAudio } from "./audio/useScoreAudio";
 import { useMetronome } from "./audio/metronome";
@@ -149,7 +150,7 @@ function App() {
     const completed = playback.completedRun;
     if (!completed || !loadedScore || completed.id === processedCompletionIdRef.current) return;
     processedCompletionIdRef.current = completed.id;
-    const score = calculatePerformanceScore(completed.plan, completed.results);
+    const score = calculatePerformanceScore(completed.plan, completed.results, completed.activeDurationMs, completed.playMode);
     const summary = { ...score, playMode: completed.playMode, handMode: completed.handMode, tempoPercent: completed.tempoPercent, ...(completed.range ? { range: completed.range } : {}) };
     const key = exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, completed.range, completed.handMode, completed.playMode, completed.tempoPercent);
     setPerformanceHistory((current) => {
@@ -615,12 +616,16 @@ function App() {
   return (
     <main className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px`, "--score-margin": `${scoreMargin}px` } as React.CSSProperties}>
       <header className="app-header">
-        <div className="app-brand"><h1>Piano Learning</h1>{currentPerformanceHistory ? <PerformanceScoreBadge history={currentPerformanceHistory} /> : null}</div>
-        {loadedScore ? <div className="score-heading" aria-live="polite">
-          <strong title={loadedScore.info.title}>{loadedScore.info.title}</strong>
-          {loadedScore.info.subtitle ? <span title={loadedScore.info.subtitle}>{loadedScore.info.subtitle}</span> : null}
+        <div className="app-brand"><h1>Piano Learning</h1></div>
+        {loadedScore ? <div className="score-heading">
+          <div className="score-identity" aria-live="polite">
+            <strong title={loadedScore.info.title}>{loadedScore.info.title}</strong>
+            {loadedScore.info.subtitle ? <span title={loadedScore.info.subtitle}>{loadedScore.info.subtitle}</span> : null}
+          </div>
         </div> : <div />}
         <div className="app-header-actions">
+          {currentPerformanceHistory ? <PerformanceScoreBadge history={currentPerformanceHistory} /> : null}
+          {loadedScore && playback.plan ? <ScoreTimeDisplay remainingMs={playback.remainingDurationMs} idealMs={playback.idealDurationMs} graceMs={play.settings.playMode === "play" ? 0 : paceGraceMs(playback.idealDurationMs)} /> : null}
           <label className="settings-button header-open-score-button" aria-label="Open score" title="Open score">
             <OpenScoreIcon />
             <input type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />

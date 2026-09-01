@@ -1,75 +1,92 @@
 import type { HandMode } from "./matcher";
-import type { LearningItem } from "./catalog";
+import { CHORD_CATALOG, SCALE_CATALOG, learningItem, type LearningItem, type ScaleMode } from "./catalog";
 import type { LoadedScore } from "../music/scoreTypes";
 
-export interface GeneratedLearningScore {
-  loadedScore: LoadedScore;
-  handMode: HandMode;
-}
+export interface GeneratedLearningScore { loadedScore: LoadedScore; handMode: HandMode }
+type LessonPitch = { step: string; alter: number; octave: number };
 
-type LessonPitch = { step: string; alter?: number; octaveOffset?: number };
-type SupportedRoot = "c" | "d";
-
-const ROOTS: Record<SupportedRoot, { label: string; fifths: number; scale: LessonPitch[]; chord: LessonPitch[] }> = {
-  c: { label: "C", fifths: 0, scale: [{ step: "C" }, { step: "D" }, { step: "E" }, { step: "F" }, { step: "G" }, { step: "A" }, { step: "B" }, { step: "C", octaveOffset: 1 }], chord: [{ step: "C" }, { step: "E" }, { step: "G" }] },
-  d: { label: "D", fifths: 2, scale: [{ step: "D" }, { step: "E" }, { step: "F", alter: 1 }, { step: "G" }, { step: "A" }, { step: "B" }, { step: "C", alter: 1, octaveOffset: 1 }, { step: "D", octaveOffset: 1 }], chord: [{ step: "D" }, { step: "F", alter: 1 }, { step: "A" }] },
-};
-const RIGHT_ASCENDING = [1, 2, 3, 1, 2, 3, 4, 5];
-const RIGHT_DESCENDING = [4, 3, 2, 1, 3, 2, 1];
-const LEFT_ASCENDING = [5, 4, 3, 2, 1, 3, 2, 1];
-const LEFT_DESCENDING = [2, 3, 1, 2, 3, 4, 5];
+const NATURAL_PITCH_CLASS: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+const MAJOR_FIFTHS: Record<string, number> = { C: 0, D: 2, E: 4, F: -1, G: 1, A: 3, B: 5 };
+const MINOR_FIFTHS: Record<string, number> = { C: -3, D: -1, E: 1, F: -4, G: -2, A: 0, B: 2 };
+const catalogById = new Map([...CHORD_CATALOG, ...SCALE_CATALOG].map((item) => [item.id, item]));
 
 export function generateLearningScore(item: LearningItem): GeneratedLearningScore | undefined {
   if (!canGenerateLearningScore(item)) return undefined;
-  const root = item.root.id as SupportedRoot;
-  return item.kind === "chord" ? chordScore(root) : scaleScore(root);
+  return item.kind === "chord" ? chordScore(item) : scaleScore(item);
 }
 
 export function canGenerateLearningScore(item: LearningItem): boolean {
-  return (item.root.id === "c" || item.root.id === "d") && item.quality === "major";
+  const catalogItem = catalogById.get(item.id);
+  return Boolean(catalogItem
+    && catalogItem.kind === item.kind
+    && catalogItem.root.id === item.root.id
+    && catalogItem.quality === item.quality
+    && arraysEqual(catalogItem.midiNotes, item.midiNotes)
+    && arraysEqual(catalogItem.writtenNotes, item.writtenNotes)
+    && (item.kind === "chord" || (arraysEqual(catalogItem.rightFingering, item.rightFingering) && arraysEqual(catalogItem.leftFingering, item.leftFingering))));
 }
 
-function chordScore(root: SupportedRoot): GeneratedLearningScore {
-  const config = ROOTS[root];
-  const title = `${config.label} Major Chord Practice`;
+function chordScore(item: LearningItem): GeneratedLearningScore {
+  const title = `${item.root.label} ${titleQuality(item.quality)} Chord Practice`;
+  const fifths = keyFifthsForItem(item);
+  const explicitAccidentals = usesNeutralTheoreticalSignature(item);
+  const pitches = lessonPitches(item.writtenNotes, item.midiNotes);
   const measures = Array.from({ length: 4 }, (_, index) => `<measure number="${index + 1}">
-    ${index === 0 ? attributes(config.fifths) : ""}
-    ${config.chord.map((pitch, pitchIndex) => pitchedNote(pitch, 4, 8, "whole", 1, { chord: pitchIndex > 0 })).join("\n    ")}
+    ${index === 0 ? attributes(fifths) : ""}
+    ${pitches.map((pitch, pitchIndex) => pitchedNote(pitch, 8, "whole", 1, { chord: pitchIndex > 0, explicitAccidental: explicitAccidentals })).join("\n    ")}
     <backup><duration>8</duration></backup>
     ${restNote(8, "whole", 2)}
   </measure>`).join("\n");
-  return result(title, `${root}-major-chord-practice.musicxml`, "right", measures);
+  return result(title, `${item.root.id}-${item.quality}-chord-practice.musicxml`, "right", measures);
 }
 
-function scaleScore(root: SupportedRoot): GeneratedLearningScore {
-  const config = ROOTS[root];
-  const title = `${config.label} Major Scale – Both Hands`;
-  const measureOne = scaleMeasure(config, 1, true);
-  const measureTwo = scaleMeasure(config, 2, false);
-  return result(title, `${root}-major-scale.musicxml`, "both", `${measureOne}\n${measureTwo}`);
+function scaleScore(item: LearningItem): GeneratedLearningScore {
+  const title = `${item.root.label} ${titleQuality(item.quality)} Scale – Both Hands`;
+  const fifths = keyFifthsForItem(item);
+  const descendingItem = item.quality === "melodic-minor" ? learningItem(item.root.id, "scale", "natural-minor") ?? item : item;
+  const explicitAccidentals = usesNeutralTheoreticalSignature(item);
+  const measures = `${scaleMeasure(item, 1, true, fifths, explicitAccidentals)}\n${scaleMeasure(descendingItem, 2, false, fifths, explicitAccidentals)}`;
+  return result(title, `${item.root.id}-${item.quality}-scale.musicxml`, "both", measures);
 }
 
-function scaleMeasure(config: (typeof ROOTS)[SupportedRoot], number: number, ascending: boolean): string {
-  const right = scaleNotes(config.scale, 1, 4, ascending, ascending ? RIGHT_ASCENDING : RIGHT_DESCENDING);
-  const left = scaleNotes(config.scale, 2, 3, ascending, ascending ? LEFT_ASCENDING : LEFT_DESCENDING);
+function scaleMeasure(item: LearningItem, number: number, ascending: boolean, fifths: number, explicitAccidentals: boolean): string {
+  const right = scaleNotes(item, 1, 0, ascending, item.rightFingering ?? [], explicitAccidentals);
+  const left = scaleNotes(item, 2, -12, ascending, item.leftFingering ?? [], explicitAccidentals);
   return `<measure number="${number}">
-    ${number === 1 ? attributes(config.fifths) : ""}
+    ${number === 1 ? attributes(fifths) : ""}
     ${right}
     <backup><duration>8</duration></backup>
     ${left}
   </measure>`;
 }
 
-function scaleNotes(scale: LessonPitch[], staff: 1 | 2, lowOctave: number, ascending: boolean, fingers: number[]): string {
-  const pitches = ascending ? scale : scale.slice(0, -1).reverse();
-  return pitches.map((pitch, index) => {
-    const final = !ascending && index === pitches.length - 1;
-    const octave = lowOctave + (pitch.octaveOffset ?? 0);
-    return pitchedNote(pitch, octave, final ? 2 : 1, final ? "quarter" : "eighth", staff, {
+function scaleNotes(item: LearningItem, staff: 1 | 2, midiOffset: number, ascending: boolean, ascendingFingers: number[], explicitAccidentals: boolean): string {
+  const pitches = lessonPitches(item.writtenNotes, item.midiNotes.map((note) => note + midiOffset));
+  const orderedPitches = ascending ? pitches : pitches.slice(0, -1).reverse();
+  const fingers = ascending ? ascendingFingers : ascendingFingers.slice(0, -1).reverse();
+  return orderedPitches.map((pitch, index) => {
+    const final = !ascending && index === orderedPitches.length - 1;
+    return pitchedNote(pitch, final ? 2 : 1, final ? "quarter" : "eighth", staff, {
       finger: fingers[index],
-      beam: final ? undefined : beamFor(index, pitches.length - 1),
+      beam: final ? undefined : beamFor(index, orderedPitches.length - 1),
+      explicitAccidental: explicitAccidentals,
     });
   }).join("\n    ");
+}
+
+function lessonPitches(writtenNotes: string[], midiNotes: number[]): LessonPitch[] {
+  return writtenNotes.map((written, index) => lessonPitch(written, midiNotes[index]));
+}
+
+function lessonPitch(written: string, midiNote: number): LessonPitch {
+  const step = written.charAt(0).toUpperCase();
+  const accidentals = [...written.slice(1)];
+  const alter = accidentals.reduce((sum, accidental) => sum + (accidental === "♯" ? 1 : accidental === "♭" ? -1 : 0), 0);
+  const naturalPitchClass = NATURAL_PITCH_CLASS[step];
+  if (naturalPitchClass === undefined || accidentals.some((accidental) => accidental !== "♯" && accidental !== "♭")) throw new Error(`Unsupported written Learning pitch: ${written}`);
+  const octave = (midiNote - naturalPitchClass - alter) / 12 - 1;
+  if (!Number.isInteger(octave)) throw new Error(`Written pitch ${written} does not match MIDI note ${midiNote}.`);
+  return { step, alter, octave };
 }
 
 function beamFor(index: number, eighthCount: number): "begin" | "continue" | "end" {
@@ -79,16 +96,48 @@ function beamFor(index: number, eighthCount: number): "begin" | "continue" | "en
   return "continue";
 }
 
-function pitchedNote(pitch: LessonPitch, octave: number, duration: number, type: string, staff: 1 | 2, options: { chord?: boolean; finger?: number; beam?: "begin" | "continue" | "end" } = {}): string {
-  return `<note>${options.chord ? "<chord/>" : ""}<pitch><step>${pitch.step}</step>${pitch.alter ? `<alter>${pitch.alter}</alter>` : ""}<octave>${octave}</octave></pitch><duration>${duration}</duration><voice>${staff}</voice><type>${type}</type><staff>${staff}</staff>${options.beam ? `<beam number="1">${options.beam}</beam>` : ""}${options.finger ? `<notations><technical><fingering placement="${staff === 1 ? "above" : "below"}">${options.finger}</fingering></technical></notations>` : ""}</note>`;
+function pitchedNote(pitch: LessonPitch, duration: number, type: string, staff: 1 | 2, options: { chord?: boolean; finger?: number; beam?: "begin" | "continue" | "end"; explicitAccidental?: boolean } = {}): string {
+  const accidental = options.explicitAccidental ? accidentalElement(pitch.alter) : "";
+  return `<note>${options.chord ? "<chord/>" : ""}<pitch><step>${pitch.step}</step>${pitch.alter ? `<alter>${pitch.alter}</alter>` : ""}<octave>${pitch.octave}</octave></pitch>${accidental}<duration>${duration}</duration><voice>${staff}</voice><type>${type}</type><staff>${staff}</staff>${options.beam ? `<beam number="1">${options.beam}</beam>` : ""}${options.finger ? `<notations><technical><fingering placement="${staff === 1 ? "above" : "below"}">${options.finger}</fingering></technical></notations>` : ""}</note>`;
 }
 
-function restNote(duration: number, type: string, staff: 1 | 2, measure = true): string {
-  return `<note><rest${measure ? " measure=\"yes\"" : ""}/><duration>${duration}</duration><voice>${staff}</voice><type>${type}</type><staff>${staff}</staff></note>`;
+function accidentalElement(alter: number): string {
+  const values: Record<number, string> = { [-2]: "flat-flat", [-1]: "flat", 1: "sharp", 2: "double-sharp" };
+  return values[alter] ? `<accidental>${values[alter]}</accidental>` : "";
+}
+
+function restNote(duration: number, type: string, staff: 1 | 2): string {
+  return `<note><rest measure="yes"/><duration>${duration}</duration><voice>${staff}</voice><type>${type}</type><staff>${staff}</staff></note>`;
 }
 
 function attributes(fifths: number): string {
   return `<attributes><divisions>2</divisions><key><fifths>${fifths}</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>`;
+}
+
+function theoreticalFifths(item: LearningItem): number {
+  const minor = item.quality === "minor" || item.quality === "diminished" || isMinorScale(item.quality);
+  return (minor ? MINOR_FIFTHS : MAJOR_FIFTHS)[item.root.step] + item.root.alter * 7;
+}
+
+function keyFifthsForItem(item: LearningItem): number {
+  const fifths = theoreticalFifths(item);
+  return Math.abs(fifths) <= 7 ? fifths : 0;
+}
+
+function usesNeutralTheoreticalSignature(item: LearningItem): boolean { return Math.abs(theoreticalFifths(item)) > 7; }
+
+function isMinorScale(quality: LearningItem["quality"]): quality is ScaleMode {
+  return quality === "natural-minor" || quality === "harmonic-minor" || quality === "melodic-minor";
+}
+
+function titleQuality(quality: LearningItem["quality"]): string {
+  const labels: Record<LearningItem["quality"], string> = { major: "Major", minor: "Minor", augmented: "Augmented", diminished: "Diminished", "natural-minor": "Natural Minor", "harmonic-minor": "Harmonic Minor", "melodic-minor": "Melodic Minor" };
+  return labels[quality];
+}
+
+function arraysEqual<T>(left: T[] | undefined, right: T[] | undefined): boolean {
+  if (!left || !right) return left === right;
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function result(title: string, fileName: string, handMode: HandMode, measures: string): GeneratedLearningScore {

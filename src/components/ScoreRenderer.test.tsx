@@ -456,6 +456,38 @@ describe("ScoreRenderer", () => {
     expect(parseFloat(currentMarker?.style.height ?? "0")).toBe(128);
     expect(parseFloat(selectedRect?.style.width ?? "0")).toBeLessThan(80);
   });
+  it("advances empty beats in the final measure from its last graphical entry", async () => {
+    const event: ScoreEvent = {
+      ...currentEvent,
+      id: "final-chord",
+      measureNumber: 4,
+      measureStartQuarter: 12,
+      startQuarter: 12,
+      durationQuarters: 4,
+    };
+    const staffEntry = {
+      relInMeasureTimestamp: { RealValue: 0 },
+      PositionAndShape: { AbsolutePosition: { x: 30, y: 12 } },
+    };
+    osmdState.graphicSheet = {
+      findGraphicalMeasureByMeasureNumber: vi.fn(() => ({
+        staffEntries: [staffEntry],
+        findGraphicalStaffEntryFromTimestamp: vi.fn(() => undefined),
+        PositionAndShape: { AbsolutePosition: { x: 10, y: 8 }, Size: { width: 40, height: 20 } },
+      })),
+    };
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={event} eventCount={1} events={[event]} measureTimings={[{ index: 3, measureNumber: 4, startQuarter: 12, endQuarter: 16, beats: 4, beatType: 4 }]} playheadAnchor={{ quarter: 13, kind: "rest" }} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const marker = container.querySelector<HTMLElement>(".score-current-event-marker");
+    expect(parseFloat(marker?.style.left ?? "0")).toBeGreaterThan(300);
+  });
   it("anchors the current marker to graphical event positions after skipped hand events", async () => {
     const events: ScoreEvent[] = [
       { ...currentEvent, id: "left-1", measureNumber: 1, startQuarter: 0, measureStartQuarter: 0, midiNotes: [58], staffNumbers: [2], noteDetails: [{ midiNote: 58, staffNumber: 2, voiceNumber: "1", sourceNoteId: "left-1" }] },
@@ -786,15 +818,20 @@ describe("ScoreRenderer", () => {
 
   it("keeps the score Stop control available while a loop waits to restart", async () => {
     const onStop = vi.fn();
+    const onRunModeChange = vi.fn();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
     await act(async () => {
-      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} playbackPhase="waiting-restart" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onStop={onStop} onRenderStateChange={vi.fn()} />);
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} playbackPhase="waiting-restart" runMode="loop" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRunModeChange={onRunModeChange} onStop={onStop} onRenderStateChange={vi.fn()} />);
       await Promise.resolve();
     });
     const stop = container.querySelector<HTMLButtonElement>('[aria-label="Stop score playback"]');
     expect(stop?.disabled).toBe(false);
+    const loop = container.querySelector<HTMLButtonElement>('[aria-label="Loop selected range"]');
+    expect(loop?.disabled).toBe(false);
+    await act(async () => loop?.click());
+    expect(onRunModeChange).toHaveBeenCalledWith("once");
     await act(async () => stop?.click());
     expect(onStop).toHaveBeenCalledOnce();
   });

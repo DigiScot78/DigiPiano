@@ -748,7 +748,6 @@ export function ScoreRenderer({
               className={runMode === "loop" ? "active" : ""}
               aria-label="Loop selected range"
               aria-pressed={runMode === "loop"}
-              disabled={playbackPhase !== "idle"}
               title={runMode === "loop" ? "Loop on" : "Loop off"}
               onClick={() => onRunModeChange?.(runMode === "loop" ? "once" : "loop")}
             >
@@ -987,9 +986,18 @@ function positionForScoreQuarter(osmd: OpenSheetMusicDisplay | null, shell: HTML
     const nearest = before ?? after ?? entries[0];
     const bounds = measure.PositionAndShape;
     const durationWhole = Math.max(0.0001, timing.endQuarter - timing.startQuarter) / 4;
-    x = bounds?.AbsolutePosition?.x !== undefined && bounds.Size?.width !== undefined
-      ? bounds.AbsolutePosition.x + bounds.Size.width * Math.min(1, relativeWhole / durationWhole)
-      : nearest.position.x;
+    const measureRight = bounds?.AbsolutePosition?.x !== undefined && bounds.Size?.width !== undefined
+      ? bounds.AbsolutePosition.x + bounds.Size.width
+      : undefined;
+    if (before && measureRight !== undefined && measureRight > before.position.x) {
+      const remainingDuration = Math.max(0.0001, durationWhole - before.time);
+      const progress = Math.max(0, Math.min(1, (relativeWhole - before.time) / remainingDuration));
+      x = before.position.x + (measureRight - before.position.x) * progress;
+    } else {
+      x = bounds?.AbsolutePosition?.x !== undefined && bounds.Size?.width !== undefined
+        ? bounds.AbsolutePosition.x + bounds.Size.width * Math.min(1, relativeWhole / durationWhole)
+        : nearest.position.x;
+    }
     y = nearest.position.y;
   }
   const point = pointToShellPosition(graphicSheet, shell, x, y);

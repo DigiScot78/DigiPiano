@@ -70,6 +70,7 @@ describe("parseMusicXmlTimeline", () => {
       staffNumbers: [1, 2],
       voiceNumbers: ["1", "2"],
     });
+    expect(parsed.events[0].noteDetails.map((note) => note.durationQuarters)).toEqual([1, 1, 2]);
     expect(parsed.events[1]).toMatchObject({
       measureNumber: 2,
       midiNotes: [67],

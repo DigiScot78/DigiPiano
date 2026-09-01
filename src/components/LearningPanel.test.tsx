@@ -51,17 +51,17 @@ describe("LearningPanel", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("activates only the available C-major practice scores", async () => {
+  it("activates every chord and scale catalog practice score", async () => {
     const chordButton = container.querySelector<HTMLButtonElement>('[aria-label="Open C major practice score"]');
     expect(chordButton).not.toBeNull();
-    expect(container.querySelectorAll(".learning-score-button")).toHaveLength(2);
+    expect(container.querySelectorAll(".learning-score-button")).toHaveLength(68);
     await act(async () => chordButton?.click());
     expect(onItemActivate).toHaveBeenCalledWith(expect.objectContaining({ id: "chord:c:major" }));
 
     await act(async () => container.querySelector<HTMLButtonElement>("#learning-tab-scales")?.click());
-    expect(container.querySelectorAll(".learning-score-button")).toHaveLength(2);
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open C major practice score"]')?.click());
-    expect(onItemActivate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "scale:c:major" }));
-    expect(container.querySelector('[aria-label="Open D major practice score"]')).not.toBeNull();
+    expect(container.querySelectorAll(".learning-score-button")).toHaveLength(68);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open B melodic minor ascending practice score"]')?.click());
+    expect(onItemActivate).toHaveBeenLastCalledWith(expect.objectContaining({ id: "scale:b:melodic-minor" }));
+    expect(container.querySelector('[aria-label="Open D♯ harmonic minor practice score"]')).not.toBeNull();
   });
 });

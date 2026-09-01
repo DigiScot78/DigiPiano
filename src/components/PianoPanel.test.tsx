@@ -13,7 +13,7 @@ describe("PianoPanel", () => {
   let container: HTMLDivElement;
   let root: Root;
   beforeEach(() => { container = document.createElement("div"); document.body.append(container); root = createRoot(container); });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
 
   async function render(settings: PianoSettings = DEFAULT_PIANO_SETTINGS, expectedNotes = [60], heldNotes: number[] = [], carried: number[] = [], onChange = vi.fn()) {
     await act(async () => root.render(<PianoPanel expectedNotes={expectedNotes} heldNotes={heldNotes} ignoredCarriedNotes={carried} settings={settings} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} onSettingsChange={onChange} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onPauseOnNotesChange={vi.fn()} onClearPerformance={vi.fn()} />));
@@ -218,11 +218,13 @@ describe("PianoPanel", () => {
       container.querySelector<HTMLButtonElement>('[aria-label="Stop score playback from piano"]')?.click();
       container.querySelector<HTMLButtonElement>('[aria-label="Reset score progress from piano"]')?.click();
       container.querySelector<HTMLButtonElement>('[aria-label="Clear performance from piano"]')?.click();
+      container.querySelector<HTMLButtonElement>('[aria-label="Loop from piano"]')?.click();
     });
     expect(onPlay).toHaveBeenCalledOnce();
     expect(onStop).toHaveBeenCalledOnce();
     expect(onReset).toHaveBeenCalledOnce();
-    expect(onRunModeChange).not.toHaveBeenCalled();
+    expect(onRunModeChange).toHaveBeenCalledWith("loop");
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Loop from piano"]')?.disabled).toBe(false);
     expect(onPlayModeChange).not.toHaveBeenCalled();
     expect(onClearPerformance).toHaveBeenCalledOnce();
     expect(Array.from(container.querySelectorAll<HTMLButtonElement>(".toolbar-centre button")).map((button) => button.getAttribute("aria-label"))).toEqual([
@@ -274,6 +276,20 @@ describe("PianoPanel", () => {
     const input = container.querySelector<HTMLInputElement>('[aria-label="Seek score timeline"]');
     await act(async () => { if (input) { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "480"); input.dispatchEvent(new Event("input", { bubbles: true })); } });
     expect(onSeek).toHaveBeenCalledWith(5);
+  });
+
+  it("shows Synthesia from the selected event while idle", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 500, top: 500, right: 800, bottom: 600, left: 0, width: 800, height: 100, toJSON: () => undefined });
+    const makeEvent = (id: string, startQuarter: number, midiNote: number): ScoreEvent => ({ id, partId: "P1", measureNumber: 1, startQuarter, durationQuarters: 1, midiNotes: [midiNote], staffNumbers: [1], voiceNumbers: ["1"], sourceNoteIds: [id], noteDetails: [{ midiNote, staffNumber: 1, voiceNumber: "1", sourceNoteId: id }] });
+    const first = makeEvent("first", 0, 60);
+    const selected = makeEvent("selected", 1, 62);
+    const plan: PlaybackPlan = { startQuarter: 0, endQuarter: 2, durationMs: 1000, events: [{ eventIndex: 0, event: first, onsetMs: 0, endMs: 500 }, { eventIndex: 1, event: selected, onsetMs: 500, endMs: 1000 }] };
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={{ ...DEFAULT_PIANO_SETTINGS, synthesiaEnabled: true }} playbackPlan={plan} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={1} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onClearPerformance={vi.fn()} />));
+
+    const notes = Array.from(container.querySelectorAll<HTMLElement>(".synthesia-note"));
+    expect(notes).toHaveLength(1);
+    expect(notes[0].getAttribute("aria-label")).toContain("D4");
+    expect(notes[0].style.bottom).toBe("0px");
   });
 
   it("keeps the timeline available without Synthesia and with the piano hidden", async () => {

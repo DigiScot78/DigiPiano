@@ -49,6 +49,10 @@ export function PerformanceScoreBadge({ history }: { history: ExercisePerformanc
       <p className="performance-score-context">{MODE_LABELS[last.playMode]} · {HAND_LABELS[last.handMode]} · {last.range ? `Events ${last.range.startIndex + 1}–${last.range.endIndex + 1}` : "Full score"}</p>
       <dl className="performance-score-stats">
         <Stat label="Tempo" value={`${last.tempoPercent}%`} />
+        <Stat label="Accuracy" value={`${last.accuracyScore}%`} />
+        {last.playMode !== "play" && last.paceScore !== undefined ? <Stat label="Pace" value={`${last.paceScore}%`} /> : null}
+        {last.playMode !== "play" ? <Stat label="Actual time" value={formatDuration(last.activeDurationMs)} /> : null}
+        {last.playMode !== "play" ? <Stat label="Ideal time" value={formatDuration(last.idealDurationMs)} /> : null}
         <Stat label="Completed attempts" value={history.attempts} />
         <Stat label="Expected notes" value={last.totalNotes} />
         <Stat label="Hits" value={last.hits} />
@@ -66,4 +70,9 @@ export function PerformanceScoreBadge({ history }: { history: ExercisePerformanc
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>;
+}
+
+function formatDuration(durationMs: number): string {
+  const seconds = Math.round(durationMs / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }

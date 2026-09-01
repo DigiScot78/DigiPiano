@@ -4,6 +4,10 @@ import type { PlayMode } from "./settings";
 
 export interface PerformanceScore {
   score: number;
+  accuracyScore: number;
+  paceScore?: number;
+  activeDurationMs: number;
+  idealDurationMs: number;
   totalNotes: number;
   hits: number;
   misses: number;
@@ -33,7 +37,11 @@ export interface ExercisePerformanceHistory {
   badNotes: number;
 }
 
-export function calculatePerformanceScore(plan: PlaybackPlan, results: readonly PerformanceResult[]): PerformanceScore {
+export function paceGraceMs(idealDurationMs: number): number {
+  return Math.max(500, idealDurationMs * 0.05);
+}
+
+export function calculatePerformanceScore(plan: PlaybackPlan, results: readonly PerformanceResult[], activeDurationMs = plan.durationMs, playMode: PlayMode = "play"): PerformanceScore {
   const slots = new Set(plan.events.flatMap(({ event, eventIndex }) => event.midiNotes.map((note) => `${eventIndex}:${note}`)));
   const correct = results.filter((result) => result.result === "correct" && slots.has(result.slotId));
   const hits = new Set(correct.map((result) => result.slotId)).size;
@@ -44,10 +52,21 @@ export function calculatePerformanceScore(plan: PlaybackPlan, results: readonly 
   const wrongPitches = badResults.filter((result) => result.playedNote !== result.expectedNote).length;
   const mistimedNotes = badNotes - wrongPitches;
   const denominator = 2 * hits + misses + badNotes;
-  const score = denominator === 0 ? 0 : Math.min(100, Math.max(0, Math.round(100 * 2 * hits / denominator)));
+  const accuracyScore = denominator === 0 ? 0 : Math.min(100, Math.max(0, Math.round(100 * 2 * hits / denominator)));
+  const idealDurationMs = plan.durationMs;
+  const paceTargetMs = idealDurationMs + paceGraceMs(idealDurationMs);
+  const paceScore = activeDurationMs <= paceTargetMs || activeDurationMs <= 0
+    ? 100
+    : Math.min(99, Math.max(0, Math.floor(100 * paceTargetMs / activeDurationMs)));
+  const usesPace = playMode !== "play";
+  const score = usesPace ? Math.round(accuracyScore * 0.8 + paceScore * 0.2) : accuracyScore;
   const timingErrors = correct.map((result) => Math.abs(result.timingErrorMs ?? 0));
   return {
     score,
+    accuracyScore,
+    ...(usesPace ? { paceScore } : {}),
+    activeDurationMs,
+    idealDurationMs,
     totalNotes,
     hits,
     misses,

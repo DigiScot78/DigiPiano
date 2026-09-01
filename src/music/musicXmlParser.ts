@@ -309,6 +309,7 @@ function handleNote(
     event.sourceNoteIds.push(sourceNoteId);
     event.noteDetails.push({
       midiNote: pitch.midiNote,
+      durationQuarters,
       staffNumber: staff,
       voiceNumber: voice,
       sourceNoteId,

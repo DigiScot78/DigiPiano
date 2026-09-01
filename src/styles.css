@@ -153,6 +153,7 @@ select {
   line-height: 1.15;
   text-align: center;
 }
+.score-identity { display: grid; min-width: 0; max-width: 100%; justify-items: center; }
 
 .score-heading strong,
 .score-heading span {
@@ -165,7 +166,12 @@ select {
 
 .score-heading strong { font-size: 1rem; }
 .score-heading span { margin-top: 0.15rem; color: var(--app-muted); font-size: 0.76rem; }
-.app-header-actions { display: flex; justify-content: flex-end; gap: 0.4rem; }
+.score-time { color: var(--app-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; font-weight: 800; white-space: nowrap; }
+.score-time.overtime { color: var(--app-error, #c93636); }
+.app-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.4rem; min-width: 0; }
+.app-header-actions .score-time { margin-right: 0.2rem; }
+.app-header-actions .performance-score-panel { right: 0; left: auto; }
+.app-header-actions .performance-score-panel::before { right: 1.25rem; left: auto; }
 
 .playback-notice {
   position: fixed;

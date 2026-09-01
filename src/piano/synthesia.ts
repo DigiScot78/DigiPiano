@@ -1,4 +1,4 @@
-import type { PlaybackPlan } from "../playback/playback";
+import type { PlaybackPhase, PlaybackPlan } from "../playback/playback";
 import type { PianoKeyLayout } from "./piano";
 
 export type SynthesiaHand = "right" | "left";
@@ -30,18 +30,25 @@ export function createSynthesiaBlocks(plan: PlaybackPlan | undefined, keys: Pian
   return plan.events.flatMap((item) => item.event.midiNotes.flatMap((midiNote, noteIndex) => {
     const key = keyByNote.get(midiNote);
     if (!key) return [];
-    const detail = item.event.noteDetails.find((note) => note.midiNote === midiNote);
+    const detailIndex = item.event.noteDetails.findIndex((note) => note.midiNote === midiNote);
+    const detail = item.event.noteDetails[detailIndex];
+    const noteEndMs = item.noteEndMs?.[detailIndex] ?? item.endMs;
     return [{
       id: `${item.eventIndex}:${midiNote}:${noteIndex}`,
       midiNote,
       hand: detail?.staffNumber === 2 ? "left" as const : "right" as const,
       eventIndex: item.eventIndex,
       onsetMs: item.onsetMs,
-      durationMs: Math.max(0, item.endMs - item.onsetMs),
+      durationMs: Math.max(0, noteEndMs - item.onsetMs),
       x: key.x,
       width: key.width,
     }];
   }));
+}
+
+export function synthesiaDisplayElapsedMs(plan: PlaybackPlan | undefined, phase: PlaybackPhase, rollElapsedMs: number, displayedEventIndex: number): number {
+  if (phase !== "idle") return rollElapsedMs;
+  return plan?.events.find((item) => item.eventIndex === displayedEventIndex)?.onsetMs ?? 0;
 }
 
 export function synthesiaVerticalGeometry(block: Pick<SynthesiaNoteBlock, "onsetMs" | "durationMs">, elapsedMs: number, pixelsPerSecond = SYNTHESIA_PIXELS_PER_SECOND): SynthesiaVerticalGeometry {

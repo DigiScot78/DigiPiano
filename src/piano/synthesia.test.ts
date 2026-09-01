@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PlaybackPlan } from "../playback/playback";
 import { generatePianoLayout } from "./piano";
-import { availableSynthesiaHeight, createSynthesiaBlocks, isSynthesiaBlockStriking, isSynthesiaBlockVisible, synthesiaVerticalGeometry } from "./synthesia";
+import { availableSynthesiaHeight, createSynthesiaBlocks, isSynthesiaBlockStriking, isSynthesiaBlockVisible, synthesiaDisplayElapsedMs, synthesiaVerticalGeometry } from "./synthesia";
 
 const plan: PlaybackPlan = {
   startQuarter: 0,
@@ -36,11 +36,48 @@ describe("Synthesia geometry", () => {
     expect(blocks[0]).toMatchObject({ x: c4.x, width: c4.width });
   });
 
+  it("uses each pitch's written duration when an onset also contains a sustained note", () => {
+    const mixedDurationPlan: PlaybackPlan = {
+      startQuarter: 0,
+      endQuarter: 4,
+      durationMs: 2000,
+      events: [{
+        eventIndex: 0,
+        onsetMs: 0,
+        endMs: 2000,
+        noteEndMs: [125, 2000],
+        event: {
+          id: "mixed", partId: "P1", measureNumber: 44, startQuarter: 0, durationQuarters: 4,
+          midiNotes: [72, 76], staffNumbers: [1], voiceNumbers: ["1", "2"], sourceNoteIds: ["short-c5", "held-e5"],
+          noteDetails: [
+            { midiNote: 72, durationQuarters: 0.25, staffNumber: 1, voiceNumber: "1", sourceNoteId: "short-c5" },
+            { midiNote: 76, durationQuarters: 4, staffNumber: 1, voiceNumber: "2", sourceNoteId: "held-e5" },
+          ],
+        },
+      }],
+    };
+
+    expect(createSynthesiaBlocks(mixedDurationPlan, generatePianoLayout(36, 96)).map((block) => [block.midiNote, block.durationMs])).toEqual([[72, 125], [76, 2000]]);
+  });
+
   it("moves at a fixed pixel speed and preserves duration", () => {
     const geometry = synthesiaVerticalGeometry({ onsetMs: 2000, durationMs: 500 }, 500);
     expect(geometry).toEqual({ bottom: 150, height: 50 });
     expect(isSynthesiaBlockVisible(geometry, 320)).toBe(true);
     expect(isSynthesiaBlockVisible({ bottom: 400, height: 50 }, 320)).toBe(false);
+  });
+
+  it("anchors the idle roll to the selected score event", () => {
+    const idlePlan: PlaybackPlan = {
+      ...plan,
+      durationMs: 1500,
+      events: [
+        { ...plan.events[0], eventIndex: 2, onsetMs: 200, endMs: 500 },
+        { ...plan.events[0], eventIndex: 7, onsetMs: 900, endMs: 1200 },
+      ],
+    };
+    expect(synthesiaDisplayElapsedMs(idlePlan, "idle", 0, 7)).toBe(900);
+    expect(synthesiaDisplayElapsedMs(idlePlan, "playing", 640, 7)).toBe(640);
   });
 
   it("supports readable speed choices and briefly holds short strike highlights", () => {

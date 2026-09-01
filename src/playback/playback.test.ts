@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScoreEvent } from "../music/scoreTypes";
-import { activeExpectedNotes, activePlaybackEvent, countInDisplayValue, createCountInPlan, createPlaybackPlan, gatePreviewStartMs, millisecondsBetweenQuarters, missedPerformanceNotes, playbackGates, scorePerformanceAttempt, scoreQuarterAtElapsed, shouldShowPerformanceResults, visualPlayheadAnchor } from "./playback";
+import { activeExpectedNotes, activePlaybackEvent, countInDisplayValue, createCountInPlan, createPlaybackPlan, gatePreviewStartMs, millisecondsBetweenQuarters, missedPerformanceNotes, playbackGates, playbackPlanFromElapsed, scorePerformanceAttempt, scoreQuarterAtElapsed, shouldShowPerformanceResults, visualPlayheadAnchor } from "./playback";
 
 const events: ScoreEvent[] = [
   event("a", 0, 1, [60], 1),
@@ -38,6 +38,12 @@ describe("playback timing", () => {
     const plan = createPlaybackPlan(events, [], 120, "right", { startIndex: 0, endIndex: 2 });
     expect(plan?.events.map((item) => item.eventIndex)).toEqual([0, 1]);
     expect(plan?.durationMs).toBe(1250);
+  });
+  it("scopes an assessment plan from the actual playback start", () => {
+    const plan = createPlaybackPlan(events, [], 120, "both")!;
+    const scoped = playbackPlanFromElapsed(plan, plan.events[1].onsetMs);
+    expect(scoped.events.map((item) => [item.eventIndex, item.onsetMs])).toEqual([[1, 0], [2, 500]]);
+    expect(scoped.durationMs).toBe(1000);
   });
   it("keeps the cursor while clearing expected notes in a gap", () => {
     const plan = createPlaybackPlan(events, [], 120, "both")!;

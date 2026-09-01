@@ -10,6 +10,7 @@ export interface PlaybackEvent {
   event: ScoreEvent;
   onsetMs: number;
   endMs: number;
+  noteEndMs?: number[];
 }
 export interface MetronomeBeat { id: string; onsetMs: number; scoreQuarter: number; accent: boolean }
 export interface VisualPlayheadAnchor { quarter: number; kind: "note" | "rest"; eventIndex?: number }
@@ -37,7 +38,7 @@ export interface PerformanceResult {
   result: AttemptResult;
 }
 export interface MissedPerformanceNote { id: string; note: number; eventIndex: number; staffNumber?: number }
-export interface CompletedPlaybackRun { id: number; plan: PlaybackPlan; results: PerformanceResult[]; playMode: PlayMode; handMode: HandMode; tempoPercent: number; range?: ScoreSelectionRange }
+export interface CompletedPlaybackRun { id: number; plan: PlaybackPlan; results: PerformanceResult[]; activeDurationMs: number; idealDurationMs: number; playMode: PlayMode; handMode: HandMode; tempoPercent: number; range?: ScoreSelectionRange }
 
 export function countInDisplayValue(beat: Pick<CountInBeat, "beat" | "beatsPerBar">): number {
   return beat.beatsPerBar - beat.beat + 1;
@@ -67,10 +68,32 @@ export function createPlaybackPlan(events: ScoreEvent[], tempoChanges: TempoChan
     event,
     onsetMs: millisecondsBetweenQuarters(startQuarter, event.startQuarter, tempoChanges, fallbackBpm, tempoPercent),
     endMs: millisecondsBetweenQuarters(startQuarter, event.startQuarter + event.durationQuarters, tempoChanges, fallbackBpm, tempoPercent),
+    noteEndMs: event.noteDetails.map((note) => millisecondsBetweenQuarters(startQuarter, event.startQuarter + (note.durationQuarters ?? event.durationQuarters), tempoChanges, fallbackBpm, tempoPercent)),
   }));
   const durationMs = millisecondsBetweenQuarters(startQuarter, endQuarter, tempoChanges, fallbackBpm, tempoPercent);
   const basePlan = { startQuarter, endQuarter, durationMs, events: timedEvents };
   return { ...basePlan, metronomeBeats: metronomeBeatsForRange(basePlan, measureTimings, tempoChanges, fallbackBpm, tempoPercent) };
+}
+
+export function playbackPlanFromElapsed(plan: PlaybackPlan, startElapsedMs: number): PlaybackPlan {
+  const start = Math.min(Math.max(startElapsedMs, 0), plan.durationMs);
+  const scopedEvents = plan.events.filter((event) => event.onsetMs >= start - 0.001);
+  const startQuarter = scopedEvents[0]?.event.startQuarter ?? plan.endQuarter;
+  return {
+    startQuarter,
+    endQuarter: plan.endQuarter,
+    durationMs: Math.max(0, plan.durationMs - start),
+    events: scopedEvents
+      .map((event) => ({
+        ...event,
+        onsetMs: event.onsetMs - start,
+        endMs: event.endMs - start,
+        ...(event.noteEndMs ? { noteEndMs: event.noteEndMs.map((endMs) => endMs - start) } : {}),
+      })),
+    ...(plan.metronomeBeats ? { metronomeBeats: plan.metronomeBeats
+      .filter((beat) => beat.onsetMs >= start - 0.001)
+      .map((beat) => ({ ...beat, onsetMs: beat.onsetMs - start })) } : {}),
+  };
 }
 
 export function millisecondsBetweenQuarters(fromQuarter: number, toQuarter: number, changes: TempoChange[], fallbackBpm: number, tempoPercent = 100): number {
