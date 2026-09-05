@@ -1,0 +1,134 @@
+# Decision Record
+
+## 1. Use Vite, React, and TypeScript
+Chosen for the first PoC because the milestone is entirely client-side and needs fast local development, browser APIs, and lightweight testing. A full-stack framework would add routing/server/deployment conventions that are not needed yet.
+
+## 2. Use OpenSheetMusicDisplay For Notation
+OpenSheetMusicDisplay is used for conventional browser sheet-music rendering so the project does not build a custom engraving engine. Its BSD-3-Clause license is compatible with this PoC. The trade-off is a relatively large client bundle and some cursor/model alignment limits for complex scores.
+
+## 3. Parse MusicXML Into A Separate ScoreEvent Model
+The expected-note model is parsed independently from OSMD renderer internals. This keeps comparison logic testable and makes future MIDI/performance logic less coupled to a rendering library. The trade-off is that advanced MusicXML playback semantics must be implemented deliberately instead of assumed.
+
+## 4. Use fflate For MXL Decompression
+Compressed `.mxl` files are ZIP archives. `fflate` is small, browser-compatible, MIT licensed, and sufficient for local decompression without a backend.
+
+## 5. Defer Repeat Expansion
+The first implementation follows printed measure order and reports repeat markings as warnings. This is honest and keeps the first milestone focused on proving score loading, rendering, MIDI input, event normalization, and advancement. Future work should either expand repeats explicitly or use a proven iterator that models performed order.
+
+## 6. Keep Sample Music Local-Only For Now
+`Samples/` is ignored by Git. The provided `.mxl` and `.mid` files are useful for local testing, but committing third-party music files should be an explicit licensing decision.
+
+## 7. Trust MusicXML Staff Assignments For Hand Mode
+Hand mode uses explicit MusicXML staff numbers: staff 1 is treated as right hand and staff 2 as left hand. The app does not infer hand ownership from pitch because that would guess incorrectly for cross-staff notation, overlapping hands, and unusual arrangements. Import diagnostics are used to identify source files whose exported staff assignments do not match the expected visual/musical layout.
+
+## 8. Keep Piano Geometry Normalized And Read-Only
+The first keyboard panel derives every key from MIDI bounds and expresses its horizontal position and width as normalized values over the white-key span. This makes the geometry independent of viewport pixels and reusable by the later falling-note view. The keyboard itself remains visual feedback only; pointer input, sound synthesis, and recording are separate future capabilities.
+
+## 9. Use A Monotonic Tempo-Aware Playback Clock
+Soundless playback converts MusicXML quarter positions through an explicit tempo map and derives state from `performance.now()` rather than chained timeouts. MIDI note arrival is timestamped at the input handler so React rendering latency does not affect onset scoring. This provides a deterministic base for later audio and piano-roll work without coupling musical time to UI frames.
+
+## 10. Keep Timed Playback Separate From Untimed Learning
+Play mode owns its own cursor, countdown, loop waiting, and performance attempts. MIDI input during Play is recorded but never advances the normal wait-for-correct-note learning state. Natural completion returns to the previous untimed position; explicit Stop ends the attempt and aligns that position with the active plan start while preserving recorded results, as refined in Decision 21.
+
+## 11. Separate Correct Completions From Mistake Attempts
+Timed marking deduplicates valid green hits to one completion per expected event/pitch and centers them over the written note. Wrong-pitch and mistimed hits remain individual red attempts at their played pitch and score-time position instead of consuming an expected slot. This keeps successful-note feedback clean while preserving the timing and pitch pattern of mistakes; exact rendered notehead bounds remain deferred in favor of the existing event/pitch overlay geometry.
+
+## 12. Make Go The Exact Playback Boundary
+The countdown retains its final number until playback time zero. Go appears only at that boundary and shares the same monotonic timestamp used for MIDI scoring, accompanied by a brief first-event pulse. Loop-waiting prompts do not fade the score so completed results remain reviewable.
+
+## 13. Freeze And Rebase The Clock For Note-Gated Playback
+Pause-at-each-note remains part of the timed transport instead of invoking untimed learning progression. A fresh note-on for the next gate within the configured early hit tolerance advances the gate whenever scoring accepts it green, preventing score feedback and transport acceptance from disagreeing. Completed single notes retain that credit through release; ordinary chords still require concurrent held pitches, and marked arpeggios retain ordered release-friendly progress. Pre-held, too-early, and wrong notes do not satisfy gates. An incomplete gate freezes at onset with valid progress preserved, then rebases the playback epoch after completion so later rhythm and tempo remain intact. Recorded markers use the same deferred/live visibility preference as ordinary Play.
+
+## 14. Share Piano Geometry And Musical Time With Synthesia
+The initial falling-note view uses the existing normalized piano-key x coordinates and the active hand-filtered playback plan rather than maintaining a separate roll timeline. Vertical motion uses a user-selectable persisted pixel speed and the transport's precise countdown/playing/gated playhead, so resizing changes lookahead while strike timing remains exact. The initial presets are 70, 100, and 140px per second. Short written notes keep their key strike colour for at least 140ms for readability, without extending the written falling block or altering the transport. The overlay is pointer-transparent over the score; sound and held-duration validation remain later concerns.
+
+## 15. Treat Score Audio As A Playback Consumer
+Score sound uses the existing hand-filtered `PlaybackPlan` and transport clock instead of reacting to raw MIDI input or creating an independent timeline. The first engine is a dependency-free Web Audio synth for quick local playback, isolated behind an engine contract so a sampled piano can replace it later. The transport—not elapsed-time inference in the audio consumer—owns the next unopened pause gate. That exact onset caps audio lookahead until correct fresh MIDI input completes it, after which the written chord sounds and transport resumes. Mute and volume are shared persisted output settings and do not alter musical time.
+
+## 16. Make Pause And Seeking Transport States
+Manual Pause freezes elapsed musical time, audio, Synthesia, scoring, and any active note gate without discarding the run. Resume always approaches that frozen origin through the configured countdown, and audio ignores events earlier than the origin. Timeline seeking snaps to a playable event and creates a clean paused attempt; Reset remains the explicit action that returns timed and untimed practice to the active plan start.
+
+## 17. Treat Workspace Geometry As Persisted Responsive State
+The timeline is a general navigation surface rather than a Synthesia-only control. Sidebar visibility/width and score margins are persisted workspace preferences, while narrow-window margin clamping is presentation-only and does not overwrite the chosen value. OSMD is rerendered from its existing loaded model after observed size changes, then app-owned anchors are rebuilt; this keeps future docked tools independent from score parsing and transport state.
+
+Playback panel hiding is transient state layered over the persisted sidebar preference and applies to every fresh run, so stopping restores only a panel that the run itself hid and manual restoration is respected for the remainder of the run. Optional Play fullscreen is a separate persisted preference. It uses the browser Fullscreen API, tracks app ownership so pre-existing/user-controlled fullscreen is not exited, and never blocks playback when denied. Open and docked layouts own separate persisted score margins, with the legacy margin copied to both during loading. The workspace reserves score width and remains an opaque layer above bottom surfaces in its own column. A fixed workspace header and persisted accessible Practice/Debug tabs give the active workspace one scrolling body and leave room for future chapters, score browsing, and progress views. Settings likewise use accessible category tabs so future controls can grow without returning to one long modal column.
+
+The application header and right workspace are viewport-fixed independently of the scrolling score. The workspace is bounded below the header and its active tab body is the sole panel scroll owner. Settings lives in the application header so it remains available when playback hides the workspace. Imported score identity prefers explicit MusicXML metadata, permits narrowly filtered centred-credit inference for exporters that omit semantic credit types, and uses the filename only as a final title fallback.
+
+The bottom surface is a permanent application toolbar rather than a collapsible piano shell. Piano visibility is independent from toolbar and Synthesia visibility, transport remains centred between view controls and score audio, and presentation options use attached popovers to leave room for future controls. Synthesia uses either the visible keyboard or toolbar as its strike edge and may not resize above the fixed application header. Score system following derives its clearance from that header and the notation toolbar rather than an unrelated fixed margin.
+
+## 18. Place Feedback From The Written Clef, Not The Staff Number
+Staff number describes ownership and hand filtering, not pitch geometry: either piano staff may use treble, bass, C, or octave-shifted clefs and may change clef during the score. The normalized note detail therefore carries the active MusicXML clef, and feedback maps written pitch from that clef's reference line onto OSMD's measured staff lines. The former staff-1/treble and staff-2/bass rule is retained only for metadata compatibility fallback.
+
+## 19. Treat MIDI Messages As An Event Stream, Not Render State
+Held-note state may safely collapse to its latest value, but scoring and note gates must observe every note-on and note-off. The Web MIDI boundary therefore retains a short sequence-numbered event buffer with per-message held snapshots, and the app drains all unseen records in order. This keeps large chords deterministic when React batches several hardware callbacks into one render while retaining `lastMessage` only for diagnostics.
+
+## 20. Preserve Arpeggios As Ordered Gestures
+An arpeggio shares a written onset but is neither a simultaneous chord nor several independently timed score events. Per-note MusicXML arpeggiate metadata remains on the normalized event; practice and gates recognize its pitch-ordered note-on sequence with a 750ms inter-note allowance, while audio applies a 70ms presentation spread. This preserves score navigation and tempo timing while matching the intended physical gesture. Sidebar diagnostics follow the displayed event so timeline and score seeking reveal the active expectation immediately.
+
+## 21. Separate Stop, Reset, And Hand-Colour Ownership
+Pause owns exact-position continuation. Stop cancels scheduled audio, exits playback presentation, clears partial gate progress, returns to the active plan start, and preserves recorded results for review; the next Play begins a fresh attempt. Reset returns to the same start and clears results immediately. Timed piano expectations derive RH/LH ownership from playback-plan staff details and use their own persisted colour pair; Synthesia retains a separate configurable pair. Correct held notes are duration-aware and become neutral-carried after their written end rather than being reclassified as wrong.
+
+## 22. Make Piano Expectations Event-Backed And Musically Timed
+Keyboard expectations carry their exact source event/gate, staff-derived hand, and preview/active strength. This prevents repeated or sustained pitches elsewhere in the plan from producing partial chord fills and gives untimed practice the same full RH/LH presentation as Play. Pause-at-each-note reveals the complete next gate one quarter-note beat early using the local tempo map, dimming that preview until the gate becomes active; transport, cursor, audio, and Synthesia timing remain unchanged.
+
+## 23. Model Untimed Scored Practice As A Playback Mode
+The Play control owns three persisted, mutually exclusive modes: tempo Play, Pause at each note, and untimed scored Practice. Practice reuses the playback plan, note gates, result model, and presentation lifecycle, but advances directly between satisfied gates instead of running the tempo clock. This keeps scoring, chords, arpeggios, ranges, hand filters, loops, and Stop/Reset consistent while leaving the older unscored idle-learning path independent. Both transport toolbars open the same radio-card mode selector from an attached chevron control. A different mode can be selected at any transport phase and applies Reset before changing it, avoiding a separate close/Stop/reopen workflow. The selector footer owns live progress visibility because that preference directly affects all three modes while leaving result recording unchanged.
+
+## 24. Score Only Explicitly Completed Play Runs
+The first percentage uses a balanced note score: `2 × hits / (2 × hits + misses + bad attempts)`. A correct pitch outside tolerance remains a bad attempt and its slot remains missed unless later completed correctly. The transport emits a dedicated immutable natural-completion snapshot so Stop, Pause, Reset, Clear, seeking, and ordinary idle learning cannot accidentally create scores; each completed loop pass is a run. Bests and aggregates are session-only and keyed by score content, range, hands, and mode. Scoring and aggregation remain pure and storage-independent so later user persistence does not require changing the scoring contract.
+
+## 25. Package Portable Testing Around A Loopback Origin
+A portable Windows test build uses the ordinary Vite production output plus a small PowerShell static server bound only to `127.0.0.1:4173`; opening `index.html` through `file://` would not provide the secure context required by Web MIDI. The stable origin preserves browser permissions and local preferences across launches. Generated folders and ZIPs remain ignored, while the tracked packaging command, launcher, server, instructions, and build identity make each package reproducible without requiring Node.js or developer tools on the destination computer. Edge or Chrome remains an external prerequisite rather than being bundled into a desktop wrapper.
+
+## 26. Scale Written Tempo And Derive Metronome Beats From Meter
+Practice speed is a session-only 40–200% multiplier over every embedded BPM and the fallback, preserving written tempo changes rather than replacing them with one fixed value. Each newly loaded score returns to 100%, tempo changes are idle-only, and performance history keys include the percentage. MusicXML measure/time-signature data produces deterministic simple or grouped-compound beat positions and accented downbeats on the same monotonic clock as playback. Persisted metronome enablement/volume is independent from score/piano audio. Count-in is expressed as 0/1/2 musical bars, migrating the former seconds setting, and clicks stop whenever musical time is frozen.
+
+## 27. Start Learning With A Data-Driven Reference Surface
+The first Learning milestone is a reference chart rather than a second score or transport mode. It overlays the existing workspace without unloading the imported score, remains idle-only and session-only, and is mutually exclusive with Synthesia while respecting piano visibility. Chords and scales share a catalog of stable identifiers, written pitches, sounding MIDI notes, and explicit fingerings. Miniature keyboards keep one physical aspect ratio and use the configured RH Play colour consistently; scale keys always show both text-only fingerings, with LH above RH, instead of adding a separate chart hand mode. This separates durable musical content from presentation and leaves score hand controls responsible for practice filtering.
+
+## 28. Generate Lessons As Ordinary MusicXML Scores
+Learning actions generate session-only MusicXML and replace the current score through the same normalized loading path as imported files instead of introducing a second notation or practice model. Shared templates cover every chord and scale catalog entry: chords use four RH whole-note measures, while scales use two-staff, one-octave ascent/descent with printed catalog fingerings and natural-minor descent for melodic minor. Conventional key signatures are used through seven sharps/flats; more theoretical spellings keep explicit accidentals under a neutral signature rather than changing to an enharmonic root. Parameterized invariants validate every generated score without claiming that all catalog fingering choices are pedagogically final. Scale activation sets the global hand mode to Both; stable synthetic filenames preserve exercise identity and no transport starts automatically.
+
+## 29. Keep Untimed Practice Free Of Timekeeping Presentation
+Untimed scored Practice enters its first gate immediately and suppresses countdown, Go, and metronome output even when those timed-Play preferences are enabled. Completed gate pitches become playback-level carried notes until their physical releases, preventing the next gate from treating sustained correct input as wrong while retaining fresh-note requirements. Loop restart waiting remains stoppable from both synchronized transport surfaces.
+
+## 30. Treat Fingering As Score Metadata, Not Current-Event State
+Valid MusicXML technical fingering values are retained on normalized note details. The optional piano presentation aggregates all fingerings in the loaded score by pitch and staff-derived hand, deduplicates repeated uses, and applies the global hand filter. This makes a training reference available before playing begins and also supports imported scores without coupling labels to the generated Learning catalog.
+
+## 31. Track Active Attempt Time Separately From Musical Time
+The header time budget uses the active exercise's tempo-aware duration after selection, hand, tempo-percentage, and actual-start scoping. A separate monotonic wall clock includes required-note waits but excludes count-in, manual pause, and loop-restart waiting, allowing remaining time to become negative without disturbing notation, audio, or Synthesia timing. Tempo Play scores accuracy alone because its total duration is transport-controlled. Pause at each note and Practice blend accuracy at 80% with pace at 20%, treating `max(500ms, 5% of ideal)` overtime as full-credit human grace before pace falls proportionally. The timer preserves the true ideal and turns red only beyond grace. Stop retains the clock for review but does not finalize a score. Loop mode remains live throughout a run, and disabling it during restart waiting ends that wait immediately.
+
+## 32. Make Guided Piece Plans Session-Only Score Partitions
+The first wider Learning milestone begins at a Learning Home reached through the permanent Learning toolbar control; the existing chord/scale catalog remains its Reference area. A guided plan partitions the full imported/generated score or current selection into contiguous four-measure lessons by default. The pure plan model stores event-index boundaries, while notation renders every section and lets users insert, drag, keyboard-move, or delete event-snapped internal boundaries. Any split or merge resets the resulting lessons, and moving a boundary resets only its two neighbours. Plans remain in memory when leaving Learning but are invalidated when the score is replaced. Guided playback, tempo progression, diagnosis, accounts, and persistence remain later milestones.
+
+## 33. Let Responsive Width Own Score System Breaks
+OSMD chooses line breaks from the score container's current width. MusicXML `new-system` and `new-page` hints remain import diagnostics, but are not simultaneously imposed on responsive rendering: OSMD documents that combining fixed imported breaks with its interactive layout can leave a single stretched measure in a system. Sidebar resizing continues to rerender the already loaded graphical score and rebuild app-owned anchors.
+
+## 34. Build Guided Sessions On The Existing Transport
+Finishing planning preserves the lesson the user selected and replaces the planner with a four-step Listen, RH, LH, and Both guide. Listen is direct score-audio audition and therefore creates no assessment. Hand stages temporarily select the relevant hand and Pause-at-each-note mode, keeping the guide visible while the existing transport, MIDI gates, and performance completion remain authoritative. RH and LH may be skipped; leaving restores the prior hand and play-mode preferences.
+
+## 35. Derive Guided Steps From Lesson Staff Content
+The guide inspects normalized note staff numbers within each lesson rather than requiring users to skip impossible stages. RH-only and LH-only lessons contain Listen plus their present hand and omit Both; lessons containing both staves retain all four stages. The visible rail is navigation as well as progress: completed and current steps can be revisited, while future steps remain locked until reached so backward review cannot silently advance progress or modify the lesson plan.
+
+## 36. Treat Guided Looping As Repetition, Not Progression
+Guided hand stages expose the same run-loop state as the main transport instead of maintaining a second loop mechanism. Each completed pass remains a separately recorded attempt and returns to the guide with explicit Repeat now and Continue choices; looping never advances a stage, lesson, or future tempo target automatically. This keeps repetition useful while preserving the learner's control over progression.
+
+## 37. Qualify Piano Commands With A Held Modifier
+Piano shortcuts are opt-in, versioned local bindings exposed under Settings → Controls. A command is recognised only when its configured modifier note was already held before a fresh mapped action-note press; this prevents ordinary lesson chords from acting as navigation. Recognised modifier/action notes are consumed before learning and playback assessment. The initial semantic commands are contextual Primary, Previous, Repeat, Toggle Loop, and Stop, while exit remains deliberately unbound. The resolver is independent of Guided Practice callbacks so pedals or MIDI control-change messages can later target the same command vocabulary.
+
+## 38. Make Tempo Progression Explicit And Evidence-Based
+After Listen and applicable note-gated hand work, each lesson enters continuous Tempo Play at 60%. A completed run must score at least 90 before the guide offers a user-confirmed 10-point increase; it never changes tempo automatically. Written tempo is the initial 100% target, and two qualifying runs there are required before the section becomes comfortable/complete. Section edits reset tempo evidence, and leaving Guided Practice restores the user's previous global tempo. The Piano Shortcut Primary action follows the same repeat/increase/finish decisions.
+
+## 39. Snapshot Tempo Build-Up On Plan Creation
+Learning settings offer Gentle (60%), Steady (80%), and At tempo (100%) starting presets while retaining 10-point increases, the 90-point threshold, and two target runs. A plan snapshots the selected starting percentage when created. Later preference changes affect future plans only, and boundary edits reset affected sections to their plan's snapshot. This prevents a settings change from silently rewriting an in-progress learning sequence.
+
+## 40. Assess Sight Reading As Accuracy Plus Forward Coverage
+Sight-reading attempts keep their evidence separate from rehearsed-piece performance history. The result reports ordinary note accuracy and forward continuity independently, where continuity is the percentage of distinct score-onset moments at which the player made an attempt. The headline reading score weights accuracy at 75% and continuity at 25%, rewarding forward motion without allowing indiscriminate notes to outweigh pitch correctness.
+
+## 41. Preserve The First-Look Result Across Explicit Review
+Completing a sight-reading attempt locks ordinary playback controls so the same notation cannot be silently replayed as though it were still unseen. Review is a deliberate result-screen action (and the contextual Repeat piano command): it starts at bar one, does not enter ordinary performance history, and returns to the retained first-look result when playback completes or is stopped.
+
+## 42. Teach Foundations Without Assessment Pressure
+
+Beginner Foundations is a separate guided teaching path rather than a lower sight-reading difficulty. Its first lessons react only to fresh MIDI note-ons, give specific retry guidance, and use no timer, score, pass threshold, or stored progress. Readiness remains optional setup, while the route finder sends genuinely new learners directly to Foundations. Later lessons may reuse ordinary score rendering and transport only after the relevant keyboard and notation concepts have been introduced.
