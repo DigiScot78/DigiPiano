@@ -9,7 +9,8 @@
     "package:portable": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
     "lint": "eslint .",
     "test": "vitest run",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "verify:deployment": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "fflate": "^0.8.3",
