@@ -5,12 +5,12 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $outputRoot = Join-Path $repoRoot "out"
-$packageName = "Piano Learning Portable"
+$packageName = "DigiPiano Portable"
 $packageRoot = Join-Path $outputRoot $packageName
 $appRoot = Join-Path $packageRoot "app"
 $templateRoot = Join-Path $PSScriptRoot "portable"
 $package = Get-Content -LiteralPath (Join-Path $repoRoot "package.json") -Raw | ConvertFrom-Json
-$zipPath = Join-Path $outputRoot "Piano-Learning-$($package.version)-win-portable.zip"
+$zipPath = Join-Path $outputRoot "DigiPiano-$($package.version)-win-portable.zip"
 
 function Invoke-CheckedCommand {
   param(
@@ -56,7 +56,7 @@ try {
   }
   $workingTreeState = if ((& git status --porcelain).Count -gt 0) { "uncommitted changes present" } else { "clean" }
   $versionText = @(
-    "Piano Learning Portable"
+    "DigiPiano Portable"
     "Application version: $($package.version)"
     "Git commit: $commit"
     "Build workspace: $workingTreeState"

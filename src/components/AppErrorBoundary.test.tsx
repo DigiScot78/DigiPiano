@@ -11,6 +11,7 @@ describe("AppErrorBoundary", () => {
     await act(async () => root.render(<AppErrorBoundary><Broken /></AppErrorBoundary>));
     expect(container.textContent).toContain("The app needs a fresh start");
     expect(container.textContent).toContain("Your score stays on this computer");
+    expect(container.textContent).toContain("Reload DigiPiano");
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
     await act(async () => root.unmount()); error.mockRestore();
   });

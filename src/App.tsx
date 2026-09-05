@@ -1112,7 +1112,7 @@ function App() {
   return (
     <main className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px`, "--score-margin": `${scoreMargin}px`, "--sidebar-top": `${headerBottom + 8}px`, "--bottom-panel-clearance": `${effectiveBottomPanelHeight + 20}px` } as React.CSSProperties}>
       <header ref={appHeaderRef} className="app-header">
-        <div className="app-brand"><h1>Piano Learning</h1></div>
+        <div className="app-brand"><h1>DigiPiano</h1></div>
         {loadedScore ? <div className="score-heading">
           <div className="score-identity" aria-live="polite">
             <strong title={loadedScore.info.title}>{loadedScore.info.title}</strong>

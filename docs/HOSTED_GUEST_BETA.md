@@ -1,5 +1,7 @@
 # Hosted Guest Beta
 
+Production: `https://digipiano.vercel.app/`
+
 ## Supported experience
 
 The hosted guest beta targets current desktop Chrome and Edge. Web MIDI support and permission behaviour are browser-dependent; Firefox and Safari are not supported for MIDI practice. The app requires HTTPS when hosted. Local development and the portable build use `localhost` or `127.0.0.1`, which browsers treat as trustworthy local origins.

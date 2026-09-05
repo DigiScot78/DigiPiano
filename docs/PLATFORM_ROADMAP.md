@@ -166,12 +166,14 @@ Exit gate: the existing guest experience behaves unchanged, and future persisten
 
 ### Phase 2: Hosted Guest Beta — Small
 Deliverables:
-- [ ] Deploy the current client to Vercel. Production-safe headers, the whole-app recovery boundary, and explicit local/staging/production environment configuration are ready; project creation and the first external deployment still require authorization.
+- [x] Deploy the current client to Vercel. `https://digipiano.vercel.app/` is live with production-safe headers, the whole-app recovery boundary, explicit environment configuration, and user-confirmed real MIDI/audio operation.
 - [x] Document browser/Web MIDI compatibility and the local-file privacy model in `docs/HOSTED_GUEST_BETA.md`.
 - [x] Establish staging and production deployment checks through `npm run verify:deployment` plus the documented post-deploy Chrome/Edge checklist.
 - Add privacy-preserving operational error reporting only after choosing a vendor and retention policy.
 
 Exit gate: a public HTTPS deployment supports the existing guest workflow reliably on desktop Chromium without uploading scores.
+
+**Status:** Exit gate met. Operational error reporting remains intentionally disabled until a vendor, data scope, retention policy, and consent basis are chosen.
 
 ### Phase 3: Accounts — Medium
 Deliverables:
