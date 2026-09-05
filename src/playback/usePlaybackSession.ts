@@ -71,6 +71,7 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
   const gatesRef = useRef(gates);
   const runModeRef = useRef(runMode);
   const attemptStartElapsedRef = useRef(0);
+  const readyEventIndexRef = useRef<number | undefined>(undefined);
   const activeDurationMsRef = useRef(0);
   const activeClockStartedAtRef = useRef<number | undefined>(undefined);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
@@ -121,6 +122,7 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
     }
     setShowMissedNotes(true);
     armedGateRef.current = undefined;
+    readyEventIndexRef.current = undefined;
     phaseRef.current = nextPhase;
     setPhase(nextPhase);
   }, [freezeActiveClock, handMode, range, settings.playMode, tempoPercent]);
@@ -160,6 +162,7 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
     gateRef.current = undefined;
     suspendedGateRef.current = undefined;
     armedGateRef.current = undefined;
+    readyEventIndexRef.current = undefined;
     setGate(undefined);
     setCarriedNotes([]);
     clearCue();
@@ -224,7 +227,7 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
     setPhase("countdown");
   }, [clearCue, displayStartCue, enterGate, measureTimings, settings.countInBars, settings.fallbackBpm, startActiveClock, tempoChanges, tempoPercent]);
 
-  const startAtEvent = useCallback((eventIndex: number) => {
+  const startAtEventNow = useCallback((eventIndex: number) => {
     const activePlan = planRef.current;
     const destination = activePlan?.events.find((item) => item.eventIndex === eventIndex) ?? activePlan?.events[0];
     if (!destination) return;
@@ -241,10 +244,35 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
     beginCountdown(destination.onsetMs, freshGate ? "waiting-note" : "playing", freshGate, destination.event.startQuarter);
   }, [beginCountdown, clearRecordedResults, resetAttemptClock]);
 
+  const startAtEvent = useCallback((eventIndex: number) => {
+    if (!settings.waitForMidiBeforeCountIn) {
+      startAtEventNow(eventIndex);
+      return;
+    }
+    const destination = planRef.current?.events.find((item) => item.eventIndex === eventIndex) ?? planRef.current?.events[0];
+    if (!destination) return;
+    clearRecordedResults();
+    setShowMissedNotes(false);
+    setCarriedNotes([]);
+    readyEventIndexRef.current = destination.eventIndex;
+    elapsedMsRef.current = destination.onsetMs;
+    setElapsedMs(destination.onsetMs);
+    setRollElapsedMs(destination.onsetMs);
+    setAudioStartElapsedMs(destination.onsetMs);
+    setCountdownValue(undefined);
+    setCountdownBar(undefined);
+    clearCue();
+    setRunId((current) => current + 1);
+    phaseRef.current = "waiting-ready";
+    setPhase("waiting-ready");
+  }, [clearCue, clearRecordedResults, settings.waitForMidiBeforeCountIn, startAtEventNow]);
+
   const start = useCallback(() => {
     const firstEventIndex = plan?.events[0]?.eventIndex;
-    if (firstEventIndex !== undefined) startAtEvent(firstEventIndex);
-  }, [plan, startAtEvent]);
+    if (firstEventIndex === undefined) return;
+    if (phaseRef.current === "waiting-ready" || phaseRef.current === "waiting-restart") startAtEventNow(readyEventIndexRef.current ?? firstEventIndex);
+    else startAtEvent(firstEventIndex);
+  }, [plan, startAtEvent, startAtEventNow]);
 
   const pause = useCallback(() => {
     const currentPhase = phaseRef.current;
@@ -270,7 +298,7 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
 
   const stopAtPlanStart = useCallback(() => {
     const currentPhase = phaseRef.current;
-    if (currentPhase !== "playing" && currentPhase !== "countdown" && currentPhase !== "waiting-note" && currentPhase !== "paused" && currentPhase !== "waiting-restart") return;
+    if (currentPhase !== "playing" && currentPhase !== "countdown" && currentPhase !== "waiting-note" && currentPhase !== "paused" && currentPhase !== "waiting-ready" && currentPhase !== "waiting-restart") return;
     elapsedMsRef.current = 0;
     setElapsedMs(0);
     setRollElapsedMs(0);
@@ -293,7 +321,7 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
 
   const resume = useCallback(() => { if (phaseRef.current === "paused") beginCountdown(countdownTargetElapsedRef.current, resumePhaseRef.current, suspendedGateRef.current); }, [beginCountdown]);
   const togglePlayback = useCallback(() => {
-    if (phaseRef.current === "idle" || phaseRef.current === "waiting-restart") start();
+    if (phaseRef.current === "idle" || phaseRef.current === "waiting-ready" || phaseRef.current === "waiting-restart") start();
     else if (phaseRef.current === "paused") resume();
     else pause();
   }, [pause, resume, start]);
@@ -417,9 +445,14 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
   useEffect(() => {
     if (phaseRef.current !== "idle") stop();
     resetAttemptClock(0);
-  }, [events, handMode, range, resetAttemptClock, settings.countInBars, settings.fallbackBpm, settings.hitToleranceMs, stop, tempoPercent]);
+  }, [events, handMode, range, resetAttemptClock, settings.countInBars, settings.fallbackBpm, settings.hitToleranceMs, settings.waitForMidiBeforeCountIn, stop, tempoPercent]);
 
   const handleMidiNoteOn = useCallback((note: number, receivedAtMs: number, heldNotes: readonly number[] = [note], gateOnly = false) => {
+    if (phaseRef.current === "waiting-ready") {
+      const eventIndex = readyEventIndexRef.current ?? planRef.current?.events[0]?.eventIndex;
+      if (eventIndex !== undefined) startAtEventNow(eventIndex);
+      return;
+    }
     if (phaseRef.current === "waiting-restart") { start(); return; }
     const activePlan = planRef.current;
     if ((phaseRef.current !== "playing" && phaseRef.current !== "waiting-note") || !activePlan) return;
@@ -473,7 +506,7 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
     setGate(undefined);
     phaseRef.current = "playing";
     setPhase("playing");
-  }, [completeRun, enterGate, settings.fallbackBpm, settings.hitToleranceMs, start, tempoChanges, tempoPercent]);
+  }, [completeRun, enterGate, settings.fallbackBpm, settings.hitToleranceMs, start, startAtEventNow, tempoChanges, tempoPercent]);
 
   const handleHeldNotesChange = useCallback((heldNotes: readonly number[]) => {
     const held = new Set(heldNotes);
@@ -518,5 +551,5 @@ export function usePlaybackSession(options: { events: ScoreEvent[]; tempoChanges
   const assessmentPlan = plan ? playbackPlanFromElapsed(plan, attemptStartElapsedMs) : undefined;
   const missedNotes = showMissedNotes && !pauseOnNotes ? missedPerformanceNotes(assessmentPlan, results) : [];
   const clearResults = useCallback(() => { clearRecordedResults(); setShowMissedNotes(false); }, [clearRecordedResults]);
-  return { phase, plan, elapsedMs, rollElapsedMs, audioStartElapsedMs, activeDurationMs, idealDurationMs, remainingDurationMs: idealDurationMs - activeDurationMs, runId, countdownValue, countdownBar, countInPlan, playheadAnchor, showStartCue, gate, carriedNotes, nextPendingGateOnsetMs: nextPendingGate?.onsetMs, results, missedNotes, completedRun, currentEventIndex: current?.eventIndex, currentEvent: current?.event, expectedNotes, expectedEventIndices, expectationStrength, start, startAtEvent, pause, resume, stopAtPlanStart, togglePlayback, seekToEvent, stop, reset, clearResults, handleMidiNoteOn, handleHeldNotesChange };
+  return { phase, plan, elapsedMs, rollElapsedMs, audioStartElapsedMs, activeDurationMs, idealDurationMs, remainingDurationMs: idealDurationMs - activeDurationMs, runId, countdownValue, countdownBar, countInPlan, playheadAnchor, showStartCue, gate, carriedNotes, nextPendingGateOnsetMs: nextPendingGate?.onsetMs, results, missedNotes, completedRun, currentEventIndex: current?.eventIndex, currentEvent: current?.event, expectedNotes, expectedEventIndices, expectationStrength, start, startAtEvent, startAtEventImmediately: startAtEventNow, pause, resume, stopAtPlanStart, togglePlayback, seekToEvent, stop, reset, clearResults, handleMidiNoteOn, handleHeldNotesChange };
 }

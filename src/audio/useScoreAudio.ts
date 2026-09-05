@@ -39,7 +39,9 @@ export function useScoreAudio(options: { plan?: PlaybackPlan; phase: PlaybackPha
   const { plan, phase, rollElapsedMs, audioStartElapsedMs = 0, runId, pauseOnNotes, nextPendingGateOnsetMs, settings } = options;
   const [engine] = useState<ScoreAudioEngine>(() => options.engine ?? new PianoSynthEngine());
   const scheduledRef = useRef(new Set<string>());
+  const auditionTimerRef = useRef<number | undefined>(undefined);
   const [error, setError] = useState<string | undefined>();
+  const [auditioning, setAuditioning] = useState(false);
   const notes = useMemo(() => audioNotesForPlan(plan), [plan]);
 
   const prepare = useCallback(async () => {
@@ -52,11 +54,40 @@ export function useScoreAudio(options: { plan?: PlaybackPlan; phase: PlaybackPha
     }
   }, [engine, settings.muted, settings.volume]);
 
+  const stopAudition = useCallback(() => {
+    if (auditionTimerRef.current !== undefined) window.clearTimeout(auditionTimerRef.current);
+    auditionTimerRef.current = undefined;
+    engine.stopAll();
+    setAuditioning(false);
+  }, [engine]);
+
+  const audition = useCallback(async (auditionPlan: PlaybackPlan) => {
+    stopAudition();
+    try {
+      await engine.prepare();
+      engine.setOutput(settings.volume, settings.muted);
+      setError(undefined);
+      const auditionNotes = audioNotesForPlan(auditionPlan);
+      for (const note of auditionNotes) engine.scheduleNote(`audition:${note.id}`, note.midiNote, note.onsetMs, note.durationMs);
+      setAuditioning(true);
+      auditionTimerRef.current = window.setTimeout(() => {
+        auditionTimerRef.current = undefined;
+        setAuditioning(false);
+      }, Math.max(0, auditionPlan.durationMs) + 150);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Audio could not be started.");
+      setAuditioning(false);
+    }
+  }, [engine, settings.muted, settings.volume, stopAudition]);
+
   useEffect(() => { engine.setOutput(settings.volume, settings.muted); }, [engine, settings.muted, settings.volume]);
 
   useEffect(() => {
     scheduledRef.current.clear();
+    if (auditionTimerRef.current !== undefined) window.clearTimeout(auditionTimerRef.current);
+    auditionTimerRef.current = undefined;
     engine.stopAll();
+    setAuditioning(false);
   }, [engine, plan, runId]);
 
   useEffect(() => {
@@ -80,6 +111,9 @@ export function useScoreAudio(options: { plan?: PlaybackPlan; phase: PlaybackPha
     scheduledRef.current.clear();
   }, [engine, pauseOnNotes]);
 
-  useEffect(() => () => engine.close(), [engine]);
-  return { prepare, error };
+  useEffect(() => () => {
+    if (auditionTimerRef.current !== undefined) window.clearTimeout(auditionTimerRef.current);
+    engine.close();
+  }, [engine]);
+  return { prepare, audition, stopAudition, auditioning, error };
 }

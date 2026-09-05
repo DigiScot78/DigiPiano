@@ -30,6 +30,7 @@ export interface PianoPanelProps {
   playMode?: PlayMode;
   showProgressWhilePlaying?: boolean;
   canClearPerformance: boolean;
+  canClearSelection?: boolean;
   audioSettings?: AudioSettings;
   audioError?: string;
   tempoPercent?: number;
@@ -38,6 +39,7 @@ export interface PianoPanelProps {
   countInBars?: 0 | 1 | 2;
   seeNoteEnabled?: boolean;
   learningOpen?: boolean;
+  planningMode?: boolean;
   inspectedMidiNote?: number;
   auditionEngine?: ScoreAudioEngine;
   onPanelHeightChange?: (height: number) => void;
@@ -51,6 +53,7 @@ export interface PianoPanelProps {
   onShowProgressWhilePlayingChange?: (enabled: boolean) => void;
   onPauseOnNotesChange?: (enabled: boolean) => void;
   onClearPerformance: () => void;
+  onClearSelection?: () => void;
   onAudioSettingsChange?: (update: Partial<AudioSettings>) => void;
   onTempoPercentChange?: (percent: number) => void;
   onCountInBarsChange?: (bars: 0 | 1 | 2) => void;
@@ -61,10 +64,11 @@ export interface PianoPanelProps {
 const HEIGHT_LABELS: Record<PianoHeight, string> = { small: "Small", medium: "Medium", large: "Large" };
 const WIDTH_LABELS: Record<PianoWidthMode, string> = { auto: "Auto", fit: "Fit", scroll: "Scroll" };
 const SPEED_LABELS: Record<SynthesiaSpeed, string> = { 70: "Slow", 100: "Normal", 140: "Fast" };
-export function PianoPanel({ expectations, fingerings = [], expectedNotes = [], heldNotes, ignoredCarriedNotes, settings, playbackPlan, playbackPhase, rollElapsedMs, playbackElapsedMs, displayedEventIndex, canPlay, runMode, pauseOnNotes, playMode = pauseOnNotes ? "pause-each-note" : "play", showProgressWhilePlaying = false, canClearPerformance, audioSettings, audioError, tempoPercent = 100, writtenTempoBpm = 120, tempoVaries = false, countInBars = 1, seeNoteEnabled = false, learningOpen = false, inspectedMidiNote, auditionEngine: providedAuditionEngine, onPanelHeightChange, onSettingsChange, onTogglePlayback, onStop, onReset, onSeek, onRunModeChange, onPlayModeChange, onShowProgressWhilePlayingChange, onClearPerformance, onAudioSettingsChange, onTempoPercentChange, onCountInBarsChange, onSeeNoteToggle, onLearningOpenChange }: PianoPanelProps) {
+export function PianoPanel({ expectations, fingerings = [], expectedNotes = [], heldNotes, ignoredCarriedNotes, settings, playbackPlan, playbackPhase, rollElapsedMs, playbackElapsedMs, displayedEventIndex, canPlay, runMode, pauseOnNotes, playMode = pauseOnNotes ? "pause-each-note" : "play", showProgressWhilePlaying = false, canClearPerformance, canClearSelection = false, audioSettings, audioError, tempoPercent = 100, writtenTempoBpm = 120, tempoVaries = false, countInBars = 1, seeNoteEnabled = false, learningOpen = false, planningMode = false, inspectedMidiNote, auditionEngine: providedAuditionEngine, onPanelHeightChange, onSettingsChange, onTogglePlayback, onStop, onReset, onSeek, onRunModeChange, onPlayModeChange, onShowProgressWhilePlayingChange, onClearPerformance, onClearSelection, onAudioSettingsChange, onTempoPercentChange, onCountInBarsChange, onSeeNoteToggle, onLearningOpenChange }: PianoPanelProps) {
   const configuredRange = rangeForSettings(settings);
   const range = inspectedMidiNote === undefined ? configuredRange : { low: Math.min(configuredRange.low, inspectedMidiNote), high: Math.max(configuredRange.high, inspectedMidiNote) };
-  const pianoVisible = settings.pianoVisible || seeNoteEnabled;
+  const pianoVisible = !planningMode && (settings.pianoVisible || seeNoteEnabled);
+  const synthesiaVisible = !planningMode && settings.synthesiaEnabled;
   const keys = useMemo(() => generatePianoLayout(range.low, range.high), [range.high, range.low]);
   const blocks = useMemo(() => createSynthesiaBlocks(playbackPlan, keys), [keys, playbackPlan]);
   const whiteCount = keys.filter((key) => !key.isBlack).length;
@@ -94,7 +98,7 @@ export function PianoPanel({ expectations, fingerings = [], expectedNotes = [], 
   const minimumAllowedHeight = Math.min(SYNTHESIA_MIN_HEIGHT, availableRollHeight);
   const rollHeight = Math.max(minimumAllowedHeight, Math.min(draftRollHeight ?? settings.synthesiaHeight, availableRollHeight));
   const synthesiaElapsedMs = synthesiaDisplayElapsedMs(playbackPlan, playbackPhase, rollElapsedMs, displayedEventIndex);
-  const showBlocks = settings.synthesiaEnabled && Boolean(playbackPlan);
+  const showBlocks = synthesiaVisible && Boolean(playbackPlan);
   const strikingHandByNote = useMemo(() => handMap(blocks.filter((block) => isSynthesiaBlockStriking(block, synthesiaElapsedMs)).map((block) => ({ midiNote: block.midiNote, hand: block.hand }))), [blocks, synthesiaElapsedMs]);
   const expectationByNote = useMemo(() => new Map(resolvedExpectations.map((item) => [item.midiNote, item])), [resolvedExpectations]);
   const fingeringsByNote = useMemo(() => {
@@ -307,8 +311,8 @@ export function PianoPanel({ expectations, fingerings = [], expectedNotes = [], 
   };
 
   return (
-    <section ref={panelRef} className={`piano-panel height-${settings.height}${pianoVisible ? "" : " piano-hidden"}${settings.synthesiaEnabled ? " synthesia-open" : ""}${playbackPlan ? " timeline-visible" : ""}`} style={{ "--piano-expected": settings.expectedColor, "--piano-correct": settings.correctColor, "--piano-wrong": settings.wrongColor, "--see-note": settings.seeNoteColor, "--play-right": settings.playRightColor, "--play-left": settings.playLeftColor, "--synthesia-right": settings.synthesiaRightColor, "--synthesia-left": settings.synthesiaLeftColor, "--synthesia-height": `${rollHeight}px` } as React.CSSProperties} aria-label="Practice toolbar and piano">
-      {settings.synthesiaEnabled ? <div className={`synthesia-panel${settings.synthesiaOpaque ? " opaque" : ""}`} style={{ height: rollHeight }} aria-label="Synthesia falling notes">
+    <section ref={panelRef} className={`piano-panel height-${settings.height}${pianoVisible ? "" : " piano-hidden"}${synthesiaVisible ? " synthesia-open" : ""}${playbackPlan ? " timeline-visible" : ""}`} style={{ "--piano-expected": settings.expectedColor, "--piano-correct": settings.correctColor, "--piano-wrong": settings.wrongColor, "--see-note": settings.seeNoteColor, "--play-right": settings.playRightColor, "--play-left": settings.playLeftColor, "--synthesia-right": settings.synthesiaRightColor, "--synthesia-left": settings.synthesiaLeftColor, "--synthesia-height": `${rollHeight}px` } as React.CSSProperties} aria-label="Practice toolbar and piano">
+      {synthesiaVisible ? <div className={`synthesia-panel${settings.synthesiaOpaque ? " opaque" : ""}`} style={{ height: rollHeight }} aria-label="Synthesia falling notes">
         <button type="button" className="synthesia-resize-handle" aria-label="Resize Synthesia panel" title="Drag to resize Synthesia" onPointerDown={beginResize} onPointerMove={resize} onPointerUp={finishResize} onPointerCancel={finishResize}><span /></button>
         <div className="synthesia-content synthesia-lane-content" style={{ width: contentWidth || "100%", transform: `translateX(${-scrollLeft}px)` }}>
           {keys.map((key) => <div key={`lane-${key.midiNote}`} className={`synthesia-lane ${key.isBlack ? "black" : "white"}`} style={{ left: `${key.x * 100}%`, width: `${key.width * 100}%` }} />)}
@@ -364,11 +368,13 @@ export function PianoPanel({ expectations, fingerings = [], expectedNotes = [], 
           }}><LearningIcon /></button>
         </div>
         <div className="piano-toolbar-section piano-transport-controls toolbar-centre" role="group" aria-label="Playback controls">
-            <div className="play-control-group"><button type="button" aria-label={playbackPhase === "idle" ? "Play score from piano" : playbackPhase === "paused" ? "Resume score from piano" : "Pause playback from piano"} title={playbackPhase === "idle" ? "Play" : playbackPhase === "paused" ? "Resume" : "Pause"} disabled={!canPlay} onClick={onTogglePlayback}>{playbackPhase === "idle" || playbackPhase === "paused" ? <PlayIcon /> : <TransportPauseIcon />}</button><button type="button" className="toolbar-icon-button toolbar-options-button" aria-label="Choose play mode from piano" title="Play mode" aria-haspopup="dialog" onClick={() => setPlayModeOpen(true)}><ChevronDownIcon /></button></div>
+            <div className="play-control-group"><button type="button" aria-label={playbackPhase === "idle" ? "Play score from piano" : playbackPhase === "paused" ? "Resume score from piano" : playbackPhase === "waiting-ready" || playbackPhase === "waiting-restart" ? "Begin count-in now" : "Pause playback from piano"} title={playbackPhase === "idle" ? "Play" : playbackPhase === "paused" ? "Resume" : playbackPhase === "waiting-ready" || playbackPhase === "waiting-restart" ? "Begin now" : "Pause"} disabled={!canPlay} onClick={onTogglePlayback}>{playbackPhase === "idle" || playbackPhase === "paused" || playbackPhase === "waiting-ready" || playbackPhase === "waiting-restart" ? <PlayIcon /> : <TransportPauseIcon />}</button><button type="button" className="toolbar-icon-button toolbar-options-button" aria-label="Choose play mode from piano" title="Play mode" aria-haspopup="dialog" onClick={() => setPlayModeOpen(true)}><ChevronDownIcon /></button></div>
             <button type="button" aria-label="Stop score playback from piano" title="Stop" disabled={!canStop(playbackPhase)} onClick={onStop}><StopIcon /></button>
             <button type="button" className={runMode === "loop" ? "active" : ""} aria-label="Loop from piano" aria-pressed={runMode === "loop"} title={runMode === "loop" ? "Loop on" : "Loop off"} onClick={() => onRunModeChange(runMode === "loop" ? "once" : "loop")}><LoopIcon /></button>
             <button type="button" aria-label="Clear performance from piano" title="Clear performance" disabled={!canClearPerformance} onClick={onClearPerformance}><ClearIcon /></button>
             <button type="button" aria-label="Reset score progress from piano" title="Reset" disabled={!canPlay} onClick={onReset}><ResetIcon /></button>
+            <span className="toolbar-separator" aria-hidden="true" />
+            <button type="button" aria-label="Clear selection from piano" title="Clear selection" disabled={playbackPhase !== "idle" || !canClearSelection} onClick={onClearSelection}><SelectionClearIcon /></button>
         </div>
         <div className="piano-toolbar-section toolbar-right">
           {audioSettings && onAudioSettingsChange && onTempoPercentChange && onCountInBarsChange ? <MetronomeControls settings={audioSettings} tempoPercent={tempoPercent} tempoDisabled={playbackPhase !== "idle"} writtenTempoBpm={writtenTempoBpm} tempoVaries={tempoVaries} countInBars={countInBars} onAudioSettingsChange={onAudioSettingsChange} onTempoPercentChange={onTempoPercentChange} onCountInBarsChange={onCountInBarsChange} /> : null}
@@ -444,12 +450,13 @@ function PlayIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d
 function TransportPauseIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6V4Zm8 0h4v16h-4V4Z" /></svg>; }
 function StopIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5V5Z" /></svg>; }
 function ResetIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.1 7.2A8 8 0 1 1 4 14h2.1a6 6 0 1 0 .8-5.2L10 12H2V4l3.1 3.2Z" /></svg>; }
+function SelectionClearIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4V3H2v6h2V5Zm12-2v2h4v4h2V3h-6ZM4 15H2v6h6v-2H4v-4Zm18 0h-2v4h-4v2h6v-6ZM8.7 8.7l2.3 2.3 2.3-2.3 1.4 1.4-2.3 2.3 2.3 2.3-1.4 1.4-2.3-2.3-2.3 2.3-1.4-1.4 2.3-2.3-2.3-2.3 1.4-1.4Z" /></svg>; }
 function LoopIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.7 7.3A8 8 0 0 0 4.6 9H2l3.5-4L9 9H6.7a6 6 0 0 1 9.6-.3L17.7 7.3Zm-10.4 9.4A8 8 0 0 0 20 15h2l-3.5 4-3.5-4h2.3a6 6 0 0 1-9.6.3l-1.4 1.4Z" /></svg>; }
 function ClearIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 6 1-2h8l1 2h4v2H3V6h4Zm1 4h8l-1 10H9L8 10Z" /></svg>; }
 
 type PianoHand = "right" | "left" | "both";
 
-function canStop(phase: PlaybackPhase): boolean { return phase === "countdown" || phase === "playing" || phase === "waiting-note" || phase === "paused" || phase === "waiting-restart"; }
+function canStop(phase: PlaybackPhase): boolean { return phase === "countdown" || phase === "playing" || phase === "waiting-note" || phase === "paused" || phase === "waiting-ready" || phase === "waiting-restart"; }
 
 function activeNotesAt(plan: PlaybackPlan | undefined, elapsedMs: number): Set<number> {
   return new Set(plan?.events.filter((item) => item.onsetMs <= elapsedMs + 0.001 && item.endMs > elapsedMs + 0.001).flatMap((item) => item.event.midiNotes) ?? []);

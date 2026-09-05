@@ -11,6 +11,7 @@ import { AudioControls } from "./AudioControls";
 import { PlayModeDialog } from "./PlayModeDialog";
 import { MetronomeControls } from "./MetronomeControls";
 import type { PlayMode } from "../playback/settings";
+import type { GuidedLessonSection } from "../learning/guidedPractice";
 
 type CursorLike = {
   show: () => void;
@@ -29,6 +30,13 @@ interface ScoreRendererProps {
   restEvents?: ScoreEvent[];
   measureTimings?: MeasureTiming[];
   selectedRange?: ScoreSelectionRange;
+  guidedSections?: GuidedLessonSection[];
+  guidedPlanning?: boolean;
+  addingGuidedBoundary?: boolean;
+  activeGuidedSectionId?: string;
+  guidedAuditioning?: boolean;
+  guidedAuditionNotice?: string;
+  selectionAuditionEnabled?: boolean;
   feedbackMarkers: NoteFeedbackMarker[];
   completedFeedback?: CompletedNoteFeedback;
   performanceResults?: PerformanceResult[];
@@ -63,6 +71,12 @@ interface ScoreRendererProps {
   onSeeNoteToggle?: () => void;
   onInspectedNoteChange?: (note: ScoreNoteInspection | undefined) => void;
   onSelectedRangeChange: (range: ScoreSelectionRange | undefined) => void;
+  onGuidedSectionActivate?: (sectionId: string) => void;
+  onGuidedSectionSplit?: (sectionId: string, eventIndex: number) => void;
+  onGuidedBoundaryMove?: (rightSectionId: string, eventIndex: number) => void;
+  onGuidedBoundaryDelete?: (rightSectionId: string) => void;
+  onGuidedAudition?: () => void;
+  onGuidedAuditionStop?: () => void;
   onEventSeek?: (eventIndex: number) => void;
   onHandModeChange?: (mode: HandMode) => void;
   onRunModeChange?: (mode: PracticeRunMode) => void;
@@ -72,6 +86,7 @@ interface ScoreRendererProps {
   onTogglePlayback?: () => void;
   onStop?: () => void;
   onReset?: () => void;
+  onClearSelection?: () => void;
   onClearPerformance?: () => void;
   onAudioSettingsChange?: (update: Partial<AudioSettings>) => void;
   onTempoPercentChange?: (percent: number) => void;
@@ -140,6 +155,13 @@ export function ScoreRenderer({
   restEvents = EMPTY_SCORE_EVENTS,
   measureTimings = [],
   selectedRange,
+  guidedSections = [],
+  guidedPlanning = false,
+  addingGuidedBoundary = false,
+  activeGuidedSectionId,
+  guidedAuditioning = false,
+  guidedAuditionNotice,
+  selectionAuditionEnabled = false,
   feedbackMarkers,
   completedFeedback,
   performanceResults = [],
@@ -173,6 +195,12 @@ export function ScoreRenderer({
   onSeeNoteToggle,
   onInspectedNoteChange,
   onSelectedRangeChange,
+  onGuidedSectionActivate,
+  onGuidedSectionSplit,
+  onGuidedBoundaryMove,
+  onGuidedBoundaryDelete,
+  onGuidedAudition,
+  onGuidedAuditionStop,
   onEventSeek,
   onHandModeChange,
   onRunModeChange,
@@ -181,6 +209,7 @@ export function ScoreRenderer({
   onTogglePlayback,
   onStop,
   onReset,
+  onClearSelection,
   onClearPerformance,
     onAudioSettingsChange,
     onTempoPercentChange,
@@ -197,6 +226,8 @@ export function ScoreRenderer({
   const currentMarkerRef = useRef<HTMLDivElement | null>(null);
   const followedSystemRef = useRef<string | undefined>(undefined);
   const resizeRefreshTimerRef = useRef<number | undefined>(undefined);
+  const resizeRenderSequenceRef = useRef<Promise<void>>(Promise.resolve());
+  const guidedBoundaryDragRef = useRef<{ sectionId: string; point: DragPoint } | undefined>(undefined);
   const observedScoreWidthRef = useRef<number | undefined>(undefined);
   const currentEventIndexRef = useRef(currentEventIndex);
   const onRenderStateChangeRef = useRef(onRenderStateChange);
@@ -210,6 +241,7 @@ export function ScoreRenderer({
   const [usesGraphicEventPositions, setUsesGraphicEventPositions] = useState(false);
   const [playheadPosition, setPlayheadPosition] = useState<EventPosition | undefined>();
   const [noteTargets, setNoteTargets] = useState<ScoreNoteInspection[]>([]);
+  const [draggedGuidedBoundary, setDraggedGuidedBoundary] = useState<{ sectionId: string; point: DragPoint } | undefined>();
 
   useEffect(() => {
     onRenderStateChangeRef.current = onRenderStateChange;
@@ -327,11 +359,14 @@ export function ScoreRenderer({
         onRenderStateChangeRef.current({ status: "loading" });
         const scorePreset = SCORE_THEME_PRESETS[scoreTheme];
         const osmd = new OpenSheetMusicDisplay(target, {
-          autoResize: true,
+          autoResize: false,
           backend: "svg",
           drawTitle: true,
-          newSystemFromXML: true,
-          newSystemFromNewPageInXML: true,
+          // OSMD's responsive layout must own line wrapping. Preserving imported
+          // fixed breaks as well can strand one stretched measure when the dock
+          // changes the available width.
+          newSystemFromXML: false,
+          newSystemFromNewPageInXML: false,
           defaultColorMusic: scorePreset.ink,
           defaultColorLabel: scorePreset.ink,
           defaultColorTitle: scorePreset.ink,
@@ -394,7 +429,10 @@ export function ScoreRenderer({
         resizeRefreshTimerRef.current = undefined;
         const osmd = osmdRef.current;
         if (!osmd) return;
-        void Promise.resolve(osmd.render()).then(() => {
+        resizeRenderSequenceRef.current = resizeRenderSequenceRef.current.catch(() => undefined).then(async () => {
+          if (osmdRef.current !== osmd) return;
+          await osmd.render();
+          if (osmdRef.current !== osmd) return;
           hideNativeCursor();
           window.requestAnimationFrame(() => window.requestAnimationFrame(refreshEventPositions));
         });
@@ -430,7 +468,41 @@ export function ScoreRenderer({
   const isPointerPreview = interactionMode === "selecting" || interactionMode === "resizing-start" || interactionMode === "resizing-end";
   const visibleRange = draftRange ?? selectedRange;
   const rangeSelectionRects = useMemo(() => rectsForRange(visibleRange, eventPositions, systemRows), [eventPositions, systemRows, visibleRange]);
+  const selectionAuditionRect = useMemo(() => guidedPlanning || selectionAuditionEnabled
+    ? rangeSelectionRects.reduce<OverlayRect | undefined>((largest, rect) => !largest || rect.width * rect.height > largest.width * largest.height ? rect : largest, undefined)
+    : undefined, [guidedPlanning, rangeSelectionRects, selectionAuditionEnabled]);
   const effectiveOverlaySize = useMemo(() => effectiveSizeForRows(overlaySize, systemRows), [overlaySize, systemRows]);
+  const guidedSectionRects = useMemo(() => {
+    const standard = guidedSections.flatMap((section, sectionIndex) => rectsForRange(section, eventPositions, systemRows).map((rect, rectIndex) => ({ ...rect, section, sectionIndex, rectIndex })));
+    if (!draggedGuidedBoundary) return standard;
+    const rightIndex = guidedSections.findIndex((section) => section.id === draggedGuidedBoundary.sectionId);
+    const leftSection = guidedSections[rightIndex - 1];
+    const rightSection = guidedSections[rightIndex];
+    if (!leftSection || !rightSection) return standard;
+    const leftStart = dragPointForSelectionEdge(leftSection, "start", eventPositions, systemRows);
+    const rightEnd = dragPointForSelectionEdge(rightSection, "end", eventPositions, systemRows);
+    if (!leftStart || !rightEnd) return standard;
+    const unaffected = standard.filter(({ section }) => section.id !== leftSection.id && section.id !== rightSection.id);
+    const leftRects = rectsForDrag(leftStart, draggedGuidedBoundary.point, systemRows, effectiveOverlaySize).map((rect, rectIndex) => ({ ...rect, section: leftSection, sectionIndex: rightIndex - 1, rectIndex }));
+    const rightRects = rectsForDrag(draggedGuidedBoundary.point, rightEnd, systemRows, effectiveOverlaySize).map((rect, rectIndex) => ({ ...rect, section: rightSection, sectionIndex: rightIndex, rectIndex }));
+    return [...unaffected, ...leftRects, ...rightRects];
+  }, [draggedGuidedBoundary, effectiveOverlaySize, eventPositions, guidedSections, systemRows]);
+  const guidedBoundaryHandles = useMemo(() => {
+    const activeIndex = guidedSections.findIndex((section) => section.id === activeGuidedSectionId);
+    if (activeIndex < 0) return [];
+    const editableBoundaryIndices = [activeIndex, activeIndex + 1]
+      .filter((index) => index > 0 && index < guidedSections.length);
+    return editableBoundaryIndices.flatMap((sectionIndex) => {
+      const section = guidedSections[sectionIndex];
+      const draggedPoint = draggedGuidedBoundary?.sectionId === section.id ? draggedGuidedBoundary.point : undefined;
+      if (draggedPoint) {
+        const bounds = visualBoundsForRow(systemRows, draggedPoint.rowIndex);
+        return [{ section, lessonNumber: sectionIndex + 1, left: draggedPoint.left, top: bounds.top, height: bounds.bottom - bounds.top }];
+      }
+      const firstRect = rectsForRange(section, eventPositions, systemRows)[0];
+      return firstRect ? [{ section, lessonNumber: sectionIndex + 1, left: firstRect.left, top: firstRect.top, height: firstRect.height }] : [];
+    });
+  }, [activeGuidedSectionId, draggedGuidedBoundary, eventPositions, guidedSections, systemRows]);
   const dragSelectionRects = useMemo(() => rectsForDrag(dragStartPoint, dragEndPoint, systemRows, effectiveOverlaySize), [dragEndPoint, dragStartPoint, effectiveOverlaySize, systemRows]);
   const outlineRects = isPointerPreview ? dragSelectionRects : rangeSelectionRects;
   const hasVisibleRange = visibleRange !== undefined;
@@ -569,6 +641,7 @@ export function ScoreRenderer({
     if (!point) {
       return;
     }
+    if (guidedPlanning) return;
 
     if (interactionModeRef.current === "pending" && dragStartRef.current) {
       const distance = Math.hypot(point.left - dragStartRef.current.left, point.top - dragStartRef.current.top);
@@ -606,7 +679,13 @@ export function ScoreRenderer({
 
     releasePointer(event.currentTarget, event.pointerId);
 
-    if (nextRange) {
+    if (guidedPlanning && clickedIndex !== undefined) {
+      const section = guidedSections.find((item) => clickedIndex >= item.startIndex && clickedIndex <= item.endIndex);
+      if (section) {
+        if (addingGuidedBoundary) onGuidedSectionSplit?.(section.id, clickedIndex);
+        else onGuidedSectionActivate?.(section.id);
+      }
+    } else if (nextRange) {
       onSelectedRangeChange(nextRange);
     } else if (clickedIndex !== undefined && (!selectedRange || (clickedIndex >= selectedRange.startIndex && clickedIndex <= selectedRange.endIndex))) {
       onEventSeek?.(clickedIndex);
@@ -630,6 +709,47 @@ export function ScoreRenderer({
     setDragStartPoint(fixedPoint);
     setDragEndPoint(movingPoint);
     setDraftRange(selectedRange);
+  };
+
+  const beginGuidedHandle = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const sectionId = event.currentTarget.dataset.sectionId;
+    const left = Number(event.currentTarget.dataset.left);
+    const top = Number(event.currentTarget.dataset.top);
+    const height = Number(event.currentTarget.dataset.height);
+    if (!sectionId || !Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(height)) return;
+    const point = { left, top: top + height / 2, rowIndex: nearestRowIndexForPoint({ left, top: top + height / 2 }, systemRows) };
+    event.preventDefault();
+    event.stopPropagation();
+    capturePointer(event.currentTarget, event.pointerId);
+    guidedBoundaryDragRef.current = { sectionId, point };
+    setDraggedGuidedBoundary({ sectionId, point });
+  };
+
+  const moveGuidedHandle = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const sectionId = event.currentTarget.dataset.sectionId;
+    if (!sectionId || guidedBoundaryDragRef.current?.sectionId !== sectionId) return;
+    const point = pointFromPointerEvent(event);
+    if (point) {
+      guidedBoundaryDragRef.current = { sectionId, point };
+      setDraggedGuidedBoundary({ sectionId, point });
+    }
+  };
+
+  const finishGuidedHandle = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const sectionId = event.currentTarget.dataset.sectionId;
+    if (!sectionId) return;
+    event.stopPropagation();
+    releasePointer(event.currentTarget, event.pointerId);
+    const point = pointFromPointerEvent(event);
+    const finalPoint = point ?? (guidedBoundaryDragRef.current?.sectionId === sectionId ? guidedBoundaryDragRef.current.point : undefined);
+    const rightIndex = guidedSections.findIndex((section) => section.id === sectionId);
+    const leftSection = guidedSections[rightIndex - 1];
+    const fixedStart = leftSection ? dragPointForSelectionEdge(leftSection, "start", eventPositions, systemRows) : undefined;
+    const leftEndIndex = finalPoint && fixedStart ? boundaryEventIndexForPoint(finalPoint, fixedStart, systemRows) : undefined;
+    const eventIndex = leftEndIndex === undefined ? undefined : leftEndIndex + 1;
+    guidedBoundaryDragRef.current = undefined;
+    setDraggedGuidedBoundary(undefined);
+    if (eventIndex !== undefined) onGuidedBoundaryMove?.(sectionId, eventIndex);
   };
 
   const startHandleRect = rangeSelectionRects[0];
@@ -663,12 +783,13 @@ export function ScoreRenderer({
 
   return (
     <div ref={shellRef} className="score-renderer-shell">
-      {markerRect ? <div className="score-playhead-underlay" aria-hidden="true"><div className="score-current-event-wash" style={{ ...rectStyle(markerRect), backgroundColor: markerColor, opacity: Math.min(100, Math.max(0, activeMarkerOpacity)) / 100 }} /></div> : null}
+      {markerRect && !guidedPlanning ? <div className="score-playhead-underlay" aria-hidden="true"><div className="score-current-event-wash" style={{ ...rectStyle(markerRect), backgroundColor: markerColor, opacity: Math.min(100, Math.max(0, activeMarkerOpacity)) / 100 }} /></div> : null}
       <div ref={containerRef} className="score-renderer" aria-label="Rendered sheet music" />
       <div className="score-selection-visual-layer" aria-hidden="true">
         {rangeDimRects.map((rect, index) => (
-          <div key={`range-dim-${index}`} className="score-selection-dim range" style={rectStyle(rect)} />
+          <div key={`range-dim-${index}`} className={`score-selection-dim range${guidedPlanning ? " guided" : ""}`} style={rectStyle(rect)} />
         ))}
+        {guidedPlanning ? guidedSectionRects.map(({ section, sectionIndex, rectIndex, ...rect }) => <div key={`${section.id}-${rectIndex}`} className={`guided-section-overlay section-${sectionIndex % 4}${section.id === activeGuidedSectionId ? " active" : ""}`} style={rectStyle(rect)} />) : null}
         {inactiveHandDimRects.map((rect, index) => (
           <div key={`hand-dim-${index}`} className="score-selection-dim inactive-hand" style={rectStyle(rect)} />
         ))}
@@ -679,7 +800,7 @@ export function ScoreRenderer({
             style={rectStyle(rect)}
           />
         ))}
-        {markerRect ? <div ref={currentMarkerRef} className={`score-current-event-marker${showStartCue ? " playback-onset" : ""}`} style={rectStyle(markerRect)} /> : null}
+        {markerRect && !guidedPlanning ? <div ref={currentMarkerRef} className={`score-current-event-marker${showStartCue ? " playback-onset" : ""}`} style={rectStyle(markerRect)} /> : null}
       </div>
       <div
         className={`score-selection-layer${playbackPhase === "idle" ? "" : " playback-active"}`}
@@ -690,7 +811,11 @@ export function ScoreRenderer({
         onPointerCancel={finishPointerSelection}
         onPointerLeave={() => onInspectedNoteChange?.(undefined)}
       >
-        {startHandleRect && endHandleRect && selectedRange && interactionMode === "idle" && playbackPhase === "idle" ? (
+        {selectionAuditionRect && onGuidedAudition ? <div className="guided-audition-control" style={{ left: selectionAuditionRect.left + selectionAuditionRect.width / 2, top: selectionAuditionRect.top + selectionAuditionRect.height / 2 }}>
+          <button type="button" aria-label={guidedAuditioning ? guidedPlanning ? "Stop lesson preview" : "Stop selection preview" : guidedPlanning ? "Listen to selected lesson" : "Listen to selected range"} title={guidedAuditioning ? "Stop preview" : guidedPlanning ? "Listen to this lesson" : "Listen to this selection"} className={guidedAuditioning ? "playing" : ""} onPointerDown={(event) => event.stopPropagation()} onClick={guidedAuditioning ? onGuidedAuditionStop : onGuidedAudition}><EarIcon /></button>
+          {guidedAuditionNotice ? <span role="status">{guidedAuditionNotice}</span> : null}
+        </div> : null}
+        {startHandleRect && endHandleRect && selectedRange && !guidedPlanning && interactionMode === "idle" && playbackPhase === "idle" ? (
           <>
             <button
               type="button"
@@ -714,8 +839,28 @@ export function ScoreRenderer({
             />
           </>
         ) : null}
+        {guidedPlanning ? guidedBoundaryHandles.map((handle) => <button
+          key={handle.section.id}
+          type="button"
+          className="guided-boundary-handle"
+          style={{ left: handle.left, top: handle.top, height: handle.height }}
+          data-section-id={handle.section.id}
+          data-left={handle.left}
+          data-top={handle.top}
+          data-height={handle.height}
+          aria-label={`Boundary before lesson ${handle.lessonNumber}`}
+          title="Drag to move; Delete to merge sections"
+          onPointerDown={beginGuidedHandle}
+          onPointerMove={moveGuidedHandle}
+          onPointerUp={finishGuidedHandle}
+          onPointerCancel={finishGuidedHandle}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); onGuidedBoundaryMove?.(handle.section.id, handle.section.startIndex + (event.key === "ArrowLeft" ? -1 : 1)); }
+            if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); onGuidedBoundaryDelete?.(handle.section.id); }
+          }}
+        />) : null}
       </div>
-      {controlPosition ? (
+      {controlPosition && !guidedPlanning ? (
         <div className="score-controls-layer">
           <button
             type="button"
@@ -739,7 +884,7 @@ export function ScoreRenderer({
             title={handMode === "left" ? "Left hand must remain on" : "Toggle left hand"}
             onClick={() => toggleHand("left")}
           >LH</button>
-          <div className="score-practice-toolbar" style={{ left: Math.max(8, controlBoundaryLeft), top: toolbarTop }} role="toolbar" aria-label="Practice toolbar">
+          {!guidedPlanning ? <div className="score-practice-toolbar" style={{ left: Math.max(8, controlBoundaryLeft), top: toolbarTop }} role="toolbar" aria-label="Practice toolbar">
             <button type="button" className={seeNoteEnabled ? "active" : ""} aria-label="See Note" aria-pressed={seeNoteEnabled} disabled={!inspectionAvailable} title="Identify written notes" onClick={onSeeNoteToggle}><EyeIcon /></button>
             <div className="play-control-group"><button type="button" aria-label={playbackPhase === "idle" ? "Play score" : playbackPhase === "paused" ? "Resume score" : "Pause playback"} title={playbackPhase === "idle" ? "Play" : playbackPhase === "paused" ? "Resume" : "Pause"} disabled={!canPlay} onClick={onTogglePlayback}>{playbackPhase === "idle" || playbackPhase === "paused" ? <PlayIcon /> : <TransportPauseIcon />}</button><button type="button" className="toolbar-icon-button toolbar-options-button" aria-label="Choose play mode" title="Play mode" aria-haspopup="dialog" onClick={() => setPlayModeOpen(true)}><ChevronDownIcon /></button></div>
             <button type="button" aria-label="Stop score playback" title="Stop" disabled={!canStop(playbackPhase)} onClick={onStop}><StopIcon /></button>
@@ -755,10 +900,12 @@ export function ScoreRenderer({
             </button>
             <button type="button" aria-label="Clear performance markers" title="Clear performance" disabled={performanceResults.length === 0 && missedPerformanceNotes.length === 0} onClick={onClearPerformance}><ClearIcon /></button>
             <button type="button" aria-label="Reset score progress" title="Reset" disabled={!canPlay} onClick={onReset}><ResetIcon /></button>
+            <span className="toolbar-separator" aria-hidden="true" />
+            <button type="button" aria-label="Clear selection" title="Clear selection" disabled={playbackPhase !== "idle" || !selectedRange} onClick={onClearSelection}><SelectionClearIcon /></button>
             {audioSettings && onAudioSettingsChange && onTempoPercentChange && onCountInBarsChange ? <MetronomeControls settings={audioSettings} tempoPercent={tempoPercent} tempoDisabled={playbackPhase !== "idle"} writtenTempoBpm={writtenTempoBpm} tempoVaries={tempoVaries} countInBars={countInBars} onAudioSettingsChange={onAudioSettingsChange} onTempoPercentChange={onTempoPercentChange} onCountInBarsChange={onCountInBarsChange} /> : null}
             {audioSettings && onAudioSettingsChange ? <AudioControls settings={audioSettings} error={audioError} onSettingsChange={onAudioSettingsChange} compact /> : null}
-          </div>
-          {playModeOpen ? <PlayModeDialog value={playMode} showProgress={showProgressWhilePlaying} onChange={(mode) => { onPlayModeChange?.(mode); setPlayModeOpen(false); }} onShowProgressChange={(enabled) => onShowProgressWhilePlayingChange?.(enabled)} onClose={() => setPlayModeOpen(false)} /> : null}
+          </div> : null}
+          {playModeOpen && !guidedPlanning ? <PlayModeDialog value={playMode} showProgress={showProgressWhilePlaying} onChange={(mode) => { onPlayModeChange?.(mode); setPlayModeOpen(false); }} onShowProgressChange={(enabled) => onShowProgressWhilePlayingChange?.(enabled)} onClose={() => setPlayModeOpen(false)} /> : null}
         </div>
       ) : null}
       <div className="note-feedback-layer" aria-live="polite">
@@ -786,7 +933,8 @@ export function ScoreRenderer({
       {showStartCue ? <div className="playback-overlay start-cue" role="status" aria-live="assertive"><div className="playback-message"><strong>Go</strong></div></div> : null}
       {playbackPhase === "waiting-note" && !showStartCue ? <div className="playback-overlay note-wait" role="status" aria-live="polite"><div className="playback-message"><span>Waiting for</span><strong>{waitingForNotes.map(midiNoteToName).join(" + ")}</strong></div></div> : null}
       {playbackPhase === "paused" ? <div className="playback-overlay paused" role="status" aria-live="polite"><div className="playback-message"><span>Playback</span><strong>Paused</strong></div></div> : null}
-      {playbackPhase === "waiting-restart" ? <div className="playback-overlay restart" role="status" aria-live="polite"><div className="playback-message"><span>Loop complete</span><strong>Press any key to start again</strong></div></div> : null}
+      {playbackPhase === "waiting-restart" ? <div className="playback-overlay restart" role="status" aria-live="polite"><div className="playback-message"><span>Loop complete</span><strong>Play any piano key to begin the count-in</strong></div></div> : null}
+      {playbackPhase === "waiting-ready" ? <div className="playback-overlay restart" role="status" aria-live="polite"><div className="playback-message"><span>Ready when you are</span><strong>Play any piano key to begin the count-in</strong></div></div> : null}
     </div>
   );
 }
@@ -800,6 +948,7 @@ function LoopIcon() {
 }
 
 function EyeIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c5.5 0 9.5 5.2 9.5 7s-4 7-9.5 7S2.5 13.8 2.5 12 6.5 5 12 5Zm0 2c-3.7 0-6.6 3.2-7.4 5 .8 1.8 3.7 5 7.4 5s6.6-3.2 7.4-5c-.8-1.8-3.7-5-7.4-5Zm0 2.2a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6Z" /></svg>; }
+function EarIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.5 3a7 7 0 0 0-7 7h2a5 5 0 1 1 9.1 2.9c-.5.7-1.1 1.2-1.8 1.8-1.1.9-2.3 1.8-2.8 3.5-.2.7-.9 1.3-1.7 1.3-1 0-1.8-.8-1.8-1.8h-2a3.8 3.8 0 0 0 7.4 1.1c.3-1 1.1-1.6 2.2-2.5.8-.6 1.6-1.3 2.3-2.2A7 7 0 0 0 12.5 3Zm0 4a3 3 0 0 0-3 3h2a1 1 0 1 1 1.7.7c-.8.8-1.7 1.5-2.2 2.5l1.8.9c.3-.6.9-1.1 1.7-1.8A3 3 0 0 0 12.5 7Z" /></svg>; }
 
 function ChevronDownIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 7 7 7-7-2-2-5 5-5-5-2 2Z" /></svg>; }
 
@@ -807,9 +956,10 @@ function PlayIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d
 function TransportPauseIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6V4Zm8 0h4v16h-4V4Z" /></svg>; }
 function StopIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5V5Z" /></svg>; }
 function ResetIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.1 7.2A8 8 0 1 1 4 14h2.1a6 6 0 1 0 .8-5.2L10 12H2V4l3.1 3.2Z" /></svg>; }
+function SelectionClearIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h4V3H2v6h2V5Zm12-2v2h4v4h2V3h-6ZM4 15H2v6h6v-2H4v-4Zm18 0h-2v4h-4v2h6v-6ZM8.7 8.7l2.3 2.3 2.3-2.3 1.4 1.4-2.3 2.3 2.3 2.3-1.4 1.4-2.3-2.3-2.3 2.3-1.4-1.4 2.3-2.3-2.3-2.3 1.4-1.4Z" /></svg>; }
 function ClearIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 6 1-2h8l1 2h4v2H3V6h4Zm1 4h8l-1 10H9L8 10Z" /></svg>; }
 
-function canStop(phase: PlaybackPhase | undefined): boolean { return phase === "countdown" || phase === "playing" || phase === "waiting-note" || phase === "paused" || phase === "waiting-restart"; }
+function canStop(phase: PlaybackPhase | undefined): boolean { return phase === "countdown" || phase === "playing" || phase === "waiting-note" || phase === "paused" || phase === "waiting-ready" || phase === "waiting-restart"; }
 
 function handModeAfterToggle(mode: HandMode, hand: "right" | "left"): HandMode {
   if (hand === "right") {
@@ -1486,6 +1636,7 @@ function markerForNoteFeedback(feedback: NoteFeedbackMarker, currentPosition: Ev
   const staffAnchor = position.staffAnchors?.find((anchor) => anchor.staffNumber === staffNumber);
   const { referenceTop, referencePitch, halfLineSpacing } = feedbackPitchGeometry(position, staffNumber, currentEvent);
   const y = referenceTop - diatonicStepDistance(referencePitch, spelling) * halfLineSpacing;
+  const constrainedY = feedback.kind === "wrong" ? constrainWrongMarkerToStaff(y, position.staffLineTops?.[staffNumber]) : y;
 
   return {
     note,
@@ -1493,8 +1644,16 @@ function markerForNoteFeedback(feedback: NoteFeedbackMarker, currentPosition: Ev
     staffNumber,
     name: nameForSpelling(spelling) ?? midiNoteToName(note),
     left: (staffAnchor?.left ?? position.left) + FEEDBACK_HORIZONTAL_OFFSET,
-    top: Math.max(4, y),
+    top: Math.max(4, constrainedY),
   };
+}
+
+function constrainWrongMarkerToStaff(y: number, staffLines: number[] | undefined): number {
+  if (!staffLines || staffLines.length < 5) return y;
+  const ordered = [...staffLines].sort((a, b) => a - b);
+  const spaces = ordered.slice(1).map((top, index) => top - ordered[index]);
+  const staffSpace = spaces.reduce((sum, value) => sum + value, 0) / spaces.length;
+  return clamp(y, ordered[0] - staffSpace * 2, ordered.at(-1)! + staffSpace * 2);
 }
 
 function expectedNoteAnchorX(position: EventPosition | undefined, staffNumber: number | undefined, fallback: number): number {

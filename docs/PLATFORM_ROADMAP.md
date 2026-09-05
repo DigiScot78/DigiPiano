@@ -154,13 +154,15 @@ Effort is relative and intentionally excludes calendar and cost promises. Each p
 
 ### Phase 1: Domain Readiness — Medium
 Deliverables:
-- Define versioned DTOs for score identities, anchors, selections, bookmarks, attempts, progress, and courses.
-- Put current session scoring behind a pure, versioned summary builder.
-- Add the repository interfaces above with guest/in-memory implementations.
-- Separate persisted account preferences from device-only hardware and presentation preferences.
-- Add deterministic anchor resolution and scoring-version tests.
+- [x] Define versioned DTOs for score identities, anchors, selections, bookmarks, attempts, progress, and courses. Initial browser-independent contracts and boundary validation live in `src/platform/domain.ts`.
+- [x] Put current session scoring behind a pure, versioned summary builder. Completed playback now produces the persistence-ready v1 summary and the existing UI performance shape from one calculation.
+- [x] Add the repository interfaces above with guest/in-memory implementations. Score/library bytes, learning records and idempotent attempts, aggregate progress, ordered course enrolment, account preferences, and guest entitlements now have browser-only adapters.
+- [x] Separate persisted account preferences from device-only hardware and presentation preferences. The account-safe v1 contract currently contains only Learning tempo build-up; MIDI selection/shortcuts, audio, playback, piano/Synthesia, appearance, and workspace layout remain explicitly device-local.
+- [x] Add deterministic anchor resolution and scoring-version tests. Resolution ignores cached indexes, requires the immutable score version and durable musical coordinates, and returns an explicit repair state for missing or ambiguous matches; guest repositories reject unsupported scoring versions.
 
 Exit gate: the existing guest experience behaves unchanged, and future persistence can be attached without backend imports in MIDI, playback, audio, or renderer modules.
+
+**Status:** Complete in the browser-only implementation. The guest workflow remains unchanged and no backend SDK enters the real-time music path.
 
 ### Phase 2: Hosted Guest Beta — Small
 Deliverables:
@@ -289,4 +291,3 @@ Potential work includes user-authored courses, teacher/student relationships, fa
 - [Stripe subscription webhooks](https://docs.stripe.com/billing/subscriptions/webhooks?locale=en-GB)
 - [Stripe Entitlements](https://docs.stripe.com/billing/entitlements?dashboard-or-api=api&locale=en-GB)
 - [Stripe customer portal](https://docs.stripe.com/customer-management)
-

@@ -98,3 +98,37 @@ Valid MusicXML technical fingering values are retained on normalized note detail
 
 ## 31. Track Active Attempt Time Separately From Musical Time
 The header time budget uses the active exercise's tempo-aware duration after selection, hand, tempo-percentage, and actual-start scoping. A separate monotonic wall clock includes required-note waits but excludes count-in, manual pause, and loop-restart waiting, allowing remaining time to become negative without disturbing notation, audio, or Synthesia timing. Tempo Play scores accuracy alone because its total duration is transport-controlled. Pause at each note and Practice blend accuracy at 80% with pace at 20%, treating `max(500ms, 5% of ideal)` overtime as full-credit human grace before pace falls proportionally. The timer preserves the true ideal and turns red only beyond grace. Stop retains the clock for review but does not finalize a score. Loop mode remains live throughout a run, and disabling it during restart waiting ends that wait immediately.
+
+## 32. Make Guided Piece Plans Session-Only Score Partitions
+The first wider Learning milestone begins at a Learning Home reached through the permanent Learning toolbar control; the existing chord/scale catalog remains its Reference area. A guided plan partitions the full imported/generated score or current selection into contiguous four-measure lessons by default. The pure plan model stores event-index boundaries, while notation renders every section and lets users insert, drag, keyboard-move, or delete event-snapped internal boundaries. Any split or merge resets the resulting lessons, and moving a boundary resets only its two neighbours. Plans remain in memory when leaving Learning but are invalidated when the score is replaced. Guided playback, tempo progression, diagnosis, accounts, and persistence remain later milestones.
+
+## 33. Let Responsive Width Own Score System Breaks
+OSMD chooses line breaks from the score container's current width. MusicXML `new-system` and `new-page` hints remain import diagnostics, but are not simultaneously imposed on responsive rendering: OSMD documents that combining fixed imported breaks with its interactive layout can leave a single stretched measure in a system. Sidebar resizing continues to rerender the already loaded graphical score and rebuild app-owned anchors.
+
+## 34. Build Guided Sessions On The Existing Transport
+Finishing planning preserves the lesson the user selected and replaces the planner with a four-step Listen, RH, LH, and Both guide. Listen is direct score-audio audition and therefore creates no assessment. Hand stages temporarily select the relevant hand and Pause-at-each-note mode, keeping the guide visible while the existing transport, MIDI gates, and performance completion remain authoritative. RH and LH may be skipped; leaving restores the prior hand and play-mode preferences.
+
+## 35. Derive Guided Steps From Lesson Staff Content
+The guide inspects normalized note staff numbers within each lesson rather than requiring users to skip impossible stages. RH-only and LH-only lessons contain Listen plus their present hand and omit Both; lessons containing both staves retain all four stages. The visible rail is navigation as well as progress: completed and current steps can be revisited, while future steps remain locked until reached so backward review cannot silently advance progress or modify the lesson plan.
+
+## 36. Treat Guided Looping As Repetition, Not Progression
+Guided hand stages expose the same run-loop state as the main transport instead of maintaining a second loop mechanism. Each completed pass remains a separately recorded attempt and returns to the guide with explicit Repeat now and Continue choices; looping never advances a stage, lesson, or future tempo target automatically. This keeps repetition useful while preserving the learner's control over progression.
+
+## 37. Qualify Piano Commands With A Held Modifier
+Piano shortcuts are opt-in, versioned local bindings exposed under Settings → Controls. A command is recognised only when its configured modifier note was already held before a fresh mapped action-note press; this prevents ordinary lesson chords from acting as navigation. Recognised modifier/action notes are consumed before learning and playback assessment. The initial semantic commands are contextual Primary, Previous, Repeat, Toggle Loop, and Stop, while exit remains deliberately unbound. The resolver is independent of Guided Practice callbacks so pedals or MIDI control-change messages can later target the same command vocabulary.
+
+## 38. Make Tempo Progression Explicit And Evidence-Based
+After Listen and applicable note-gated hand work, each lesson enters continuous Tempo Play at 60%. A completed run must score at least 90 before the guide offers a user-confirmed 10-point increase; it never changes tempo automatically. Written tempo is the initial 100% target, and two qualifying runs there are required before the section becomes comfortable/complete. Section edits reset tempo evidence, and leaving Guided Practice restores the user's previous global tempo. The Piano Shortcut Primary action follows the same repeat/increase/finish decisions.
+
+## 39. Snapshot Tempo Build-Up On Plan Creation
+Learning settings offer Gentle (60%), Steady (80%), and At tempo (100%) starting presets while retaining 10-point increases, the 90-point threshold, and two target runs. A plan snapshots the selected starting percentage when created. Later preference changes affect future plans only, and boundary edits reset affected sections to their plan's snapshot. This prevents a settings change from silently rewriting an in-progress learning sequence.
+
+## 40. Assess Sight Reading As Accuracy Plus Forward Coverage
+Sight-reading attempts keep their evidence separate from rehearsed-piece performance history. The result reports ordinary note accuracy and forward continuity independently, where continuity is the percentage of distinct score-onset moments at which the player made an attempt. The headline reading score weights accuracy at 75% and continuity at 25%, rewarding forward motion without allowing indiscriminate notes to outweigh pitch correctness.
+
+## 41. Preserve The First-Look Result Across Explicit Review
+Completing a sight-reading attempt locks ordinary playback controls so the same notation cannot be silently replayed as though it were still unseen. Review is a deliberate result-screen action (and the contextual Repeat piano command): it starts at bar one, does not enter ordinary performance history, and returns to the retained first-look result when playback completes or is stopped.
+
+## 42. Teach Foundations Without Assessment Pressure
+
+Beginner Foundations is a separate guided teaching path rather than a lower sight-reading difficulty. Its first lessons react only to fresh MIDI note-ons, give specific retry guidance, and use no timer, score, pass threshold, or stored progress. Readiness remains optional setup, while the route finder sends genuinely new learners directly to Foundations. Later lessons may reuse ordinary score rendering and transport only after the relevant keyboard and notation concepts have been introduced.

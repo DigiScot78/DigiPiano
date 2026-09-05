@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScoreRenderer, type CompletedNoteFeedback } from "./components/ScoreRenderer";
 import { PianoPanel } from "./components/PianoPanel";
-import { LearningPanel, type LearningTab } from "./components/LearningPanel";
+import type { LearningTab } from "./components/LearningPanel";
+import { LearningWorkspace } from "./components/LearningWorkspace";
+import { GuidedPlannerCard } from "./components/GuidedPlannerCard";
+import { GuidedSessionCard } from "./components/GuidedSessionCard";
+import { SightReadingCard } from "./components/SightReadingCard";
 import { PerformanceScoreBadge } from "./components/PerformanceScoreBadge";
 import { ScoreTimeDisplay } from "./components/ScoreTimeDisplay";
 import {
@@ -37,14 +41,24 @@ import { usePlaySettings } from "./playback/usePlaySettings";
 import { usePlaybackSession } from "./playback/usePlaybackSession";
 import type { PlayMode, PlaySettings } from "./playback/settings";
 import { PlaybackFullscreenController } from "./playback/fullscreen";
-import { shouldShowPerformanceResults } from "./playback/playback";
-import { addPerformanceToHistory, calculatePerformanceScore, exercisePerformanceKey, paceGraceMs, type ExercisePerformanceHistory } from "./playback/performanceScore";
+import { createPlaybackPlan, shouldShowPerformanceResults } from "./playback/playback";
+import { addPerformanceToHistory, exercisePerformanceKey, paceGraceMs, type ExercisePerformanceHistory } from "./playback/performanceScore";
+import { buildAttemptSummary, localScoreVersionId } from "./platform/attemptSummary";
 import { useAudioSettings } from "./audio/useAudioSettings";
 import { useScoreAudio } from "./audio/useScoreAudio";
 import { useMetronome } from "./audio/metronome";
 import { effectiveTempoAtQuarter } from "./playback/playback";
 import { useWorkspaceLayoutSettings } from "./layout/useWorkspaceLayoutSettings";
+import { createGuidedPiecePlan, finishGuidedPlanning, increaseGuidedTempo, mergeGuidedSections, moveGuidedBoundary, recordGuidedTempoRun, setActiveGuidedSection, setGuidedSectionProgress, splitGuidedSection, type GuidedPiecePlan } from "./learning/guidedPractice";
+import { guidedStepsForSection, type GuidedSessionStep } from "./learning/guidedSession";
+import { collectGuidedAttemptEvidence, diagnoseGuidedAttempts, guidedDiagnosisRange, type GuidedAttemptEvidence, type GuidedDiagnosis } from "./learning/guidedDiagnosis";
+import { TEMPO_BUILD_UP_PRESETS, type LearningSettings, type TempoBuildUpPreset } from "./learning/settings";
+import { useLearningSettings } from "./learning/useLearningSettings";
+import { generateSightReadingExercise, type SightReadingOptions } from "./learning/sightReading";
+import { calculateSightReadingAssessment, type SightReadingAssessment } from "./learning/sightReadingAssessment";
 import { isSidebarVisible, scoreMarginForLayout, SCORE_MARGIN_MAX, SCORE_MARGIN_MIN, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, type WorkspaceLayoutSettings } from "./layout/workspace";
+import { initialPianoShortcutState, resolvePianoShortcut, shortcutConflicts, type PianoShortcutBindingKey, type PianoShortcutCommand, type PianoShortcutSettings, type PianoShortcutSettingsUpdate, type PianoShortcutState } from "./midi/pianoShortcuts";
+import { usePianoShortcutSettings } from "./midi/usePianoShortcutSettings";
 import "./styles.css";
 
 interface PracticeAttemptDiagnostic {
@@ -65,6 +79,19 @@ interface PracticeAttemptDiagnostic {
   completed: boolean;
 }
 
+interface GuidedPracticeDetour {
+  sectionId: string;
+  measureNumber: number;
+  handMode: HandMode;
+  originalRange: ScoreSelectionRange;
+  originalHandMode: HandMode;
+  originalPlayMode: PlayMode;
+  originalTempoPercent: number;
+  originalRunMode: PracticeRunMode;
+}
+
+interface SightReadingSession { options: SightReadingOptions; phase: "prepare" | "attempt" | "result" | "review"; assessment?: SightReadingAssessment }
+
 const COMPLETED_FEEDBACK_DURATION_MS = 450;
 const SIMULATION_PULSE_DURATION_MS = 180;
 
@@ -83,6 +110,8 @@ function App() {
   const play = usePlaySettings();
   const audioSettings = useAudioSettings();
   const workspace = useWorkspaceLayoutSettings();
+  const pianoShortcuts = usePianoShortcutSettings();
+  const learningSettings = useLearningSettings();
   const [loadedScore, setLoadedScore] = useState<LoadedScore | null>(null);
   const [parsedScore, setParsedScore] = useState<ParsedScore>({ events: [], restEvents: [], tempoChanges: [], measureTimings: [], warnings: [] });
   const [tempoPercent, setTempoPercent] = useState(100);
@@ -94,7 +123,20 @@ function App() {
   const [seeNoteEnabled, setSeeNoteEnabled] = useState(false);
   const [learningOpen, setLearningOpen] = useState(false);
   const [learningTab, setLearningTab] = useState<LearningTab>("chords");
+  const [guidedPlan, setGuidedPlan] = useState<GuidedPiecePlan | undefined>();
+  const [guidedPlanning, setGuidedPlanning] = useState(false);
+  const [guidedSessionActive, setGuidedSessionActive] = useState(false);
+  const [guidedStep, setGuidedStep] = useState<GuidedSessionStep>("listen");
+  const [guidedStepComplete, setGuidedStepComplete] = useState(false);
+  const [guidedAttemptEvidence, setGuidedAttemptEvidence] = useState<GuidedAttemptEvidence[]>([]);
+  const [guidedStepScores, setGuidedStepScores] = useState<Record<string, number>>({});
+  const [guidedDetour, setGuidedDetour] = useState<GuidedPracticeDetour | undefined>();
+  const [guidedDetourComplete, setGuidedDetourComplete] = useState(false);
+  const [guidedStageToStart, setGuidedStageToStart] = useState<HandMode | undefined>();
+  const [sightReadingSession, setSightReadingSession] = useState<SightReadingSession | undefined>();
+  const [addingGuidedBoundary, setAddingGuidedBoundary] = useState(false);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(44);
+  const [headerBottom, setHeaderBottom] = useState(67);
   const [inspectedNote, setInspectedNote] = useState<ScoreNoteInspection | undefined>();
   const [simulatedHeldNotes, setSimulatedHeldNotes] = useState<number[]>([]);
   const [selectedRange, setSelectedRange] = useState<ScoreSelectionRange | undefined>();
@@ -106,19 +148,34 @@ function App() {
   const [carriedCompletedNotes, setCarriedCompletedNotes] = useState<number[]>([]);
   const [completedFeedback, setCompletedFeedback] = useState<CompletedNoteFeedback | undefined>();
   const [midiSettingsOpen, setMidiSettingsOpen] = useState(false);
+  const [shortcutCaptureTarget, setShortcutCaptureTarget] = useState<PianoShortcutBindingKey | undefined>();
+  const [shortcutNotice, setShortcutNotice] = useState<string | undefined>();
+  const [shortcutConsumedNotes, setShortcutConsumedNotes] = useState<number[]>([]);
   const completedFeedbackTimerRef = useRef<number | undefined>(undefined);
   const completedFeedbackIdRef = useRef(0);
   const processedMidiCounterRef = useRef(0);
+  const pianoShortcutStateRef = useRef<PianoShortcutState>(initialPianoShortcutState());
+  const performGuidedShortcutRef = useRef<(command: PianoShortcutCommand) => void>(() => undefined);
+  const performSightReadingShortcutRef = useRef<(command: PianoShortcutCommand) => void>(() => undefined);
+  const guidedListenWasPlayingRef = useRef(false);
   const arpeggioProgressRef = useRef<ArpeggioProgress | undefined>(undefined);
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | undefined>(undefined);
   const [draftSidebarWidth, setDraftSidebarWidth] = useState<number | undefined>();
   const [sidebarHiddenForPlayback, setSidebarHiddenForPlayback] = useState(false);
   const [playbackPreparing, setPlaybackPreparing] = useState(false);
   const [fullscreenNotice, setFullscreenNotice] = useState<string | undefined>();
+  const [guidedAuditionNotice, setGuidedAuditionNotice] = useState<string | undefined>();
   const [performanceHistory, setPerformanceHistory] = useState<Map<string, ExercisePerformanceHistory>>(() => new Map());
   const processedCompletionIdRef = useRef(0);
   const fullscreenControllerRef = useRef(new PlaybackFullscreenController());
   const fullscreenNoticeTimerRef = useRef<number | undefined>(undefined);
+  const guidedAuditionNoticeTimerRef = useRef<number | undefined>(undefined);
+  const guidedPlanningHandModeRef = useRef<HandMode | undefined>(undefined);
+  const guidedSessionPreferencesRef = useRef<{ handMode: HandMode; playMode: PlayMode; tempoPercent: number } | undefined>(undefined);
+  const playbackStartEventOverrideRef = useRef<number | undefined>(undefined);
+  const playbackImmediateStartOverrideRef = useRef(false);
+  const scoreFileInputRef = useRef<HTMLInputElement | null>(null);
+  const appHeaderRef = useRef<HTMLElement | null>(null);
 
   const pauseOnNotes = play.settings.playMode === "pause-each-note";
   const untimedPractice = play.settings.playMode === "practice";
@@ -137,6 +194,17 @@ function App() {
 
   useEffect(() => { setInspectedNote(undefined); }, [loadedScore?.xmlText]);
 
+  useEffect(() => {
+    const header = appHeaderRef.current;
+    if (!header) return;
+    const measure = () => setHeaderBottom(Math.ceil(header.getBoundingClientRect().bottom));
+    measure();
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(header);
+    return () => { window.removeEventListener("resize", measure); observer?.disconnect(); };
+  }, []);
+
   const toggleSeeNote = useCallback(() => {
     setSeeNoteEnabled((enabled) => {
       if (enabled) setInspectedNote(undefined);
@@ -145,20 +213,75 @@ function App() {
   }, []);
   const currentExerciseKey = useMemo(() => loadedScore ? exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, selectedRange, handMode, play.settings.playMode, tempoPercent) : undefined, [handMode, loadedScore, play.settings.playMode, selectedRange, tempoPercent]);
   const currentPerformanceHistory = currentExerciseKey ? performanceHistory.get(currentExerciseKey) : undefined;
+  const activeGuidedSection = guidedPlan?.sections.find((section) => section.id === guidedPlan.activeSectionId) ?? guidedPlan?.sections[0];
+  const guidedSessionSteps = useMemo(() => guidedStepsForSection(parsedScore.events, activeGuidedSection), [activeGuidedSection, parsedScore.events]);
+  const guidedTempoHand: HandMode = guidedSessionSteps.includes("both") ? "both" : guidedSessionSteps.includes("right") ? "right" : "left";
+  const guidedDiagnosis = useMemo(() => activeGuidedSection ? diagnoseGuidedAttempts(guidedAttemptEvidence.filter((attempt) => attempt.sectionId === activeGuidedSection.id && attempt.resetVersion === activeGuidedSection.resetVersion)) : undefined, [activeGuidedSection, guidedAttemptEvidence]);
+  const guidedScoreKey = (sectionId: string, resetVersion: number, step: string) => `${sectionId}:${resetVersion}:${step}`;
+  const currentGuidedStepScore = activeGuidedSection ? guidedStepScores[guidedScoreKey(activeGuidedSection.id, activeGuidedSection.resetVersion, guidedStep)] : undefined;
+  const currentGuidedDetourScore = activeGuidedSection && guidedDetour ? guidedStepScores[guidedScoreKey(activeGuidedSection.id, activeGuidedSection.resetVersion, `detour:${guidedDetour.measureNumber}:${guidedDetour.handMode}`)] : undefined;
 
   useEffect(() => {
     const completed = playback.completedRun;
     if (!completed || !loadedScore || completed.id === processedCompletionIdRef.current) return;
     processedCompletionIdRef.current = completed.id;
-    const score = calculatePerformanceScore(completed.plan, completed.results, completed.activeDurationMs, completed.playMode);
-    const summary = { ...score, playMode: completed.playMode, handMode: completed.handMode, tempoPercent: completed.tempoPercent, ...(completed.range ? { range: completed.range } : {}) };
-    const key = exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, completed.range, completed.handMode, completed.playMode, completed.tempoPercent);
-    setPerformanceHistory((current) => {
-      const next = new Map(current);
-      next.set(key, addPerformanceToHistory(current.get(key), summary));
-      return next;
+    const completedAt = new Date();
+    const attemptId = crypto.randomUUID();
+    const builtAttempt = buildAttemptSummary({
+      completedRun: completed,
+      scoreVersionId: localScoreVersionId(loadedScore.xmlText),
+      attemptId,
+      idempotencyKey: attemptId,
+      startedAt: new Date(completedAt.getTime() - completed.activeDurationMs).toISOString(),
+      completedAt: completedAt.toISOString(),
     });
-  }, [loadedScore, playback.completedRun]);
+    const score = builtAttempt.performance;
+    const key = exercisePerformanceKey(loadedScore.xmlText, loadedScore.fileName, completed.range, completed.handMode, completed.playMode, completed.tempoPercent);
+    if (sightReadingSession) {
+      if (sightReadingSession.phase === "attempt") {
+        const assessment = calculateSightReadingAssessment(completed.plan, completed.results);
+        setSightReadingSession((current) => current ? { ...current, phase: "result", assessment } : current);
+      } else if (sightReadingSession.phase === "review") {
+        setSightReadingSession((current) => current ? { ...current, phase: "result" } : current);
+      }
+    } else {
+      setPerformanceHistory((current) => {
+        const next = new Map(current);
+        next.set(key, addPerformanceToHistory(current.get(key), builtAttempt.performance));
+        return next;
+      });
+    }
+    if (guidedSessionActive && guidedPlan?.activeSectionId && guidedStep !== "listen") {
+      const section = guidedPlan.sections.find((item) => item.id === guidedPlan.activeSectionId);
+      if (section) {
+        const evidenceStep = guidedDetour ? guidedDetour.handMode === "right" ? "right" : guidedDetour.handMode === "left" ? "left" : "both" : guidedStep;
+        setGuidedAttemptEvidence((current) => [...current, collectGuidedAttemptEvidence(section.id, section.resetVersion, evidenceStep, completed)]);
+        const resultKey = guidedScoreKey(section.id, section.resetVersion, guidedDetour ? `detour:${guidedDetour.measureNumber}:${guidedDetour.handMode}` : guidedStep);
+        setGuidedStepScores((current) => ({ ...current, [resultKey]: score.score }));
+      }
+      if (guidedDetour) {
+        setGuidedDetourComplete(true);
+        return;
+      }
+      setGuidedStepComplete(true);
+      setGuidedPlan((current) => {
+        if (!current?.activeSectionId) return current;
+        if (guidedStep === "tempo") return recordGuidedTempoRun(current, current.activeSectionId, score.score);
+        return setGuidedSectionProgress(current, current.activeSectionId, "in-progress", (current.sections.find((section) => section.id === current.activeSectionId)?.attempts ?? 0) + 1);
+      });
+    }
+  }, [guidedDetour, guidedPlan?.activeSectionId, guidedPlan?.sections, guidedSessionActive, guidedStep, loadedScore, playback.completedRun, sightReadingSession]);
+
+  useEffect(() => {
+    if (!guidedStageToStart || !selectedRange) return;
+    setGuidedStageToStart(undefined);
+    void (async () => {
+      await nextPaint();
+      await nextPaint();
+      await Promise.all([scoreAudio.prepare(), metronome.prepare()]);
+      playback.startAtEvent(selectedRange.startIndex);
+    })();
+  }, [guidedStageToStart, metronome, playback, scoreAudio, selectedRange]);
   const clearCompletedFeedback = useCallback(() => {
     if (completedFeedbackTimerRef.current !== undefined) {
       window.clearTimeout(completedFeedbackTimerRef.current);
@@ -192,6 +315,8 @@ function App() {
     clearCompletedFeedback();
     const isFreshStart = playback.phase === "idle";
     if (isFreshStart) {
+      setGuidedPlanning(false);
+      setAddingGuidedBoundary(false);
       setPlaybackPreparing(true);
       setSidebarHiddenForPlayback(true);
       setFullscreenNotice(undefined);
@@ -208,14 +333,49 @@ function App() {
         await nextPaint();
       })()
       : Promise.resolve();
+    const startEventIndex = playbackStartEventOverrideRef.current ?? learningState.currentIndex;
+    const startImmediately = playbackImmediateStartOverrideRef.current;
+    playbackStartEventOverrideRef.current = undefined;
+    playbackImmediateStartOverrideRef.current = false;
     const continuePlayback = isFreshStart
-      ? () => playback.startAtEvent(learningState.currentIndex)
+      ? () => startImmediately ? playback.startAtEventImmediately(startEventIndex) : playback.startAtEvent(startEventIndex)
       : playback.togglePlayback;
     void Promise.all([audioReady, presentationReady]).finally(() => {
       setPlaybackPreparing(false);
       continuePlayback();
     });
   }, [clearCompletedFeedback, learningState.currentIndex, metronome, play.settings.playFullscreen, playback, scoreAudio, showFullscreenNotice]);
+
+  const auditionGuidedSelection = useCallback(() => {
+    if (!selectedRange || playback.phase !== "idle") return;
+    if (scoreAudio.auditioning) {
+      scoreAudio.stopAudition();
+      return;
+    }
+    if (audioSettings.settings.muted || audioSettings.settings.volume <= 0) {
+      setGuidedAuditionNotice("Sound is muted. Unmute score audio to hear this selection.");
+      if (guidedAuditionNoticeTimerRef.current !== undefined) window.clearTimeout(guidedAuditionNoticeTimerRef.current);
+      guidedAuditionNoticeTimerRef.current = window.setTimeout(() => {
+        setGuidedAuditionNotice(undefined);
+        guidedAuditionNoticeTimerRef.current = undefined;
+      }, 3200);
+      return;
+    }
+    setGuidedAuditionNotice(undefined);
+    const auditionPlan = createPlaybackPlan(parsedScore.events, parsedScore.tempoChanges, play.settings.fallbackBpm, "both", selectedRange, parsedScore.measureTimings, tempoPercent);
+    if (auditionPlan) void scoreAudio.audition(auditionPlan);
+  }, [audioSettings.settings.muted, audioSettings.settings.volume, parsedScore.events, parsedScore.measureTimings, parsedScore.tempoChanges, play.settings.fallbackBpm, playback.phase, scoreAudio, selectedRange, tempoPercent]);
+
+  useEffect(() => {
+    if (!guidedSessionActive || guidedStep === "listen") return;
+    if (playback.phase === "countdown" || playback.phase === "playing" || playback.phase === "waiting-note") setGuidedStepComplete(false);
+  }, [guidedSessionActive, guidedStep, playback.phase]);
+
+  useEffect(() => {
+    const wasPlaying = guidedListenWasPlayingRef.current;
+    guidedListenWasPlayingRef.current = guidedSessionActive && guidedStep === "listen" && scoreAudio.auditioning;
+    if (guidedSessionActive && guidedStep === "listen" && wasPlaying && !scoreAudio.auditioning) setGuidedStepComplete(true);
+  }, [guidedSessionActive, guidedStep, scoreAudio.auditioning]);
 
   useEffect(() => {
     if (playbackPhase === "idle") finishPlaybackPresentation();
@@ -254,8 +414,8 @@ function App() {
   const currentEvent = parsedScore.events[learningState.currentIndex];
   const expectedEvent = useMemo(() => filterEventForHand(currentEvent, handMode), [currentEvent, handMode]);
   const combinedHeldNotes = useMemo(
-    () => Array.from(new Set([...midi.heldNotes, ...simulatedHeldNotes])).sort((a, b) => a - b),
-    [midi.heldNotes, simulatedHeldNotes],
+    () => Array.from(new Set([...midi.heldNotes.filter((note) => !shortcutConsumedNotes.includes(note)), ...simulatedHeldNotes])).sort((a, b) => a - b),
+    [midi.heldNotes, shortcutConsumedNotes, simulatedHeldNotes],
   );
   const scoreFeedbackMarkers = useMemo(
     () => feedbackMarkersForHeldNotes(combinedHeldNotes, currentEvent, handMode, carriedCompletedNotes),
@@ -298,6 +458,14 @@ function App() {
   const practiceOptions = useMemo(() => ({ handMode, runMode, range: selectedRange }), [handMode, runMode, selectedRange]);
 
   useEffect(() => {
+    if (!guidedPlanning || !guidedPlan) return;
+    const section = guidedPlan.sections.find((item) => item.id === guidedPlan.activeSectionId) ?? guidedPlan.sections[0];
+    if (section && (selectedRange?.startIndex !== section.startIndex || selectedRange?.endIndex !== section.endIndex)) {
+      setSelectedRange({ startIndex: section.startIndex, endIndex: section.endIndex });
+    }
+  }, [guidedPlan, guidedPlanning, selectedRange]);
+
+  useEffect(() => {
     setLearningState((current) => {
       const nextIndex = resolvePracticeIndex(current.currentIndex, parsedScore.events, handMode, selectedRange);
       const next = nextIndex === current.currentIndex ? current : initialLearningState(nextIndex);
@@ -320,6 +488,12 @@ function App() {
     setTempoPercent(100);
     setCarriedCompletedNotes([]);
     setLastPracticeAttempt(undefined);
+    setGuidedPlan(undefined);
+    setGuidedAttemptEvidence([]);
+    setGuidedStepScores({});
+    setGuidedPlanning(false);
+    setAddingGuidedBoundary(false);
+    setSightReadingSession(undefined);
     playback.stop();
     playback.clearResults();
     clearCompletedFeedback();
@@ -369,6 +543,250 @@ function App() {
       setLearningOpen(false);
     }
   };
+
+  const startSightReading = (options: SightReadingOptions) => {
+    const exercise = generateSightReadingExercise(options);
+    beginScoreReplacement();
+    try {
+      installScore(exercise.loadedScore, exercise.handMode);
+      setSightReadingSession({ options, phase: "prepare" });
+      setRunMode("once");
+      play.setSettings({ playMode: "play" });
+      setLearningOpen(false);
+      setSidebarHiddenForPlayback(false);
+      workspace.setSettings({ sidebarOpen: true, sidebarTab: "practice" });
+    } catch (error) {
+      failScoreReplacement(error);
+      setLearningOpen(false);
+    }
+  };
+
+  const createGuidedPlan = (scope?: ScoreSelectionRange) => {
+    if (!loadedScore) return;
+    const plan = createGuidedPiecePlan(`${loadedScore.fileName}:${loadedScore.xmlText.length}`, parsedScore.events, parsedScore.measureTimings, scope, 4, TEMPO_BUILD_UP_PRESETS[learningSettings.settings.tempoBuildUp].startingTempo);
+    if (!plan) return;
+    setGuidedAttemptEvidence([]);
+    setGuidedStepScores({});
+    setGuidedPlan(plan);
+    setGuidedSessionActive(false);
+    guidedPlanningHandModeRef.current = handMode;
+    setHandMode("both");
+    setSelectedRange(plan.sections[0] ? { startIndex: plan.sections[0].startIndex, endIndex: plan.sections[0].endIndex } : scope);
+    setGuidedPlanning(true);
+    setAddingGuidedBoundary(false);
+    setLearningOpen(false);
+    setSidebarHiddenForPlayback(false);
+    workspace.setSettings({ sidebarTab: "practice" });
+  };
+
+  const continueGuidedPlanning = () => {
+    if (!guidedPlan) return;
+    if (!guidedSessionPreferencesRef.current) guidedPlanningHandModeRef.current = handMode;
+    setGuidedSessionActive(false);
+    setGuidedDetour(undefined);
+    setGuidedDetourComplete(false);
+    setHandMode("both");
+    setGuidedPlanning(true);
+    const activeSection = guidedPlan.sections.find((section) => section.id === guidedPlan.activeSectionId) ?? guidedPlan.sections[0];
+    if (activeSection) setSelectedRange({ startIndex: activeSection.startIndex, endIndex: activeSection.endIndex });
+    setLearningOpen(false);
+    setSidebarHiddenForPlayback(false);
+    workspace.setSettings({ sidebarTab: "practice" });
+  };
+
+  const finishGuidedPlanningMode = () => {
+    if (!guidedPlan) return;
+    setGuidedPlan(finishGuidedPlanning(guidedPlan));
+    setGuidedPlanning(false);
+    setGuidedSessionActive(true);
+    setGuidedStep("listen");
+    setGuidedStepComplete(false);
+    setAddingGuidedBoundary(false);
+    guidedSessionPreferencesRef.current ??= { handMode: guidedPlanningHandModeRef.current ?? handMode, playMode: play.settings.playMode, tempoPercent };
+    const active = guidedPlan.sections.find((section) => section.id === guidedPlan.activeSectionId) ?? guidedPlan.sections[0];
+    if (active) setTempoPercent(active.targetTempoPercent);
+    guidedPlanningHandModeRef.current = undefined;
+  };
+
+  const selectGuidedSessionSection = (sectionId: string) => {
+    if (!guidedPlan) return;
+    const section = guidedPlan.sections.find((item) => item.id === sectionId);
+    if (!section) return;
+    playback.stop();
+    playback.clearResults();
+    scoreAudio.stopAudition();
+    setCarriedCompletedNotes([]);
+    clearCompletedFeedback();
+    setGuidedDetour(undefined);
+    setGuidedDetourComplete(false);
+    setGuidedPlan(setActiveGuidedSection(guidedPlan, sectionId));
+    setSelectedRange({ startIndex: section.startIndex, endIndex: section.endIndex });
+    setTempoPercent(section.targetTempoPercent);
+    setGuidedStep("listen");
+    setGuidedStepComplete(false);
+  };
+
+  const advanceGuidedStep = () => {
+    playback.stop();
+    setGuidedStep((current) => {
+      const next = guidedSessionSteps[guidedSessionSteps.indexOf(current) + 1] ?? current;
+      if (next === "tempo" && activeGuidedSection) setTempoPercent(activeGuidedSection.tempoPercent);
+      return next;
+    });
+    setGuidedStepComplete(false);
+    scoreAudio.stopAudition();
+  };
+
+  const returnToGuidedStep = (step: GuidedSessionStep) => {
+    const currentIndex = guidedSessionSteps.indexOf(guidedStep);
+    const nextIndex = guidedSessionSteps.indexOf(step);
+    if (nextIndex < 0 || nextIndex > currentIndex || playback.phase !== "idle") return;
+    scoreAudio.stopAudition();
+    if (activeGuidedSection) setTempoPercent(step === "tempo" ? activeGuidedSection.tempoPercent : activeGuidedSection.targetTempoPercent);
+    setGuidedStep(step);
+    setGuidedStepComplete(false);
+  };
+
+  const startGuidedPracticeStage = (nextHandMode: HandMode) => {
+    setGuidedStepComplete(false);
+    setHandMode(nextHandMode);
+    play.setSettings({ playMode: guidedStep === "tempo" ? "play" : "pause-each-note" });
+    if (guidedStep === "tempo" && activeGuidedSection) setTempoPercent(activeGuidedSection.tempoPercent);
+    setGuidedStageToStart(nextHandMode);
+  };
+
+  const repeatGuidedStep = () => {
+    setGuidedStepComplete(false);
+    if (playback.phase === "waiting-restart") playback.start();
+    else if (playback.phase === "idle" && guidedStep !== "listen") startGuidedPracticeStage(guidedStep === "right" ? "right" : guidedStep === "left" ? "left" : guidedTempoHand);
+  };
+
+  const beginGuidedDetour = (diagnosis: GuidedDiagnosis) => {
+    if (!activeGuidedSection || !selectedRange) return;
+    const range = guidedDiagnosisRange(parsedScore.events, activeGuidedSection, diagnosis.measureNumber);
+    if (!range) return;
+    const detourHand = diagnosis.hand ?? guidedTempoHand;
+    playback.stop();
+    playback.clearResults();
+    setGuidedDetour({ sectionId: activeGuidedSection.id, measureNumber: diagnosis.measureNumber, handMode: detourHand, originalRange: { ...selectedRange }, originalHandMode: handMode, originalPlayMode: play.settings.playMode, originalTempoPercent: tempoPercent, originalRunMode: runMode });
+    setGuidedDetourComplete(false);
+    setSelectedRange(range);
+    setHandMode(detourHand);
+    setRunMode("once");
+    play.setSettings({ playMode: "pause-each-note" });
+    setCarriedCompletedNotes([]);
+    clearCompletedFeedback();
+  };
+
+  const practiceGuidedDetour = () => {
+    if (!guidedDetour || playback.phase !== "idle") return;
+    setGuidedDetourComplete(false);
+    playback.clearResults();
+    setGuidedStageToStart(guidedDetour.handMode);
+  };
+
+  const returnFromGuidedDetour = () => {
+    if (!guidedDetour) return;
+    playback.stop();
+    playback.clearResults();
+    setSelectedRange(guidedDetour.originalRange);
+    setHandMode(guidedDetour.originalHandMode);
+    play.setSettings({ playMode: guidedDetour.originalPlayMode });
+    setTempoPercent(guidedDetour.originalTempoPercent);
+    setRunMode(guidedDetour.originalRunMode);
+    setGuidedDetour(undefined);
+    setGuidedDetourComplete(false);
+    setCarriedCompletedNotes([]);
+    clearCompletedFeedback();
+  };
+
+  const leaveGuidedSession = () => {
+    playback.stop();
+    scoreAudio.stopAudition();
+    setGuidedSessionActive(false);
+    setGuidedDetour(undefined);
+    setGuidedDetourComplete(false);
+    const previous = guidedSessionPreferencesRef.current;
+    if (previous) {
+      setHandMode(previous.handMode);
+      play.setSettings({ playMode: previous.playMode });
+      setTempoPercent(previous.tempoPercent);
+    }
+    guidedSessionPreferencesRef.current = undefined;
+  };
+
+  const increaseGuidedTempoLevel = () => {
+    if (!guidedPlan?.activeSectionId) return;
+    const nextPlan = increaseGuidedTempo(guidedPlan, guidedPlan.activeSectionId);
+    const nextSection = nextPlan.sections.find((section) => section.id === nextPlan.activeSectionId);
+    setGuidedPlan(nextPlan);
+    if (nextSection) setTempoPercent(nextSection.tempoPercent);
+    setGuidedStepComplete(false);
+  };
+
+  const nextGuidedLesson = () => {
+    if (!guidedPlan) return;
+    const index = guidedPlan.sections.findIndex((section) => section.id === guidedPlan.activeSectionId);
+    const next = guidedPlan.sections[index + 1];
+    if (!next) {
+      leaveGuidedSession();
+      return;
+    }
+    selectGuidedSessionSection(next.id);
+  };
+
+  const previousGuidedStep = () => {
+    const index = guidedSessionSteps.indexOf(guidedStep);
+    const previous = guidedSessionSteps[index - 1];
+    if (previous) returnToGuidedStep(previous);
+  };
+
+  const performGuidedShortcut = (command: PianoShortcutCommand) => {
+    if (!guidedSessionActive) return;
+    setShortcutNotice(command === "toggle-loop" ? "Lesson loop toggled" : `${command[0].toUpperCase()}${command.slice(1)} shortcut`);
+    if (command === "stop") {
+      scoreAudio.stopAudition();
+      playback.stop();
+      return;
+    }
+    if (guidedDetour) {
+      if (command === "previous") returnFromGuidedDetour();
+      else if ((command === "primary" || command === "repeat") && playback.phase === "idle") practiceGuidedDetour();
+      return;
+    }
+    if (command === "toggle-loop") {
+      setRunMode((current) => current === "loop" ? "once" : "loop");
+      return;
+    }
+    if (command === "previous") {
+      previousGuidedStep();
+      return;
+    }
+    if (command === "repeat") {
+      if (guidedStep === "listen") auditionGuidedSelection();
+      else if (playback.phase === "waiting-restart") repeatGuidedStep();
+      else startGuidedPracticeStage(guidedStep === "right" ? "right" : guidedStep === "left" ? "left" : guidedTempoHand);
+      return;
+    }
+    if (guidedStep === "listen") {
+      if (scoreAudio.auditioning) {
+        scoreAudio.stopAudition();
+        setGuidedStepComplete(true);
+      } else if (guidedStepComplete) advanceGuidedStep();
+      else auditionGuidedSelection();
+      return;
+    }
+    if (guidedStepComplete) {
+      if (guidedStep === "tempo") {
+        if (activeGuidedSection?.status === "complete") nextGuidedLesson();
+        else if ((activeGuidedSection?.lastTempoScore ?? 0) >= 90 && (activeGuidedSection?.tempoPercent ?? 100) < (activeGuidedSection?.targetTempoPercent ?? 100)) increaseGuidedTempoLevel();
+        else startGuidedPracticeStage(guidedTempoHand);
+      } else if (guidedSessionSteps.at(-1) === guidedStep) nextGuidedLesson();
+      else advanceGuidedStep();
+    } else if (playback.phase === "waiting-restart") repeatGuidedStep();
+    else if (playback.phase === "idle") startGuidedPracticeStage(guidedStep === "right" ? "right" : guidedStep === "left" ? "left" : guidedTempoHand);
+  };
+  useEffect(() => { performGuidedShortcutRef.current = performGuidedShortcut; });
 
   const advanceWithNotes = useCallback((
     notes: number[],
@@ -456,21 +874,43 @@ function App() {
     const pending = midi.messageEvents.filter((event) => event.id > processedMidiCounterRef.current);
     for (const event of pending) {
       processedMidiCounterRef.current = event.id;
-      if (playbackPhase !== "idle") handleHeldNotesChange(event.heldNotesAfter);
+      if (shortcutCaptureTarget && event.message.kind === "note-on" && event.message.noteNumber !== undefined) {
+        const note = event.message.noteNumber;
+        if (shortcutCaptureTarget === "modifier") pianoShortcuts.setSettings({ modifier: note });
+        else pianoShortcuts.setSettings({ bindings: { [shortcutCaptureTarget]: note } });
+        setShortcutCaptureTarget(undefined);
+        setShortcutNotice(`${midiNoteToName(note)} assigned`);
+        setShortcutConsumedNotes(event.heldNotesAfter.includes(note) ? [note] : []);
+        continue;
+      }
+      const focused = document.activeElement;
+      const editableFocused = focused instanceof HTMLInputElement && !["checkbox", "radio", "range", "color", "button"].includes(focused.type) || focused instanceof HTMLSelectElement || focused instanceof HTMLTextAreaElement || focused instanceof HTMLElement && focused.isContentEditable;
+      const blockingDialogOpen = document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
+      const shortcutActive = (guidedSessionActive || Boolean(sightReadingSession)) && !midiSettingsOpen && !editableFocused && !blockingDialogOpen && shortcutConflicts(pianoShortcuts.settings).length === 0;
+      const shortcut = resolvePianoShortcut(event, pianoShortcuts.settings, pianoShortcutStateRef.current, shortcutActive);
+      pianoShortcutStateRef.current = shortcut.state;
+      setShortcutConsumedNotes(event.heldNotesAfter.filter((note) => !shortcut.heldNotesAfter.includes(note)));
+      if (shortcut.command) {
+        if (guidedSessionActive) performGuidedShortcutRef.current(shortcut.command);
+        else performSightReadingShortcutRef.current(shortcut.command);
+        continue;
+      }
+      if (event.message.noteNumber !== undefined && event.message.kind === "note-on" && event.heldNotesAfter.includes(event.message.noteNumber) && !shortcut.heldNotesAfter.includes(event.message.noteNumber)) continue;
+      if (playbackPhase !== "idle") handleHeldNotesChange(shortcut.heldNotesAfter);
       if (event.message.kind !== "note-on" || event.message.noteNumber === undefined) continue;
       if (playbackPhase !== "idle") {
-        handleMidiNoteOn(event.message.noteNumber, event.receivedAtMs, event.heldNotesAfter, playbackPhase === "waiting-note");
+        handleMidiNoteOn(event.message.noteNumber, event.receivedAtMs, shortcut.heldNotesAfter, playbackPhase === "waiting-note");
       } else {
-        advanceWithNotes(event.heldNotesAfter, {
+        advanceWithNotes(shortcut.heldNotesAfter, {
         source: "midi",
           triggeringMidiNote: event.message.noteNumber,
           receivedAtMs: event.receivedAtMs,
-          heldNotesBefore: event.heldNotesBefore,
-          heldNotesAfter: event.heldNotesAfter,
+          heldNotesBefore: shortcut.heldNotesBefore,
+          heldNotesAfter: shortcut.heldNotesAfter,
         });
       }
     }
-  }, [advanceWithNotes, handleHeldNotesChange, handleMidiNoteOn, midi.messageEvents, playbackPhase]);
+  }, [advanceWithNotes, guidedSessionActive, handleHeldNotesChange, handleMidiNoteOn, midi.messageEvents, midiSettingsOpen, pianoShortcuts, playbackPhase, shortcutCaptureTarget, sightReadingSession]);
 
   const handleSelectionChange = useCallback((range: ScoreSelectionRange | undefined) => {
     setSelectedRange(range);
@@ -495,6 +935,7 @@ function App() {
   };
 
   const clearSelection = () => {
+    scoreAudio.stopAudition();
     handleSelectionChange(undefined);
   };
 
@@ -508,6 +949,59 @@ function App() {
     setCarriedCompletedNotes([]);
     clearCompletedFeedback();
   }, [clearCompletedFeedback, finishPlaybackPresentation, handMode, parsedScore.events, playback, selectedRange]);
+
+  const startSightReadingAttempt = useCallback(() => {
+    playbackStartEventOverrideRef.current = firstPlayableIndex(parsedScore.events, handMode, selectedRange) ?? selectedRange?.startIndex ?? 0;
+    playbackImmediateStartOverrideRef.current = true;
+    resetAllProgress();
+    setSightReadingSession((current) => current ? { ...current, phase: "attempt", score: undefined } : current);
+    togglePlaybackWithAudio();
+  }, [handMode, parsedScore.events, resetAllProgress, selectedRange, togglePlaybackWithAudio]);
+
+  const startSightReadingReview = useCallback(() => {
+    playbackStartEventOverrideRef.current = firstPlayableIndex(parsedScore.events, handMode, selectedRange) ?? selectedRange?.startIndex ?? 0;
+    playbackImmediateStartOverrideRef.current = true;
+    resetAllProgress();
+    setSightReadingSession((current) => current ? { ...current, phase: "review" } : current);
+    togglePlaybackWithAudio();
+  }, [handMode, parsedScore.events, resetAllProgress, selectedRange, togglePlaybackWithAudio]);
+
+  const stopSightReadingReview = useCallback(() => {
+    playback.stop();
+    setSightReadingSession((current) => current ? { ...current, phase: "result" } : current);
+  }, [playback]);
+
+  const performSightReadingShortcut = (command: PianoShortcutCommand) => {
+    const session = sightReadingSession;
+    if (!session) return;
+    if (command === "stop" && playback.phase !== "idle") {
+      setShortcutNotice(session.phase === "review" ? "Review stopped" : "Sight-reading attempt stopped");
+      if (session.phase === "review") stopSightReadingReview();
+      else playback.stop();
+      return;
+    }
+    if (command === "previous" && session.phase !== "attempt") {
+      setShortcutNotice("Returned to Learning");
+      setSightReadingSession(undefined);
+      setLearningOpen(true);
+      return;
+    }
+    if (command === "primary" && session.phase === "prepare" && playback.phase === "idle") {
+      setShortcutNotice("Sight-reading attempt started");
+      startSightReadingAttempt();
+      return;
+    }
+    if (command === "primary" && session.phase === "result") {
+      setShortcutNotice("New sight-reading excerpt");
+      startSightReading(session.options);
+      return;
+    }
+    if (command === "repeat" && session.phase === "result") {
+      setShortcutNotice("Reviewing sight-reading excerpt");
+      startSightReadingReview();
+    }
+  };
+  useEffect(() => { performSightReadingShortcutRef.current = performSightReadingShortcut; });
 
   const stopPlayback = useCallback(() => {
     const startIndex = playback.plan?.events[0]?.eventIndex ?? firstPlayableIndex(parsedScore.events, handMode, selectedRange) ?? selectedRange?.startIndex ?? 0;
@@ -557,12 +1051,12 @@ function App() {
       if (event.code !== "Space") return;
       event.preventDefault();
       event.stopPropagation();
-      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey || !playback.plan) return;
+      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey || !playback.plan || sightReadingSession?.phase === "result") return;
       togglePlaybackWithAudio();
     };
     window.addEventListener("keydown", handleSpace, { capture: true });
     return () => window.removeEventListener("keydown", handleSpace, { capture: true });
-  }, [playback.plan, togglePlaybackWithAudio]);
+  }, [playback.plan, sightReadingSession?.phase, togglePlaybackWithAudio]);
 
   useEffect(() => {
     if (playback.phase !== "waiting-restart") return;
@@ -601,8 +1095,10 @@ function App() {
   };
 
   const sidebarWidth = draftSidebarWidth ?? workspace.settings.sidebarWidth;
-  const sidebarVisible = isSidebarVisible(workspace.settings, sidebarHiddenForPlayback);
-  const scoreMargin = scoreMarginForLayout(workspace.settings, sidebarVisible);
+  const ordinarySidebarVisible = isSidebarVisible(workspace.settings, sidebarHiddenForPlayback);
+  const sidebarVisible = guidedPlanning || guidedSessionActive || Boolean(sightReadingSession) || ordinarySidebarVisible;
+  const scoreMargin = scoreMarginForLayout(workspace.settings, ordinarySidebarVisible);
+  const effectiveBottomPanelHeight = bottomPanelHeight;
   const writtenTempoBpm = effectiveTempoAtQuarter(playback.plan?.startQuarter ?? 0, parsedScore.tempoChanges, play.settings.fallbackBpm);
   const tempoVaries = parsedScore.tempoChanges.some((change) => Math.abs(change.bpm - writtenTempoBpm) > 0.001);
   const selectSidebarTabFromKey = (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -614,8 +1110,8 @@ function App() {
   };
 
   return (
-    <main className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px`, "--score-margin": `${scoreMargin}px` } as React.CSSProperties}>
-      <header className="app-header">
+    <main className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px`, "--score-margin": `${scoreMargin}px`, "--sidebar-top": `${headerBottom + 8}px`, "--bottom-panel-clearance": `${effectiveBottomPanelHeight + 20}px` } as React.CSSProperties}>
+      <header ref={appHeaderRef} className="app-header">
         <div className="app-brand"><h1>Piano Learning</h1></div>
         {loadedScore ? <div className="score-heading">
           <div className="score-identity" aria-live="polite">
@@ -628,7 +1124,7 @@ function App() {
           {loadedScore && playback.plan ? <ScoreTimeDisplay remainingMs={playback.remainingDurationMs} idealMs={playback.idealDurationMs} graceMs={play.settings.playMode === "play" ? 0 : paceGraceMs(playback.idealDurationMs)} /> : null}
           <label className="settings-button header-open-score-button" aria-label="Open score" title="Open score">
             <OpenScoreIcon />
-            <input type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />
+            <input ref={scoreFileInputRef} type="file" accept=".mxl,.musicxml,.xml" onChange={handleFileChange} />
           </label>
           <button type="button" className="settings-button" aria-label="Open settings" title="Settings" onClick={() => setMidiSettingsOpen(true)}><SettingsIcon /></button>
         </div>
@@ -648,10 +1144,17 @@ function App() {
             restEvents={parsedScore.restEvents}
             measureTimings={parsedScore.measureTimings}
             selectedRange={selectedRange}
+            guidedSections={guidedPlanning ? guidedPlan?.sections : undefined}
+            guidedPlanning={guidedPlanning}
+            addingGuidedBoundary={addingGuidedBoundary}
+            activeGuidedSectionId={guidedPlan?.activeSectionId}
+            guidedAuditioning={scoreAudio.auditioning}
+            guidedAuditionNotice={guidedAuditionNotice}
+            selectionAuditionEnabled={Boolean(selectedRange) && playback.phase === "idle" && !guidedPlanning && !guidedSessionActive && !sightReadingSession}
             feedbackMarkers={playback.phase === "idle" ? scoreFeedbackMarkers : playback.phase === "waiting-note" ? gateFeedbackMarkers : []}
             completedFeedback={completedFeedback}
-            performanceResults={shouldShowPerformanceResults(playback.phase, play.settings.showHitsWhilePlaying) ? playback.results : []}
-            missedPerformanceNotes={playback.missedNotes}
+            performanceResults={sightReadingSession?.phase === "attempt" ? [] : shouldShowPerformanceResults(playback.phase, play.settings.showHitsWhilePlaying) ? playback.results : []}
+            missedPerformanceNotes={sightReadingSession?.phase === "attempt" ? [] : playback.missedNotes}
             playbackPhase={playback.phase}
             playbackPreparing={playbackPreparing}
             playheadAnchor={playback.playheadAnchor}
@@ -661,12 +1164,12 @@ function App() {
             countdownValue={playback.countdownValue}
             countdownBar={playback.countdownBar}
             showStartCue={playback.showStartCue}
-            canPlay={Boolean(playback.plan)}
+            canPlay={Boolean(playback.plan) && sightReadingSession?.phase !== "result"}
             handMode={handMode}
             runMode={runMode}
             pauseOnNotes={pauseOnNotes}
             playMode={play.settings.playMode}
-            showProgressWhilePlaying={play.settings.showHitsWhilePlaying}
+            showProgressWhilePlaying={sightReadingSession?.phase === "attempt" ? false : play.settings.showHitsWhilePlaying}
             waitingForNotes={waitingForGateNotes}
             audioSettings={audioSettings.settings}
             audioError={scoreAudio.error ?? metronome.error}
@@ -682,6 +1185,20 @@ function App() {
             onSeeNoteToggle={toggleSeeNote}
             onInspectedNoteChange={setInspectedNote}
             onSelectedRangeChange={handleSelectionChange}
+            onGuidedSectionActivate={(sectionId) => setGuidedPlan((plan) => {
+              if (!plan) return plan;
+              const section = plan.sections.find((item) => item.id === sectionId);
+              if (section) setSelectedRange({ startIndex: section.startIndex, endIndex: section.endIndex });
+              return setActiveGuidedSection(plan, sectionId);
+            })}
+            onGuidedSectionSplit={(sectionId, eventIndex) => {
+              setGuidedPlan((plan) => plan ? splitGuidedSection(plan, sectionId, eventIndex, parsedScore.events) : plan);
+              setAddingGuidedBoundary(false);
+            }}
+            onGuidedBoundaryMove={(sectionId, eventIndex) => setGuidedPlan((plan) => plan ? moveGuidedBoundary(plan, sectionId, eventIndex, parsedScore.events) : plan)}
+            onGuidedBoundaryDelete={(sectionId) => setGuidedPlan((plan) => plan ? mergeGuidedSections(plan, sectionId, parsedScore.events) : plan)}
+            onGuidedAudition={auditionGuidedSelection}
+            onGuidedAuditionStop={scoreAudio.stopAudition}
             onEventSeek={seekToEvent}
             onHandModeChange={handleHandModeChange}
             onRunModeChange={setRunMode}
@@ -690,6 +1207,7 @@ function App() {
             onTogglePlayback={togglePlaybackWithAudio}
             onStop={stopPlayback}
             onReset={resetAllProgress}
+            onClearSelection={clearSelection}
             onClearPerformance={playback.clearResults}
             onAudioSettingsChange={audioSettings.setSettings}
             onTempoPercentChange={handleTempoPercentChange}
@@ -700,7 +1218,7 @@ function App() {
             }}
           />
         </div>
-        {sidebarVisible ? <aside className="right-sidebar" aria-label="Side panel">
+        {sidebarVisible ? <aside className={`right-sidebar${guidedPlanning || guidedSessionActive ? " guided-planner-sidebar" : ""}`} aria-label="Side panel">
           <button type="button" className="sidebar-resize-handle" aria-label="Resize side panel" title="Drag to resize side panel" onPointerDown={beginSidebarResize} onPointerMove={resizeSidebar} onPointerUp={finishSidebarResize} onPointerCancel={finishSidebarResize}><span /></button>
           <header className="sidebar-header">
             <section className="file-panel">
@@ -717,17 +1235,65 @@ function App() {
           </header>
           <div className="sidebar-tab-content">
           {workspace.settings.sidebarTab === "practice" ? <section id="sidebar-panel-practice" className="practice-panel" role="tabpanel" aria-labelledby="sidebar-tab-practice">
+            <div className="practice-learning-entry"><button type="button" className="primary" disabled={playback.phase !== "idle"} onClick={() => setLearningOpen(true)}>Open Learning</button></div>
+            {loadedScore && !guidedPlanning && !guidedSessionActive && !sightReadingSession ? <section className="practice-planning-actions" aria-label="Guided planning shortcuts"><span>Guided piece practice</span><button type="button" onClick={() => createGuidedPlan()}>Plan whole score</button><button type="button" disabled={!selectedRange} onClick={() => createGuidedPlan(selectedRange)}>Plan selected passage</button></section> : null}
+            {guidedPlanning && guidedPlan ? <GuidedPlannerCard
+              plan={guidedPlan}
+              addingBoundary={addingGuidedBoundary}
+              onAddingBoundaryChange={setAddingGuidedBoundary}
+              onSectionSelect={(sectionId) => {
+                const section = guidedPlan.sections.find((item) => item.id === sectionId);
+                setGuidedPlan(setActiveGuidedSection(guidedPlan, sectionId));
+                if (section) setSelectedRange({ startIndex: section.startIndex, endIndex: section.endIndex });
+              }}
+              onBoundaryMove={(sectionId, eventIndex) => setGuidedPlan((plan) => plan ? moveGuidedBoundary(plan, sectionId, eventIndex, parsedScore.events) : plan)}
+              onBoundaryDelete={(sectionId) => setGuidedPlan((plan) => plan ? mergeGuidedSections(plan, sectionId, parsedScore.events) : plan)}
+              onDone={finishGuidedPlanningMode}
+            /> : null}
+            {guidedSessionActive && guidedPlan ? <GuidedSessionCard
+              plan={guidedPlan}
+              steps={guidedSessionSteps}
+              step={guidedStep}
+              stepComplete={guidedStepComplete}
+              stepScore={currentGuidedStepScore}
+              diagnosis={!guidedDetour && activeGuidedSection?.status === "complete" && guidedStep === "tempo" && guidedStepComplete ? guidedDiagnosis : undefined}
+              detour={guidedDetour}
+              detourComplete={guidedDetourComplete}
+              detourScore={currentGuidedDetourScore}
+              auditioning={scoreAudio.auditioning}
+              playbackActive={playback.phase !== "idle"}
+              awaitingLoopRestart={playback.phase === "waiting-restart"}
+              loopEnabled={runMode === "loop"}
+              tempoHand={guidedTempoHand}
+              shortcutHint={pianoShortcuts.settings.enabled && pianoShortcuts.settings.showHints && shortcutConflicts(pianoShortcuts.settings).length === 0 ? `hold ${midiNoteToName(pianoShortcuts.settings.modifier)} + ${midiNoteToName(pianoShortcuts.settings.bindings.primary)}` : undefined}
+              shortcutNotice={shortcutNotice}
+              onSectionSelect={selectGuidedSessionSection}
+              onStepSelect={returnToGuidedStep}
+              onListen={auditionGuidedSelection}
+              onListenDone={() => { scoreAudio.stopAudition(); setGuidedStepComplete(true); }}
+              onPractice={startGuidedPracticeStage}
+              onLoopChange={(enabled) => setRunMode(enabled ? "loop" : "once")}
+              onTempoIncrease={increaseGuidedTempoLevel}
+              onSkip={advanceGuidedStep}
+              onRepeat={repeatGuidedStep}
+              onNextLesson={nextGuidedLesson}
+              onEditPlan={continueGuidedPlanning}
+              onStartDetour={beginGuidedDetour}
+              onPracticeDetour={practiceGuidedDetour}
+              onReturnFromDetour={returnFromGuidedDetour}
+              onLeave={leaveGuidedSession}
+            /> : null}
+            {sightReadingSession ? <SightReadingCard options={sightReadingSession.options} phase={sightReadingSession.phase} assessment={sightReadingSession.assessment} playbackActive={playback.phase !== "idle"} shortcutHint={pianoShortcuts.settings.enabled && pianoShortcuts.settings.showHints && shortcutConflicts(pianoShortcuts.settings).length === 0 ? `hold ${midiNoteToName(pianoShortcuts.settings.modifier)} + ${midiNoteToName(pianoShortcuts.settings.bindings.primary)}` : undefined} shortcutNotice={shortcutNotice} onStart={startSightReadingAttempt} onNew={() => startSightReading(sightReadingSession.options)} onReview={startSightReadingReview} onStopReview={stopSightReadingReview} onLeave={() => { setSightReadingSession(undefined); setLearningOpen(true); }} /> : null}
+            {!loadedScore && !guidedPlanning && !guidedSessionActive && !sightReadingSession ? <p className="muted">Open a score, or use Learning for foundations and reference material.</p> : null}
+          </section> : <div id="sidebar-panel-debug" role="tabpanel" aria-labelledby="sidebar-tab-debug">
             <div className="feedback-controls">
               <label><input type="checkbox" checked={showCorrectNoteNames} onChange={(event) => setShowCorrectNoteNames(event.target.checked)} /> Correct names</label>
               <label><input type="checkbox" checked={showWrongNoteNames} onChange={(event) => setShowWrongNoteNames(event.target.checked)} /> Wrong names</label>
             </div>
             <SelectionSummary range={selectedRange} events={parsedScore.events} />
             {sidebarExpectedEvent ? <ExpectedEvent event={sidebarExpectedEvent} index={displayedEventIndex} total={parsedScore.events.length} isComplete={playback.phase === "idle" && learningState.isComplete} simulationDisabled={playback.phase !== "idle" || !expectedEvent || expectedEvent.midiNotes.length === 0 || learningState.isComplete} onSimulate={simulateCurrentEvent} /> : <p className="muted">Load a score to begin.</p>}
-            <div className="button-row compact-actions">
-              <button type="button" onClick={clearSelection} disabled={playback.phase !== "idle" || !selectedRange}>Clear range</button>
-            </div>
             <ComparisonSummary state={learningState} />
-          </section> : <div id="sidebar-panel-debug" role="tabpanel" aria-labelledby="sidebar-tab-debug"><DebugPanel
+            <DebugPanel
           loadedScore={loadedScore}
           parsedScore={parsedScore}
           currentEvent={sidebarCurrentEvent}
@@ -754,11 +1320,11 @@ function App() {
         </aside> : null}
       </section>
       {!sidebarVisible && !learningOpen ? <button type="button" className="sidebar-restore-button" aria-label="Restore side panel" title="Restore side panel" onClick={() => { setSidebarHiddenForPlayback(false); workspace.setSettings({ sidebarOpen: true }); }}><SidebarRestoreIcon /><span>Panel</span></button> : null}
-      {learningOpen ? <LearningPanel tab={learningTab} bottomOffset={bottomPanelHeight + 20} rightColor={piano.settings.playRightColor} onTabChange={setLearningTab} onItemActivate={handleLearningItemActivate} onClose={() => setLearningOpen(false)} /> : null}
+      {learningOpen ? <LearningWorkspace midiEvents={midi.messageEvents} tab={learningTab} bottomOffset={effectiveBottomPanelHeight + 20} rightColor={piano.settings.playRightColor} scoreTitle={loadedScore?.info.title} selectedRange={selectedRange} plan={guidedPlan} audioSettings={audioSettings.settings} midiReadiness={{ supported: midi.supported, secureContext: midi.secureContext, accessStatus: midi.accessStatus, deviceName: midi.inputs.find((input) => input.id === midi.selectedInputId)?.name, lastNote: midi.lastMessage?.kind === "note-on" ? midi.lastMessage.noteNumber : undefined, messageId: midi.messageCounter, heldNotes: midi.heldNotes, sustainOn: midi.heldState.sustainOn, lastSustainMessageId: midi.lastMessage?.kind === "control-change" && midi.lastMessage.controller === 64 ? midi.messageCounter : undefined, lastSustainOn: midi.lastMessage?.kind === "control-change" && midi.lastMessage.controller === 64 ? midi.lastMessage.sustainOn : undefined }} onConnectMidi={midi.requestAccess} onTabChange={setLearningTab} onItemActivate={handleLearningItemActivate} onOpenScore={() => scoreFileInputRef.current?.click()} onCreatePlan={createGuidedPlan} onContinuePlan={continueGuidedPlanning} onStartSightReading={startSightReading} onClose={() => setLearningOpen(false)} /> : null}
       <PianoPanel
-        expectations={pianoExpectations}
+        expectations={sightReadingSession?.phase === "attempt" ? [] : pianoExpectations}
         fingerings={pianoFingerings}
-        heldNotes={combinedHeldNotes}
+        heldNotes={sightReadingSession?.phase === "attempt" ? [] : combinedHeldNotes}
         ignoredCarriedNotes={playback.phase === "idle" ? carriedCompletedNotes : playback.carriedNotes}
         settings={piano.settings}
         playbackPlan={playback.plan}
@@ -766,11 +1332,11 @@ function App() {
         rollElapsedMs={playback.rollElapsedMs}
         playbackElapsedMs={playback.elapsedMs}
         displayedEventIndex={displayedEventIndex}
-        canPlay={Boolean(playback.plan)}
+        canPlay={Boolean(playback.plan) && sightReadingSession?.phase !== "result"}
         runMode={runMode}
         pauseOnNotes={pauseOnNotes}
         playMode={play.settings.playMode}
-        showProgressWhilePlaying={play.settings.showHitsWhilePlaying}
+        showProgressWhilePlaying={sightReadingSession?.phase === "attempt" ? false : play.settings.showHitsWhilePlaying}
         canClearPerformance={playback.results.length > 0 || playback.missedNotes.length > 0}
         audioSettings={audioSettings.settings}
         audioError={scoreAudio.error ?? metronome.error}
@@ -780,6 +1346,7 @@ function App() {
         countInBars={play.settings.countInBars}
         seeNoteEnabled={seeNoteEnabled}
         learningOpen={learningOpen}
+        planningMode={guidedPlanning}
         inspectedMidiNote={inspectedNote?.midiNote}
         onSeeNoteToggle={toggleSeeNote}
         onLearningOpenChange={setLearningOpen}
@@ -788,6 +1355,8 @@ function App() {
         onTogglePlayback={togglePlaybackWithAudio}
         onStop={stopPlayback}
         onReset={resetAllProgress}
+        canClearSelection={Boolean(selectedRange)}
+        onClearSelection={clearSelection}
         onSeek={seekToEvent}
         onRunModeChange={setRunMode}
         onPlayModeChange={handlePlayModeChange}
@@ -806,6 +1375,10 @@ function App() {
           pianoSettings={piano.settings}
           playSettings={play.settings}
           workspaceSettings={workspace.settings}
+          shortcutSettings={pianoShortcuts.settings}
+          shortcutCaptureTarget={shortcutCaptureTarget}
+          shortcutNotice={shortcutNotice}
+          learningSettings={learningSettings.settings}
           onAppThemeChange={appearance.setAppTheme}
           onScoreThemeChange={appearance.setScoreTheme}
           onScoreMarkerSettingsChange={appearance.setScoreMarkerSettings}
@@ -814,7 +1387,11 @@ function App() {
           onResetPianoColors={piano.resetColors}
           onPlaySettingsChange={play.setSettings}
           onWorkspaceSettingsChange={workspace.setSettings}
-          onClose={() => setMidiSettingsOpen(false)}
+          onShortcutSettingsChange={pianoShortcuts.setSettings}
+          onShortcutCapture={setShortcutCaptureTarget}
+          onResetShortcuts={pianoShortcuts.reset}
+          onLearningSettingsChange={learningSettings.setSettings}
+          onClose={() => { setShortcutCaptureTarget(undefined); setMidiSettingsOpen(false); }}
         />
       ) : null}
     </main>
@@ -844,6 +1421,10 @@ function SettingsDialog({
   pianoSettings,
   playSettings,
   workspaceSettings,
+  shortcutSettings,
+  shortcutCaptureTarget,
+  shortcutNotice,
+  learningSettings,
   onAppThemeChange,
   onScoreThemeChange,
   onScoreMarkerSettingsChange,
@@ -852,6 +1433,10 @@ function SettingsDialog({
   onResetPianoColors,
   onPlaySettingsChange,
   onWorkspaceSettingsChange,
+  onShortcutSettingsChange,
+  onShortcutCapture,
+  onResetShortcuts,
+  onLearningSettingsChange,
   onClose,
 }: {
   midi: ReturnType<typeof useMidiInput>;
@@ -861,6 +1446,10 @@ function SettingsDialog({
   pianoSettings: PianoSettings;
   playSettings: PlaySettings;
   workspaceSettings: WorkspaceLayoutSettings;
+  shortcutSettings: PianoShortcutSettings;
+  shortcutCaptureTarget?: PianoShortcutBindingKey;
+  shortcutNotice?: string;
+  learningSettings: LearningSettings;
   onAppThemeChange: (theme: AppTheme) => void;
   onScoreThemeChange: (theme: ScoreTheme) => void;
   onScoreMarkerSettingsChange: (update: Partial<ScoreMarkerSettings>) => void;
@@ -869,14 +1458,20 @@ function SettingsDialog({
   onResetPianoColors: () => void;
   onPlaySettingsChange: (update: Partial<PlaySettings>) => void;
   onWorkspaceSettingsChange: (update: Partial<WorkspaceLayoutSettings>) => void;
+  onShortcutSettingsChange: (update: PianoShortcutSettingsUpdate) => void;
+  onShortcutCapture: (target: PianoShortcutBindingKey | undefined) => void;
+  onResetShortcuts: () => void;
+  onLearningSettingsChange: (update: Partial<LearningSettings>) => void;
   onClose: () => void;
 }) {
-  type SettingsTab = "general" | "appearance" | "piano" | "play";
+  type SettingsTab = "general" | "appearance" | "piano" | "play" | "learning" | "controls";
   const tabs: { id: SettingsTab; label: string; description: string }[] = [
     { id: "general", label: "General", description: "Devices and essentials" },
     { id: "appearance", label: "Appearance", description: "Themes and score layout" },
     { id: "piano", label: "Piano", description: "Keyboard feedback" },
     { id: "play", label: "Play", description: "Timing and focus" },
+    { id: "learning", label: "Learning", description: "Guided progression" },
+    { id: "controls", label: "Controls", description: "Piano shortcuts" },
   ];
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -967,8 +1562,41 @@ function SettingsDialog({
             <label>Fallback tempo (BPM)<input type="number" min="30" max="300" step="1" value={playSettings.fallbackBpm} onChange={(event) => onPlaySettingsChange({ fallbackBpm: clampSetting(event.target.value, 30, 300) })} /></label>
             <label>Hit tolerance (ms)<input type="number" min="0" max="1000" step="25" value={playSettings.hitToleranceMs} onChange={(event) => onPlaySettingsChange({ hitToleranceMs: clampSetting(event.target.value, 0, 1000) })} /></label>
             <label className="play-checkbox-setting">Play fullscreen<input type="checkbox" checked={playSettings.playFullscreen} onChange={(event) => onPlaySettingsChange({ playFullscreen: event.target.checked })} /></label>
+            <label className="play-checkbox-setting">Wait for piano before count-in<input type="checkbox" checked={playSettings.waitForMidiBeforeCountIn} onChange={(event) => onPlaySettingsChange({ waitForMidiBeforeCountIn: event.target.checked })} /></label>
           </div>
-          <p className="settings-hint">Embedded score tempo is used when available. The fallback applies before the first tempo marking or when none is supplied. Tempo percentage and musical count-in are controlled from the metronome toolbar options. Play always hides the side panel; fullscreen uses the browser display and Escape leaves it without stopping playback.</p>
+          <p className="settings-hint">When readiness wait is enabled, starting any playing mode arms the session and the first piano strike begins its normal count-in. That strike is not assessed. Loop restarts use the same readiness gesture without adding a second pause. Embedded score tempo is used when available. Tempo percentage and musical count-in are controlled from the metronome toolbar options.</p>
+          </div>
+        </section> : null}
+        {activeTab === "learning" ? <section id="settings-panel-learning" className="settings-section" role="tabpanel" aria-labelledby="settings-tab-learning">
+          <h3>Learning</h3>
+          <div className="settings-card learning-settings-card">
+            <span className="settings-label">Tempo build-up</span>
+            <p className="settings-card-copy">Choose how much preparation new Guided Practice plans include before the two qualifying runs at written tempo.</p>
+            <div className="learning-preset-choices" role="radiogroup" aria-label="Tempo build-up">
+              {(Object.entries(TEMPO_BUILD_UP_PRESETS) as [TempoBuildUpPreset, (typeof TEMPO_BUILD_UP_PRESETS)[TempoBuildUpPreset]][]).map(([id, preset]) => <label key={id} className={learningSettings.tempoBuildUp === id ? "selected" : ""}>
+                <input type="radio" name="tempo-build-up" value={id} checked={learningSettings.tempoBuildUp === id} onChange={() => onLearningSettingsChange({ tempoBuildUp: id })} />
+                <span><strong>{preset.label}</strong><small>{preset.description}</small></span>
+              </label>)}
+            </div>
+            <p className="settings-hint">This preference applies when you create a new guided plan. Existing plans keep their current progression.</p>
+          </div>
+        </section> : null}
+        {activeTab === "controls" ? <section id="settings-panel-controls" className="settings-section" role="tabpanel" aria-labelledby="settings-tab-controls">
+          <h3>Piano shortcuts</h3>
+          <div className="settings-card piano-shortcut-settings">
+            <label className="play-checkbox-setting">Enable piano shortcuts<input type="checkbox" checked={shortcutSettings.enabled} onChange={(event) => onShortcutSettingsChange({ enabled: event.target.checked })} /></label>
+            <p className="settings-hint">Hold the modifier, then press an action key. Recognised shortcut notes are kept out of lesson assessment. Shortcuts operate only while Guided Practice is open.</p>
+            <div className="piano-shortcut-bindings">
+              {(["modifier", "primary", "previous", "repeat", "toggle-loop", "stop"] as PianoShortcutBindingKey[]).map((key) => {
+                const note = key === "modifier" ? shortcutSettings.modifier : shortcutSettings.bindings[key];
+                const label = key === "modifier" ? "Modifier" : key === "toggle-loop" ? "Toggle loop" : `${key[0].toUpperCase()}${key.slice(1)}`;
+                return <div key={key}><span><strong>{label}</strong><small>{midiNoteToName(note)} · MIDI {note}</small></span><button type="button" className={shortcutCaptureTarget === key ? "selected" : ""} onClick={() => onShortcutCapture(shortcutCaptureTarget === key ? undefined : key)}>{shortcutCaptureTarget === key ? "Press a piano key…" : "Set key"}</button></div>;
+              })}
+            </div>
+            {shortcutConflicts(shortcutSettings).length > 0 ? <p className="error">Each shortcut needs a different key. Change: {shortcutConflicts(shortcutSettings).join(", ")}.</p> : null}
+            {shortcutNotice ? <p className="shortcut-capture-notice" role="status">{shortcutNotice}</p> : null}
+            <label className="play-checkbox-setting">Show shortcut hints in lessons<input type="checkbox" checked={shortcutSettings.showHints} onChange={(event) => onShortcutSettingsChange({ showHints: event.target.checked })} /></label>
+            <button type="button" className="secondary-button" onClick={() => { onShortcutCapture(undefined); onResetShortcuts(); }}>Restore defaults</button>
           </div>
         </section> : null}
         {activeTab === "general" ? <section id="settings-panel-general" className="settings-section midi-settings-section" role="tabpanel" aria-labelledby="settings-tab-general">

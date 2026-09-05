@@ -149,6 +149,22 @@ describe("ScoreRenderer", () => {
     expect(osmdMocks.render).toHaveBeenCalledTimes(1);
   });
 
+  it("lets OSMD choose responsive system breaks", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={1} feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    expect(osmdMocks.constructorOptions[0]).toMatchObject({
+      newSystemFromXML: false,
+      newSystemFromNewPageInXML: false,
+    });
+  });
+
   it("moves the cursor without reloading the score when the event index advances", async () => {
     container = document.createElement("div");
     document.body.append(container);
@@ -373,6 +389,14 @@ describe("ScoreRenderer", () => {
     expect(c4).toBeCloseTo(228);
     expect(d4).toBeCloseTo(134);
     expect(e4).toBeCloseTo(128);
+  });
+  it("keeps an extreme wrong pitch inside the staff region it was assessed against", async () => {
+    const event = { ...currentEvent, staffNumbers: [1], noteDetails: [{ ...currentEvent.noteDetails[0], staffNumber: 1 }] };
+    const staffEntry = { relInMeasureTimestamp: { RealValue: 0 }, PositionAndShape: { AbsolutePosition: { x: 10, y: 12 } } };
+    osmdState.graphicSheet = { findGraphicalMeasureByMeasureNumber: vi.fn(() => ({ staffEntries: [staffEntry], ParentStaffLine: { PositionAndShape: { AbsolutePosition: { x: 0, y: 8 } }, StaffLines: [0, 1.2, 2.4, 3.6, 4.8].map((y) => ({ Start: { x: 0, y }, End: { x: 20, y } })) } })) };
+    container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+    await act(async () => { root!.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={event} eventCount={1} events={[event]} feedbackMarkers={[{ note: 36, kind: "wrong", staffNumber: 1 }]} showCorrectNoteNames showWrongNoteNames onSelectedRangeChange={vi.fn()} onRenderStateChange={vi.fn()} />); await Promise.resolve(); });
+    expect(parseFloat(container.querySelector<HTMLElement>(".note-feedback.wrong")!.style.top)).toBeLessThanOrEqual(152);
   });
   it("places lower-staff notes from that staff's active treble clef", async () => {
     const event: ScoreEvent = {
@@ -638,6 +662,94 @@ describe("ScoreRenderer", () => {
     expect(onSelectedRangeChange).toHaveBeenLastCalledWith({ startIndex: 0, endIndex: 1 });
   });
 
+  it("keeps guided boundaries still on hover and previews both lessons continuously while dragging", async () => {
+    const onGuidedBoundaryMove = vi.fn();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    const guidedSections = [
+      { id: "lesson-1", startIndex: 0, endIndex: 1, startMeasure: 1, endMeasure: 2, status: "not-started" as const, attempts: 0, resetVersion: 0, tempoPercent: 60, targetTempoPercent: 100, qualifyingTargetRuns: 0 },
+      { id: "lesson-2", startIndex: 2, endIndex: 3, startMeasure: 3, endMeasure: 4, status: "not-started" as const, attempts: 0, resetVersion: 0, tempoPercent: 60, targetTempoPercent: 100, qualifyingTargetRuns: 0 },
+    ];
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} eventCount={4} guidedPlanning guidedSections={guidedSections} activeGuidedSectionId="lesson-1" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onGuidedBoundaryMove={onGuidedBoundaryMove} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+    const handle = container.querySelector<HTMLElement>(".guided-boundary-handle");
+    const originalLeft = handle?.style.left;
+    await act(async () => handle?.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 190, clientY: 140 })));
+    expect(handle?.style.left).toBe(originalLeft);
+
+    await act(async () => {
+      handle?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 166, clientY: 140 }));
+      handle?.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 180, clientY: 140 }));
+    });
+    expect(container.querySelector<HTMLElement>(".guided-boundary-handle")?.style.left).toBe("180px");
+    expect(container.querySelectorAll(".guided-section-overlay")).toHaveLength(2);
+    expect(onGuidedBoundaryMove).not.toHaveBeenCalled();
+    const movedHandle = container.querySelector<HTMLElement>(".guided-boundary-handle");
+    await act(async () => movedHandle?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 180, clientY: 140 })));
+    expect(onGuidedBoundaryMove).toHaveBeenCalledOnce();
+  });
+
+  it("shows only the boundaries adjacent to the active guided lesson", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    const guidedSections = [
+      { id: "lesson-1", startIndex: 0, endIndex: 0, startMeasure: 1, endMeasure: 1, status: "not-started" as const, attempts: 0, resetVersion: 0, tempoPercent: 60, targetTempoPercent: 100, qualifyingTargetRuns: 0 },
+      { id: "lesson-2", startIndex: 1, endIndex: 1, startMeasure: 2, endMeasure: 2, status: "not-started" as const, attempts: 0, resetVersion: 0, tempoPercent: 60, targetTempoPercent: 100, qualifyingTargetRuns: 0 },
+      { id: "lesson-3", startIndex: 2, endIndex: 2, startMeasure: 3, endMeasure: 3, status: "not-started" as const, attempts: 0, resetVersion: 0, tempoPercent: 60, targetTempoPercent: 100, qualifyingTargetRuns: 0 },
+    ];
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={1} currentEvent={currentEvent} eventCount={3} selectedRange={{ startIndex: 1, endIndex: 1 }} guidedPlanning guidedSections={guidedSections} activeGuidedSectionId="lesson-2" feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onGuidedAudition={vi.fn()} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const handles = Array.from(container.querySelectorAll<HTMLElement>(".guided-boundary-handle"));
+    expect(handles).toHaveLength(2);
+    expect(handles.map((handle) => handle.getAttribute("aria-label"))).toEqual([
+      "Boundary before lesson 2",
+      "Boundary before lesson 3",
+    ]);
+    expect(container.querySelectorAll(".score-selection-dim.range.guided").length).toBeGreaterThan(0);
+    expect(container.querySelector(".guided-audition-control button")?.getAttribute("aria-label")).toBe("Listen to selected lesson");
+    expect(container.querySelector(".score-practice-toolbar")).toBeNull();
+    expect(container.querySelector(".score-current-event-marker")).toBeNull();
+    expect(container.querySelector('[aria-label="Toggle right hand"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Toggle left hand"]')).toBeNull();
+  });
+
+  it("shows a centred preview control for an ordinary idle selection", async () => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    const onPreview = vi.fn();
+    const onStopPreview = vi.fn();
+    const onClearSelection = vi.fn();
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={4} selectedRange={{ startIndex: 0, endIndex: 2 }} selectionAuditionEnabled feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onGuidedAudition={onPreview} onGuidedAuditionStop={onStopPreview} onClearSelection={onClearSelection} onRenderStateChange={vi.fn()} />);
+      await Promise.resolve();
+    });
+    const preview = container.querySelector<HTMLButtonElement>('.guided-audition-control button');
+    expect(preview?.getAttribute("aria-label")).toBe("Listen to selected range");
+    await act(async () => preview?.click());
+    expect(onPreview).toHaveBeenCalledOnce();
+    const clearSelectionButton = container.querySelector<HTMLButtonElement>('[aria-label="Clear selection"]');
+    expect(clearSelectionButton?.disabled).toBe(false);
+    await act(async () => clearSelectionButton?.click());
+    expect(onClearSelection).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      root?.render(<ScoreRenderer xmlText="<score-partwise />" currentEventIndex={0} currentEvent={currentEvent} eventCount={4} selectedRange={{ startIndex: 0, endIndex: 2 }} selectionAuditionEnabled guidedAuditioning feedbackMarkers={[]} showCorrectNoteNames={true} showWrongNoteNames={true} onSelectedRangeChange={vi.fn()} onGuidedAudition={onPreview} onGuidedAuditionStop={onStopPreview} onRenderStateChange={vi.fn()} />);
+    });
+    const stop = container.querySelector<HTMLButtonElement>('.guided-audition-control button');
+    expect(stop?.getAttribute("aria-label")).toBe("Stop selection preview");
+    await act(async () => stop?.click());
+    expect(onStopPreview).toHaveBeenCalledOnce();
+  });
+
   it("keeps treble and bass anchors in one selection segment for the same system", async () => {
     cursorRects = [
       { left: 100, top: 120, width: 4, height: 48 },
@@ -847,6 +959,7 @@ describe("ScoreRenderer", () => {
     });
 
     expect(osmdMocks.constructorOptions.at(-1)).toMatchObject({
+      autoResize: false,
       defaultColorMusic: "#e8edf2",
       defaultColorLabel: "#e8edf2",
       defaultColorTitle: "#e8edf2",

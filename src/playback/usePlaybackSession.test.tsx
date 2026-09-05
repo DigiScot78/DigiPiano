@@ -27,11 +27,11 @@ describe("usePlaybackSession", () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-  async function render(countdownSeconds = 0, runMode: "once" | "loop" = "once", pauseOnNotes = false, events = scoreEvents, untimedPractice = false, range?: ScoreSelectionRange) {
+  async function render(countdownSeconds = 0, runMode: "once" | "loop" = "once", pauseOnNotes = false, events = scoreEvents, untimedPractice = false, range?: ScoreSelectionRange, waitForMidiBeforeCountIn = false) {
     function Harness() {
       const [liveRunMode, setLiveRunMode] = useState(runMode);
       setHarnessRunMode = setLiveRunMode;
-      session = usePlaybackSession({ events, tempoChanges: [], handMode: "both", range, runMode: liveRunMode, pauseOnNotes, untimedPractice, settings: { playMode: untimedPractice ? "practice" : "play", countInBars: countdownSeconds === 0 ? 0 : 1, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
+      session = usePlaybackSession({ events, tempoChanges: [], handMode: "both", range, runMode: liveRunMode, pauseOnNotes, untimedPractice, settings: { playMode: untimedPractice ? "practice" : "play", countInBars: countdownSeconds === 0 ? 0 : 1, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false, waitForMidiBeforeCountIn } });
       return null;
     }
     await act(async () => root.render(<Harness />));
@@ -70,6 +70,35 @@ describe("usePlaybackSession", () => {
     expect(session.completedRun).toMatchObject({ id: 1, playMode: "play", handMode: "both" });
     await act(async () => session.handleMidiNoteOn(60, 3600));
     expect(session.phase).toBe("countdown");
+    expect(session.results).toHaveLength(0);
+  });
+
+  it("can wait for a piano strike before beginning the count-in without assessing it", async () => {
+    await render(1, "once", false, scoreEvents, false, undefined, true);
+    await act(async () => session.start());
+    expect(session.phase).toBe("waiting-ready");
+    await act(async () => session.handleMidiNoteOn(67, 1200, [67]));
+    expect(session.phase).toBe("countdown");
+    expect(session.results).toHaveLength(0);
+  });
+
+  it("can explicitly bypass the readiness wait while retaining the count-in", async () => {
+    await render(1, "once", false, scoreEvents, false, undefined, true);
+    await act(async () => session.startAtEventImmediately(0));
+    expect(session.phase).toBe("countdown");
+    expect(session.results).toHaveLength(0);
+  });
+
+  it("uses the loop-ready strike directly without introducing a second readiness wait", async () => {
+    await render(0, "loop", false, scoreEvents, false, undefined, true);
+    await act(async () => session.start());
+    expect(session.phase).toBe("waiting-ready");
+    await act(async () => session.handleMidiNoteOn(67, 1100, [67]));
+    expect(session.phase).toBe("playing");
+    await act(async () => nextFrame?.(1601));
+    expect(session.phase).toBe("waiting-restart");
+    await act(async () => session.handleMidiNoteOn(69, 1700, [69]));
+    expect(session.phase).toBe("playing");
     expect(session.results).toHaveLength(0);
   });
 
@@ -318,7 +347,7 @@ describe("usePlaybackSession", () => {
     function Harness() {
       const [pauseOnNotes, setPause] = useState(false);
       setPauseOnNotes = setPause;
-      session = usePlaybackSession({ events: repeated, tempoChanges: [], handMode: "both", runMode: "once", pauseOnNotes, settings: { playMode: "play", countInBars: 0, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false } });
+      session = usePlaybackSession({ events: repeated, tempoChanges: [], handMode: "both", runMode: "once", pauseOnNotes, settings: { playMode: "play", countInBars: 0, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false, waitForMidiBeforeCountIn: false } });
       return null;
     }
     await act(async () => root.render(<Harness />));

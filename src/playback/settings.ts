@@ -7,10 +7,11 @@ export interface PlaySettings {
   hitToleranceMs: number;
   showHitsWhilePlaying: boolean;
   playFullscreen: boolean;
+  waitForMidiBeforeCountIn: boolean;
 }
 
 export const PLAY_SETTINGS_KEY = "piano.play-settings";
-export const DEFAULT_PLAY_SETTINGS: PlaySettings = { playMode: "play", countInBars: 1, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false };
+export const DEFAULT_PLAY_SETTINGS: PlaySettings = { playMode: "play", countInBars: 1, fallbackBpm: 120, hitToleranceMs: 250, showHitsWhilePlaying: false, playFullscreen: false, waitForMidiBeforeCountIn: false };
 
 export function readPlaySettings(storage: Pick<Storage, "getItem"> | undefined): PlaySettings {
   let value: unknown;
@@ -29,6 +30,7 @@ export function readPlaySettings(storage: Pick<Storage, "getItem"> | undefined):
     playFullscreen: typeof candidate.playFullscreen === "boolean"
       ? candidate.playFullscreen
       : typeof candidate.autoHideSidebarOnPlay === "boolean" ? candidate.autoHideSidebarOnPlay : false,
+    waitForMidiBeforeCountIn: typeof candidate.waitForMidiBeforeCountIn === "boolean" ? candidate.waitForMidiBeforeCountIn : false,
   };
 }
 

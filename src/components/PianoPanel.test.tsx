@@ -105,6 +105,23 @@ describe("PianoPanel", () => {
     expect(onChange).toHaveBeenCalledWith({ pianoVisible: true });
   });
 
+  it("clears the active selection from the permanent transport", async () => {
+    const onClearSelection = vi.fn();
+    await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={DEFAULT_PIANO_SETTINGS} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} canClearSelection onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onPauseOnNotesChange={vi.fn()} onClearPerformance={vi.fn()} onClearSelection={onClearSelection} />));
+    const button = container.querySelector<HTMLButtonElement>('[aria-label="Clear selection from piano"]');
+    expect(button?.disabled).toBe(false);
+    await act(async () => button?.click());
+    expect(onClearSelection).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the permanent toolbar but hides piano and Synthesia while planning", async () => {
+    await act(async () => root.render(<PianoPanel expectedNotes={[60]} heldNotes={[]} ignoredCarriedNotes={[]} settings={{ ...DEFAULT_PIANO_SETTINGS, pianoVisible: true, synthesiaEnabled: true }} planningMode playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} audioSettings={{ muted: false, volume: 65, metronomeEnabled: false, metronomeVolume: 55 }} onSettingsChange={vi.fn()} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onClearPerformance={vi.fn()} onAudioSettingsChange={vi.fn()} />));
+    expect(container.querySelectorAll(".piano-key")).toHaveLength(0);
+    expect(container.querySelector(".synthesia-panel")).toBeNull();
+    expect(container.querySelector('[aria-label="Practice controls"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Sound controls"]')).not.toBeNull();
+  });
+
   it("temporarily reveals and extends the piano for See Note without changing settings", async () => {
     const onChange = vi.fn();
     await act(async () => root.render(<PianoPanel expectedNotes={[]} heldNotes={[]} ignoredCarriedNotes={[]} settings={{ ...DEFAULT_PIANO_SETTINGS, pianoVisible: false, rangePreset: "49" }} playbackPhase="idle" rollElapsedMs={0} playbackElapsedMs={0} displayedEventIndex={0} canPlay={true} runMode="once" pauseOnNotes={false} canClearPerformance={false} seeNoteEnabled inspectedMidiNote={100} onSeeNoteToggle={vi.fn()} onSettingsChange={onChange} onTogglePlayback={vi.fn()} onReset={vi.fn()} onSeek={vi.fn()} onRunModeChange={vi.fn()} onClearPerformance={vi.fn()} />));
@@ -234,6 +251,7 @@ describe("PianoPanel", () => {
       "Loop from piano",
       "Clear performance from piano",
       "Reset score progress from piano",
+      "Clear selection from piano",
     ]);
     expect(container.querySelector(".toolbar-left")).not.toBeNull();
     expect(container.querySelector(".toolbar-right .audio-controls")).not.toBeNull();

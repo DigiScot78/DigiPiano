@@ -5,7 +5,7 @@ import { MiniPianoDiagram } from "./MiniPianoDiagram";
 
 export type LearningTab = "chords" | "scales";
 
-export function LearningPanel({ tab, bottomOffset, rightColor, onTabChange, onItemActivate, onClose }: { tab: LearningTab; bottomOffset: number; rightColor: string; onTabChange: (tab: LearningTab) => void; onItemActivate: (item: LearningItem) => void; onClose: () => void }) {
+export function LearningPanel({ tab, bottomOffset, rightColor, embedded = false, onTabChange, onItemActivate, onClose }: { tab: LearningTab; bottomOffset: number; rightColor: string; embedded?: boolean; onTabChange: (tab: LearningTab) => void; onItemActivate: (item: LearningItem) => void; onClose: () => void }) {
   useEffect(() => {
     const closeFromEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", closeFromEscape);
@@ -19,8 +19,8 @@ export function LearningPanel({ tab, bottomOffset, rightColor, onTabChange, onIt
     document.getElementById(`learning-tab-${next}`)?.focus();
   };
 
-  const style = { bottom: bottomOffset, "--learning-right": rightColor } as CSSProperties;
-  return <section className="learning-panel" aria-label="Learning reference" style={style}>
+  const style = { ...(embedded ? {} : { bottom: bottomOffset }), "--learning-right": rightColor } as CSSProperties;
+  return <section className={embedded ? "learning-reference" : "learning-panel"} aria-label="Learning reference" style={style}>
     <header className="learning-panel-header">
       <div className="learning-tabs" role="tablist" aria-label="Learning topics">
         {(["chords", "scales"] as const).map((name) => <button key={name} type="button" id={`learning-tab-${name}`} role="tab" aria-selected={tab === name} aria-controls={`learning-panel-${name}`} tabIndex={tab === name ? 0 : -1} onClick={() => onTabChange(name)} onKeyDown={selectTabFromKey}>{name === "chords" ? "Chords" : "Scales"}</button>)}
