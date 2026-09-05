@@ -4,6 +4,8 @@
 The current application is a browser-only TypeScript/React proof of concept. It intentionally avoids a backend, database, accounts, analytics, telemetry, microphone input, MIDI monitoring, and mobile support. Score playback includes a lightweight Web Audio synthesizer behind a replaceable engine boundary.
 
 ## Runtime Path
+The initial browser route renders a lightweight branded DigiPiano home surface. Its single Start learning action reveals the existing application shell with Learning Home already open; no score, MIDI, practice, or settings state is duplicated into a second application. Theme-specific raster splash assets and the shared header/favicon mark live under `public/brand/` and are copied unchanged into both Vite and portable production builds.
+
 1. The user selects a local `.mxl`, `.musicxml`, or `.xml` score file.
 2. `src/music/musicXmlLoader.ts` reads the file in the browser. `.mxl` files are decompressed locally with `fflate`; no score data is uploaded. Header metadata prefers MusicXML work, movement, and typed credits, can infer centred first-page title/subtitle credits used by common exporters, and falls back to the clean filename.
 3. `src/components/ScoreRenderer.tsx` renders the MusicXML string with OpenSheetMusicDisplay, lets OSMD choose system breaks for the current responsive width, maps parsed `ScoreEvent` objects back to OSMD graphical measure/timestamp positions where available, and draws app-owned overlays for the visible score position and interaction. Imported MusicXML print breaks remain available as diagnostics but are not imposed on responsive rendering.

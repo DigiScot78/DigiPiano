@@ -131,6 +131,16 @@ select {
 }
 
 .app-brand { display: flex; align-items: center; gap: .7rem; min-width: 0; }
+.app-brand img { width: 2.2rem; height: 2.2rem; border-radius: .55rem; object-fit: cover; box-shadow: 0 2px 8px rgb(13 40 67 / 22%); }
+
+.site-home { min-height: 100dvh; display: grid; place-items: center; overflow: hidden; padding: clamp(1.25rem, 4vw, 3rem); background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--app-surface) 92%, #dceeff) 0, var(--app-bg) 72%); }
+.site-home-card { width: min(68rem, 100%); display: grid; justify-items: center; gap: clamp(.8rem, 2vh, 1.35rem); border: 1px solid var(--app-border); border-radius: 24px; padding: clamp(1rem, 3vw, 2rem); background: color-mix(in srgb, var(--app-surface-raised) 94%, transparent); box-shadow: 0 24px 80px var(--app-shadow); text-align: center; }
+.site-home-splash { display: block; width: min(52rem, 100%); max-height: min(64dvh, 42rem); object-fit: contain; border-radius: 18px; }
+.site-home-splash.dark { display: none; }
+:root[data-app-theme="dark"] .site-home-splash.light { display: none; }
+:root[data-app-theme="dark"] .site-home-splash.dark { display: block; }
+.site-home-card p { max-width: 42rem; margin: 0; color: var(--app-muted); font-size: clamp(1rem, 1.5vw, 1.18rem); line-height: 1.55; }
+.site-home-start { min-width: 12rem; border-radius: 999px; padding: .85rem 1.5rem; font-size: 1.05rem; font-weight: 800; box-shadow: 0 8px 24px color-mix(in srgb, var(--app-accent) 30%, transparent); }
 .performance-score { position: relative; flex: 0 0 auto; }
 .performance-score-badge { min-width: 3.4rem; padding: .35rem .6rem; border-radius: 999px; font-size: .9rem; font-weight: 800; font-variant-numeric: tabular-nums; box-shadow: 0 2px 8px color-mix(in srgb, var(--app-accent) 28%, transparent); }
 .performance-score-panel { position: absolute; z-index: 140; top: calc(100% + .7rem); left: 0; width: min(25rem, calc(100vw - 2rem)); border: 1px solid var(--app-border); border-radius: 12px; padding: .85rem; background: var(--app-surface-raised); color: var(--app-text); box-shadow: 0 14px 36px var(--app-shadow); }
