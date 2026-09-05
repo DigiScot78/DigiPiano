@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 $port = 4173
 $hostUrl = "http://127.0.0.1:$port/"
 $healthUrl = "${hostUrl}_piano-portable/health"
-$healthResponse = "piano-learning-portable"
+$healthResponse = "digipiano-portable"
 
 function Open-PianoBrowser {
   param([Parameter(Mandatory = $true)][string]$Url)
@@ -105,11 +105,11 @@ try {
     # The port is occupied by something other than this portable app.
   }
 
-  Write-Error "Port $port is already in use. Close the other program or Piano Learning window, then try again."
+  Write-Error "Port $port is already in use. Close the other program or DigiPiano window, then try again."
   exit 1
 }
 
-Write-Host "Piano Learning is running at $hostUrl"
+Write-Host "DigiPiano is running at $hostUrl"
 Write-Host "Keep this window open while testing. Close it or press Ctrl+C to stop."
 Write-Host ""
 if (-not $NoBrowser) {

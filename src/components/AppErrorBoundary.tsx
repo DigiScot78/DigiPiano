@@ -12,7 +12,7 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     // Keep diagnostics local until an error-reporting vendor and retention policy are approved.
-    console.error("Piano Learning encountered an unexpected error.", error, info);
+    console.error("DigiPiano encountered an unexpected error.", error, info);
   }
 
   render(): ReactNode {
@@ -23,7 +23,7 @@ export class AppErrorBoundary extends Component<Props, State> {
           <p className="eyebrow">Something went wrong</p>
           <h1>The app needs a fresh start</h1>
           <p>Your score stays on this computer. Reload the page to reopen the app, then select the score again if needed.</p>
-          <button type="button" className="primary" onClick={() => window.location.reload()}>Reload Piano Learning</button>
+          <button type="button" className="primary" onClick={() => window.location.reload()}>Reload DigiPiano</button>
         </section>
       </main>
     );
