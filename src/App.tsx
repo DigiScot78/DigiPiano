@@ -8,6 +8,7 @@ import { GuidedSessionCard } from "./components/GuidedSessionCard";
 import { SightReadingCard } from "./components/SightReadingCard";
 import { PerformanceScoreBadge } from "./components/PerformanceScoreBadge";
 import { ScoreTimeDisplay } from "./components/ScoreTimeDisplay";
+import { DigiPianoHome } from "./components/DigiPianoHome";
 import {
   advanceWhenSatisfied,
   advanceArpeggioProgress,
@@ -122,6 +123,7 @@ function App() {
   const [renderError, setRenderError] = useState<string | undefined>();
   const [seeNoteEnabled, setSeeNoteEnabled] = useState(false);
   const [learningOpen, setLearningOpen] = useState(false);
+  const [appEntered, setAppEntered] = useState(false);
   const [learningTab, setLearningTab] = useState<LearningTab>("chords");
   const [guidedPlan, setGuidedPlan] = useState<GuidedPiecePlan | undefined>();
   const [guidedPlanning, setGuidedPlanning] = useState(false);
@@ -1109,10 +1111,12 @@ function App() {
     document.getElementById(`sidebar-tab-${nextTab}`)?.focus();
   };
 
+  if (!appEntered) return <DigiPianoHome onStartLearning={() => { setAppEntered(true); setLearningOpen(true); }} />;
+
   return (
     <main className="app-shell" style={{ "--sidebar-width": `${sidebarWidth}px`, "--score-margin": `${scoreMargin}px`, "--sidebar-top": `${headerBottom + 8}px`, "--bottom-panel-clearance": `${effectiveBottomPanelHeight + 20}px` } as React.CSSProperties}>
       <header ref={appHeaderRef} className="app-header">
-        <div className="app-brand"><h1>DigiPiano</h1></div>
+        <div className="app-brand"><img src="/brand/digipiano-icon.png" alt="" /><h1>DigiPiano</h1></div>
         {loadedScore ? <div className="score-heading">
           <div className="score-identity" aria-live="polite">
             <strong title={loadedScore.info.title}>{loadedScore.info.title}</strong>
